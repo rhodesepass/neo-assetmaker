@@ -9,6 +9,9 @@ import subprocess
 import shutil
 import sys
 
+FFMPEG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "ffmpeg.exe"))
+if not os.path.exists(FFMPEG_PATH):
+    raise Exception("ffmpeg.exe没找到 你打包打错了！")
 
 class VideoEditorApp:
     def __init__(self, root):
@@ -426,7 +429,7 @@ class VideoEditorApp:
             return
 
         # 检查 ffmpeg 
-        if shutil.which("ffmpeg") is None:
+        if shutil.which(FFMPEG_PATH) is None:
             messagebox.showerror("错误", "未找到 FFmpeg！\n请安装 FFmpeg 并确保它在系统 PATH 中。（起码你得手动指定一个。。。）")
             return
 
@@ -500,7 +503,7 @@ class VideoEditorApp:
 
             # 构建 FFmpeg 命令
             cmd = [
-                "ffmpeg",
+                FFMPEG_PATH,
                 "-y",
                 "-ss", str(start_time),
                 "-i", self.video_path,

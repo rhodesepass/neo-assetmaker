@@ -1,4 +1,4 @@
-opencv-python==4.8.1.78
-numpy==1.24.3
-Pillow==10.0.0
-tqdm==4.65.0
+opencv-python
+numpy
+Pillow
+tqdm
