@@ -1,12 +1,88 @@
+#以防你不知道detect_gpus是上世纪末的遗产
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import cv2
+import numpy as np
 from PIL import Image, ImageTk
 import os
+from tqdm import tqdm
 import subprocess
 import shutil
 import sys
 
+print(cv2.ocl.haveOpenCL())  # 应该输出 True
+cv2.ocl.setUseOpenCL(True)
+
+import subprocess
+import json
+import os
+import re
+import threading
+import time
+
+def detect_gpus():
+    """
+    返回 dict:
+    {
+      "nvidia": ["h264_nvenc", "hevc_nvenc"],   # 存在即支持
+      "intel":    ["h264_qsv",  "hevc_qsv"],
+      "amd":      ["h264_amf",  "hevc_amf"],
+      "mtt":      ["h264_mf",   "hevc_mf"],     # 摩尔线程走 MediaFoundation
+      "cpu":      ["libx264"]                   # 兜底
+    }
+    以及一条推荐的 ffmpeg 模板命令列表（cmd列表）
+    """
+    # 1. 先找 ffmpeg
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return {"cpu": ["libx264"]}, ["-c:v", "libx264"]
+
+    # 2. 让 ffmpeg 吐出所有编码器
+    try:
+        encoders = subprocess.check_output([ffmpeg, "-hide_banner", "-encoders"],
+                                           text=True, encoding="utf-8")
+    except Exception:
+        encoders = ""
+
+    support = {}
+    if "h264_nvenc" in encoders:
+        support.setdefault("nvidia", []).extend(["h264_nvenc", "hevc_nvenc"])
+    if "h264_qsv" in encoders:
+        support.setdefault("intel", []).extend(["h264_qsv", "hevc_qsv"])
+    if "h264_amf" in encoders:
+        support.setdefault("amd", []).extend(["h264_amf", "hevc_amf"])
+    if "h264_mf" in encoders:
+        support.setdefault("mtt", []).extend(["h264_mf", "hevc_mf"])
+
+    # 3. 通过 WMI 把物理 GPU 名字扫出来，再交叉验证
+    try:
+        wmi = subprocess.check_output(
+            ["wmic", "path", "win32_VideoController", "get", "name"], text=True
+        )
+    except Exception:
+        wmi = ""
+
+    # 简易关键字匹配
+    has_n = bool(re.search(r"NVIDIA|GeForce|RTX|Quadro", wmi, re.I))
+    has_a = bool(re.search(r"Radeon|RX|AMD", wmi, re.I))
+    has_i = bool(re.search(r"Intel.*Arc|UHD|Iris|HD Graphics", wmi, re.I))
+    has_m = bool(re.search(r"MTT|S80|S70", wmi, re.I))
+
+    # 4. 按优先级挑一个能用的
+    if has_n and "nvidia" in support:
+        return support, ["-hwaccel", "cuda", "-c:v", "h264_nvenc"]
+    if has_i and "intel" in support:
+        return support, ["-hwaccel", "qsv", "-c:v", "h264_qsv"]
+    if has_a and "amd" in support:
+        return support, ["-hwaccel", "d3d11va", "-c:v", "h264_amf"]
+    if has_m and "mtt" in support:
+        return support, ["-c:v", "h264_mf"]      # 摩尔线程暂时无专用 hwaccel 标志
+
+    # 5. 兜底
+    support["cpu"] = ["libx264"]
+    support.pop("nvidia")          # ← 加这一行
+    return support, ["-c:v", "libx264"]
 
 class VideoEditorApp:
     def __init__(self, root):
@@ -39,66 +115,81 @@ class VideoEditorApp:
         self.crop_preview_window = None
         self.crop_preview_label = None
 
+        # 导出线程相关
+        self.export_thread = None
+        self.stop_export_flag = False
+        self.export_process = None
+
         self.setup_ui()
 
     def setup_ui(self):
-        control_frame = tk.Frame(self.root, width=250, bg="#f0f0f0", padx=10, pady=10)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y)
+        self.control_frame = tk.Frame(self.root, width=250, bg="#f0f0f0", padx=10, pady=10)
+        self.control_frame.pack(side=tk.LEFT, fill=tk.Y)
 
         preview_frame = tk.Frame(self.root)
         preview_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         # 控制按钮
-        tk.Label(control_frame, text="视频操作", font=("Arial", 12, "bold")).pack(pady=5)
-        tk.Button(control_frame, text="打开视频", command=self.open_video).pack(fill=tk.X, pady=5)
-        tk.Button(control_frame, text="旋转 90°", command=self.rotate_90).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="重置旋转", command=self.reset_rotation).pack(fill=tk.X, pady=2)
+        tk.Label(self.control_frame, text="视频操作", font=("Arial", 12, "bold")).pack(pady=5)
+        tk.Button(self.control_frame, text="打开视频", command=self.open_video).pack(fill=tk.X, pady=5)
+        tk.Button(self.control_frame, text="旋转 90°", command=self.rotate_90).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="重置旋转", command=self.reset_rotation).pack(fill=tk.X, pady=2)
 
         # 时间裁剪
-        tk.Label(control_frame, text="时间裁剪（秒）", font=("Arial", 10, "bold")).pack(pady=(10, 5))
+        tk.Label(self.control_frame, text="时间裁剪（秒）", font=("Arial", 10, "bold")).pack(pady=(10, 5))
         
         # 开始时间
-        tk.Label(control_frame, text="开始时间:").pack(anchor=tk.W)
+        tk.Label(self.control_frame, text="开始时间:").pack(anchor=tk.W)
         self.trim_start_scale = tk.Scale(
-            control_frame, from_=0, to=10, resolution=0.1,
+            self.control_frame, from_=0, to=10, resolution=0.1,
             orient=tk.HORIZONTAL, variable=self.trim_start_var,
             command=self.on_trim_change
         )
         self.trim_start_scale.pack(fill=tk.X)
-        self.trim_start_entry = tk.Entry(control_frame, width=10)
+        self.trim_start_entry = tk.Entry(self.control_frame, width=10)
         self.trim_start_entry.pack(anchor=tk.W, pady=(0, 5))
         self.trim_start_entry.bind("<Return>", self.update_trim_from_entry)
         self.trim_start_var.trace_add("write", lambda *args: self._update_entry_from_var(self.trim_start_entry, self.trim_start_var))
 
         # 结束时间
-        tk.Label(control_frame, text="结束时间:").pack(anchor=tk.W)
+        tk.Label(self.control_frame, text="结束时间:").pack(anchor=tk.W)
         self.trim_end_scale = tk.Scale(
-            control_frame, from_=0, to=10, resolution=0.1,
+            self.control_frame, from_=0, to=10, resolution=0.1,
             orient=tk.HORIZONTAL, variable=self.trim_end_var,
             command=self.on_trim_change
         )
         self.trim_end_scale.pack(fill=tk.X)
-        self.trim_end_entry = tk.Entry(control_frame, width=10)
+        self.trim_end_entry = tk.Entry(self.control_frame, width=10)
         self.trim_end_entry.pack(anchor=tk.W, pady=(0, 10))
         self.trim_end_entry.bind("<Return>", self.update_trim_from_entry)
         self.trim_end_var.trace_add("write", lambda *args: self._update_entry_from_var(self.trim_end_entry, self.trim_end_var))
 
         # 裁剪设置
-        tk.Label(control_frame, text="裁剪框设置", font=("Arial", 10, "bold")).pack(pady=(10, 5))
+        tk.Label(self.control_frame, text="裁剪框设置", font=("Arial", 10, "bold")).pack(pady=(10, 5))
         self.lock_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(control_frame, text="锁定 9:16 比例", variable=self.lock_var,
+        tk.Checkbutton(self.control_frame, text="锁定 9:16 比例", variable=self.lock_var,
                        command=self.toggle_lock_9_16).pack(anchor=tk.W, pady=2)
-        tk.Label(control_frame, text="• 拖动框内移动\n• 拖动右下角调整大小", fg="gray", justify=tk.LEFT).pack(anchor=tk.W)
+        tk.Label(self.control_frame, text="• 拖动框内移动\n• 拖动右下角调整大小", fg="gray", justify=tk.LEFT).pack(anchor=tk.W)
 
-        tk.Button(control_frame, text="重置裁剪框", command=self.reset_crop).pack(fill=tk.X, pady=5)
+        tk.Button(self.control_frame, text="重置裁剪框", command=self.reset_crop).pack(fill=tk.X, pady=5)
 
         # 输出帧率设置
-        tk.Label(control_frame, text="输出帧率 (FPS)", font=("Arial", 10, "bold")).pack(pady=(10, 5))
-        tk.Label(control_frame, text="留空则保持原帧率", fg="gray").pack(anchor=tk.W, pady=(0, 2))
-        self.fps_entry = tk.Entry(control_frame, textvariable=self.fps_var, width=10)
+        tk.Label(self.control_frame, text="输出帧率 (FPS)", font=("Arial", 10, "bold")).pack(pady=(10, 5))
+        tk.Label(self.control_frame, text="留空则保持原帧率", fg="gray").pack(anchor=tk.W, pady=(0, 2))
+        self.fps_entry = tk.Entry(self.control_frame, textvariable=self.fps_var, width=10)
         self.fps_entry.pack(anchor=tk.W, pady=(0, 10))
 
-        tk.Button(control_frame, text="导出视频", command=self.export_video, bg="lightgreen").pack(fill=tk.X, pady=10)
+        tk.Button(self.control_frame, text="导出视频", command=self.export_video, bg="lightgreen").pack(fill=tk.X, pady=10)
+
+        # 停止导出按钮
+        self.stop_button = tk.Button(
+            self.control_frame,
+            text="停止导出",
+            command=self.stop_export,
+            bg="lightcoral",
+            state=tk.DISABLED
+        )
+        self.stop_button.pack(fill=tk.X, pady=5)
 
         # 预览画布
         self.canvas = tk.Canvas(preview_frame, bg="black")
@@ -281,10 +372,21 @@ class VideoEditorApp:
                 preview_pil = Image.fromarray(preview_rgb)
 
                 if self.crop_preview_window is None:
-                    self.crop_preview_window = tk.Toplevel(self.root)
-                    self.crop_preview_window.title("裁剪预览 (9:16)")
+                    self.crop_preview_window = tk.Toplevel(self.root, bd=2)
+                    self.crop_preview_window.attributes('-topmost', True)
+                    self.crop_preview_window.overrideredirect(False)  # 保留窗口边框
+                    self.crop_preview_window.iconphoto(False, tk.PhotoImage(file="settings.png"))
+                    self.crop_preview_window.title("裁剪预览 (9:16)（妈妈我要玩明日方舟终末地！！！）")
+                    self.crop_preview_window.geometry("240x380")
                     self.crop_preview_label = tk.Label(self.crop_preview_window)
                     self.crop_preview_label.pack()
+
+                    screen_width = self.root.winfo_screenwidth()
+                    window_width = 240
+                    window_height = 380
+                    x_position = screen_width - window_width - 100  # 离右侧50像素
+                    y_position = 100  # 离顶部50像素
+                    self.crop_preview_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
 
                     def on_close():
                         self.crop_preview_window.destroy()
@@ -297,6 +399,7 @@ class VideoEditorApp:
                 self.crop_preview_label.image = preview_tk
         except Exception as e:
             print("裁剪预览更新失败:", e)
+
 
     def on_time_change(self, value):
         self.load_frame(float(value))
@@ -411,8 +514,120 @@ class VideoEditorApp:
             self.enforce_9_16_ratio_in_rotated(w_rot, h_rot)
             self.update_preview()
 
+    # 导出视频相关方法
+    def update_export_status(self, elapsed_time):
+        """更新导出状态（在主线程中调用）"""
+        self.status_label.config(text=f"正在生成视频，已用 {elapsed_time}")
+        self.root.update_idletasks()
+    
+    def run_ffmpeg_thread(self, cmd, save_path, startupinfo):
+        """在后台线程中运行 FFmpeg"""
+        try:
+            # 创建进程
+            self.export_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 合并stdout和stderr
+                universal_newlines=True,
+                encoding='utf-8',
+                errors='replace',
+                startupinfo=startupinfo,
+                bufsize=1  # 行缓冲
+            )
+            
+            # 实时读取输出
+            while True:
+                if self.stop_export_flag:
+                    if self.export_process:
+                        self.export_process.terminate()
+                    break
+                
+                line = self.export_process.stdout.readline()
+                if not line:
+                    # 检查进程是否结束
+                    if self.export_process.poll() is not None:
+                        break
+                    # 等待一下再检查
+                    time.sleep(0.05)
+                    continue
+                
+                # 在控制台输出便于调试
+                print(line.strip())
+                
+                # 查找 elapsed 信息（FFmpeg 格式）
+                elapsed_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
+                if elapsed_match:
+                    elapsed_time = elapsed_match.group(1)
+                    # 使用 after 在主线程中更新 UI
+                    self.root.after(0, lambda t=elapsed_time: self.update_export_status(t))
+                
+                # 查找 speed 信息
+                speed_match = re.search(r"speed=\s*([\d.]+)x", line)
+                if speed_match:
+                    speed = speed_match.group(1)
+                    self.root.after(0, lambda s=speed: self.update_speed_status(s))
+            
+            # 等待进程结束
+            self.export_process.wait()
+            
+            # 读取剩余输出
+            remaining_output = self.export_process.stdout.read()
+            if remaining_output:
+                print(remaining_output.strip())
+            
+            # 在主线程中显示结果
+            if self.export_process.returncode == 0:
+                self.root.after(0, lambda: self.on_export_success(save_path))
+            else:
+                self.root.after(0, self.on_export_failed)
+                
+        except Exception as e:
+            self.root.after(0, lambda err=str(e): self.on_export_error(err))
+        finally:
+            self.export_thread = None
+            self.stop_export_flag = False
+            self.export_process = None
+            self.root.after(0, self.on_export_finished)
+    
+    def update_speed_status(self, speed):
+        """更新速度信息"""
+        current_text = self.status_label.cget("text")
+        if "速度" not in current_text:
+            self.status_label.config(text=f"{current_text} (速度: {speed}x)")
+            self.root.update_idletasks()
+    
+    def on_export_success(self, save_path):
+        """导出成功回调"""
+        messagebox.showinfo("成功", f"视频已导出至:\n{save_path}")
+        self.status_label.config(text="就绪")
+    
+    def on_export_failed(self):
+        """导出失败回调"""
+        messagebox.showerror("导出失败", "FFmpeg 执行失败，请查看控制台输出")
+        self.status_label.config(text="导出失败")
+    
+    def on_export_error(self, error_msg):
+        """导出错误回调"""
+        messagebox.showerror("错误", f"导出过程中发生异常:\n{error_msg}")
+        self.status_label.config(text="就绪")
+    
+    def on_export_finished(self):
+        """导出完成回调"""
+        self.stop_button.config(state=tk.DISABLED)
+    
+    def stop_export(self):
+        """停止导出"""
+        if self.export_thread and self.export_thread.is_alive():
+            self.stop_export_flag = True
+            if self.export_process:
+                self.export_process.terminate()
+            self.status_label.config(text="正在停止导出...")
+            self.root.update_idletasks()
+
     # 导出视频（先旋转再裁剪）
     def export_video(self):
+        gpu_support, codec_cmd = detect_gpus()
+        print("[GPU] 探测结果:", gpu_support, codec_cmd)
         if not self.video_path:
             messagebox.showwarning("警告", "请先打开视频！")
             return
@@ -438,6 +653,7 @@ class VideoEditorApp:
         try:
             # 获取原始帧用于尺寸参考（仅用于 crop 坐标）
             cap = cv2.VideoCapture(self.video_path)
+            cv2.ocl.setUseOpenCL(True)
             ret, frame0 = cap.read()
             cap.release()
             if not ret:
@@ -464,6 +680,8 @@ class VideoEditorApp:
                     fps_output = float(fps_str)
                     if fps_output <= 0:
                         raise ValueError("帧率必须为正数")
+                    if fps_output >= 381:
+                        raise ValueError("帧率不能大于380！")
                 except ValueError as e:
                     messagebox.showerror("帧率错误", f"无效的帧率输入：{e}")
                     return
@@ -505,7 +723,7 @@ class VideoEditorApp:
                 "-t", str(duration),
                 "-vf", vf_str,
             ]
-
+            
             if fps_output is not None:
                 cmd.extend(["-r", str(fps_output)])
 
@@ -516,31 +734,43 @@ class VideoEditorApp:
                 "-preset", "fast",
                 "-c:a", "aac",
                 "-b:a", "128k",
+                "-progress", "pipe:1",  # 强制输出进度信息到stdout
+                "-loglevel", "info",    # 确保有进度输出
                 save_path
             ])
 
-            self.status_label.config(text="正在导出视频... ")
+            # 显示初始状态
+            self.status_label.config(text="正在生成视频...")
+            self.stop_button.config(state=tk.NORMAL)
             self.root.update()
-
+            
             startupinfo = None
             if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-            result = subprocess.run(cmd, startupinfo=startupinfo)
-
-            if result.returncode == 0:
-                messagebox.showinfo("成功", f"视频已导出至:\n{save_path}")
-            else:
-                messagebox.showerror("导出失败", "FFmpeg 执行失败，请查看终端中的错误信息。")
+            # 停止可能正在运行的导出
+            self.stop_export()
+            
+            # 重置标志并启动新线程
+            self.stop_export_flag = False
+            
+            # 在新线程中运行 FFmpeg
+            self.export_thread = threading.Thread(
+                target=self.run_ffmpeg_thread,
+                args=(cmd, save_path, startupinfo),
+                daemon=True
+            )
+            self.export_thread.start()
 
         except Exception as e:
             messagebox.showerror("错误", f"导出过程中发生异常:\n{str(e)}")
-        finally:
             self.status_label.config(text="就绪")
+            self.stop_button.config(state=tk.DISABLED)
 
 
 if __name__ == "__main__":
     root = tk.Tk()
+    root.iconphoto(True, tk.PhotoImage(file="app.png"))
     app = VideoEditorApp(root)
     root.mainloop()
