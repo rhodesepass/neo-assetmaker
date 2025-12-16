@@ -517,7 +517,7 @@ class VideoEditorApp:
     # 导出视频相关方法
     def update_export_status(self, elapsed_time):
         """更新导出状态（在主线程中调用）"""
-        self.status_label.config(text=f"正在生成视频，已用 {elapsed_time}")
+        self.status_label.config(text=f"正在生成视频，已生成 {elapsed_time}")
         self.root.update_idletasks()
     
     def run_ffmpeg_thread(self, cmd, save_path, startupinfo):
