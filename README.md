@@ -106,10 +106,11 @@ python main.py
 支持将老版本素材格式（epconfig.txt + logo.argb + overlay.argb + loop.mp4）转换为新格式。
 
 老素材文件结构：
-- epconfig.txt - 文本配置文件
-- logo.argb - ARGB原始图像数据
-- overlay.argb - 音频文件（实际是MP3格式）
-- loop.mp4 - 循环视频
+- loop.mp4 循环播放的视频（必选），384x640，h.264，颠倒180度。实际显示的是360x640
+- overlay.argb：干员信息的UI叠层图片（可选，不存在就不显示），360x640，按bgra格式给出，颠倒180度。
+- intro.mp4 入场视频（可选，存在则先播8s入场动画，再切换到循环播放视频），384x640，h.264，颠倒180度。实际显示的是360x640
+- logo.argb：过场显示的图片。（可选，不存在则显示“罗德岛“logo），256x256，按bgra格式给出，X轴翻转。
+- epconfig.txt 配置文件（可选）
 
 ## 配置文件格式
 
