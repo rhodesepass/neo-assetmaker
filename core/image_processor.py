@@ -47,10 +47,13 @@ class ImageProcessor:
 
         try:
             if HAS_CV2:
-                # OpenCV加载（保留alpha通道）
-                img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+                # 使用 numpy 读取文件字节，再用 cv2.imdecode 解码
+                # 这样可以避免 OpenCV 的中文路径编码问题
+                with open(path, 'rb') as f:
+                    data = np.frombuffer(f.read(), dtype=np.uint8)
+                img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
                 if img is None:
-                    raise ValueError("OpenCV无法读取图片")
+                    raise ValueError("OpenCV无法解码图片")
                 return img
             elif HAS_PIL:
                 # PIL加载并转换为numpy

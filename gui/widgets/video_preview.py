@@ -2,7 +2,9 @@
 视频预览组件 - 支持视频播放和裁剪框交互
 """
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
+
+import numpy as np
 
 try:
     import cv2
@@ -15,6 +17,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt6.QtGui import QImage, QPixmap, QMouseEvent, QKeyEvent
+
+if TYPE_CHECKING:
+    from config.epconfig import EPConfig
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +79,11 @@ class VideoPreviewWidget(QWidget):
         self.drag_start_pos: Optional[QPoint] = None
         self.drag_start_cropbox: list = []
         self.handle_size: int = 15
+
+        # 预览模式
+        self._preview_mode: bool = False
+        self._epconfig: Optional["EPConfig"] = None
+        self._overlay_renderer = None
 
         self._setup_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -228,33 +238,39 @@ class VideoPreviewWidget(QWidget):
         if frame is None or not HAS_CV2:
             return
 
-        display_frame = frame.copy()
         x, y, w, h = self.cropbox
 
-        # 绘制裁剪框
-        cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        if self._preview_mode:
+            # 预览模式：显示裁剪后的最终效果
+            display_frame = self._render_preview_frame(frame)
+        else:
+            # 编辑模式：显示完整帧+裁剪框
+            display_frame = frame.copy()
 
-        # 绘制角落手柄
-        hs = 8
-        handle_color = (0, 200, 255)
-        for px, py in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]:
-            cv2.rectangle(
+            # 绘制裁剪框
+            cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # 绘制角落手柄
+            hs = 8
+            handle_color = (0, 200, 255)
+            for px, py in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]:
+                cv2.rectangle(
+                    display_frame,
+                    (px - hs, py - hs), (px + hs, py + hs),
+                    handle_color, -1
+                )
+
+            # 信息叠加
+            cv2.putText(
                 display_frame,
-                (px - hs, py - hs), (px + hs, py + hs),
-                handle_color, -1
+                f"Frame: {self.current_frame_index}/{self.total_frames}",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1
             )
-
-        # 信息叠加
-        cv2.putText(
-            display_frame,
-            f"Frame: {self.current_frame_index}/{self.total_frames}",
-            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1
-        )
-        cv2.putText(
-            display_frame,
-            f"Crop: x={x} y={y} w={w} h={h}",
-            (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1
-        )
+            cv2.putText(
+                display_frame,
+                f"Crop: x={x} y={y} w={w} h={h}",
+                (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1
+            )
 
         # 转换为QPixmap
         rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
@@ -271,12 +287,34 @@ class VideoPreviewWidget(QWidget):
             Qt.TransformationMode.SmoothTransformation
         )
 
-        # 更新显示参数
-        self.display_scale = pixmap.width() / self.video_width if self.video_width > 0 else 1.0
-        self.display_offset_x = (label_size.width() - pixmap.width()) // 2
-        self.display_offset_y = (label_size.height() - pixmap.height()) // 2
+        # 更新显示参数（仅编辑模式需要用于坐标转换）
+        if not self._preview_mode:
+            self.display_scale = pixmap.width() / self.video_width if self.video_width > 0 else 1.0
+            self.display_offset_x = (label_size.width() - pixmap.width()) // 2
+            self.display_offset_y = (label_size.height() - pixmap.height()) // 2
 
         self.video_label.setPixmap(pixmap)
+
+    def _render_preview_frame(self, frame) -> np.ndarray:
+        """渲染预览帧（裁剪+叠加UI）"""
+        x, y, w, h = self.cropbox
+
+        # 裁剪
+        cropped = frame[y:y+h, x:x+w].copy()
+
+        # 缩放到目标分辨率
+        preview_frame = cv2.resize(cropped, (self.target_width, self.target_height))
+
+        # 应用叠加UI
+        if self._epconfig and self._overlay_renderer:
+            from config.epconfig import OverlayType
+            if self._epconfig.overlay.type == OverlayType.ARKNIGHTS:
+                preview_frame = self._overlay_renderer.render_arknights_overlay(
+                    preview_frame,
+                    self._epconfig.overlay.arknights_options
+                )
+
+        return preview_frame
 
     def _on_timer_tick(self):
         """定时器回调"""
@@ -356,6 +394,26 @@ class VideoPreviewWidget(QWidget):
     def get_video_info(self) -> Tuple[float, int, int, int]:
         """获取视频信息 (fps, total_frames, width, height)"""
         return (self.video_fps, self.total_frames, self.video_width, self.video_height)
+
+    def set_preview_mode(self, enabled: bool):
+        """设置预览模式"""
+        self._preview_mode = enabled
+        if self.current_frame is not None:
+            self._display_frame(self.current_frame)
+
+    def is_preview_mode(self) -> bool:
+        """获取预览模式状态"""
+        return self._preview_mode
+
+    def set_epconfig(self, config: "EPConfig"):
+        """设置配置（用于叠加UI渲染）"""
+        self._epconfig = config
+        # 初始化叠加渲染器
+        if self._overlay_renderer is None:
+            from core.overlay_renderer import OverlayRenderer
+            self._overlay_renderer = OverlayRenderer()
+        if self.current_frame is not None:
+            self._display_frame(self.current_frame)
 
     def _display_to_video_coords(self, pos: QPoint) -> Tuple[int, int]:
         """将显示坐标转换为视频坐标"""

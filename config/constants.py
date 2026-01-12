@@ -46,8 +46,8 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "padded_height": 1080,
         "padding_side": None,  # 无补边
         "padding_amount": 0,
-        "rotate_180": True,  # 旋转180度
-        "description": "720x1080 (旋转180度, 无黑边)"
+        "rotate_180": False,
+        "description": "720x1080 (无黑边)"
     }
 }
 
@@ -71,6 +71,10 @@ TRANSITION_TYPES = ["none", "fade", "move", "swipe"]
 
 # ===== 叠加UI类型 =====
 OVERLAY_TYPES = ["none", "arknights", "image"]
+
+# ===== Arknights叠加UI图片尺寸 =====
+ARK_CLASS_ICON_SIZE = (50, 50)    # 职业图标尺寸
+ARK_LOGO_SIZE = (75, 35)          # Logo尺寸
 
 # ===== 职业图标预设 =====
 OPERATOR_CLASS_PRESETS = {

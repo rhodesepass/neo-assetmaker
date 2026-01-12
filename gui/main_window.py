@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
         )
         self.timeline.set_in_point_clicked.connect(self.timeline.set_in_point_to_current)
         self.timeline.set_out_point_clicked.connect(self.timeline.set_out_point_to_current)
+        self.timeline.preview_mode_changed.connect(self.video_preview.set_preview_mode)
 
     def _load_settings(self):
         """加载设置"""
@@ -234,6 +235,7 @@ class MainWindow(QMainWindow):
         # 更新UI
         self.config_panel.set_config(self._config, self._base_dir)
         self.json_preview.set_config(self._config, self._base_dir)
+        self.video_preview.set_epconfig(self._config)
         self._update_title()
         self.status_bar.showMessage(f"新建项目: {dir_path}")
 
@@ -258,6 +260,7 @@ class MainWindow(QMainWindow):
             # 更新UI
             self.config_panel.set_config(self._config, self._base_dir)
             self.json_preview.set_config(self._config, self._base_dir)
+            self.video_preview.set_epconfig(self._config)
 
             # 尝试加载循环视频
             if self._config.loop.file:
@@ -352,6 +355,28 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先创建或打开项目")
             return
 
+        # 验证配置
+        from core.validator import EPConfigValidator
+        validator = EPConfigValidator(self._base_dir)
+        validator.validate_config(self._config)
+
+        if validator.has_errors():
+            errors = validator.get_errors()
+            msg = "配置验证失败，无法导出:\n\n"
+            for r in errors[:5]:
+                msg += f"  - {r}\n"
+            QMessageBox.critical(self, "验证失败", msg)
+            return
+
+        # 检查视频是否加载
+        if not self.video_preview.video_path:
+            QMessageBox.warning(
+                self, "警告",
+                "请先加载视频文件\n\n"
+                "在配置面板的'视频配置'选项卡中选择循环视频文件"
+            )
+            return
+
         # 选择导出目录
         dir_path = QFileDialog.getExistingDirectory(
             self, "选择导出目录", self._base_dir
@@ -359,10 +384,54 @@ class MainWindow(QMainWindow):
         if not dir_path:
             return
 
-        QMessageBox.information(
-            self, "导出",
-            f"导出功能正在开发中...\n导出目录: {dir_path}"
+        # 收集导出数据
+        try:
+            export_data = self._collect_export_data()
+        except Exception as e:
+            logger.error(f"收集导出数据失败: {e}")
+            QMessageBox.critical(self, "错误", f"收集导出数据失败:\n{e}")
+            return
+
+        # 处理arknights叠加的自定义图片
+        try:
+            self._process_arknights_custom_images(dir_path)
+        except Exception as e:
+            logger.error(f"处理自定义图片失败: {e}")
+            QMessageBox.warning(self, "警告", f"处理自定义图片失败:\n{e}\n\n将继续导出其他内容。")
+
+        # 创建导出服务和进度对话框
+        from core.export_service import ExportService
+        from gui.dialogs.export_progress_dialog import ExportProgressDialog
+
+        self._export_service = ExportService(self)
+        self._export_dialog = ExportProgressDialog(self)
+
+        # 连接信号
+        self._export_service.progress_updated.connect(
+            self._export_dialog.update_progress
         )
+        self._export_service.export_completed.connect(
+            lambda msg: self._on_export_completed(True, msg)
+        )
+        self._export_service.export_failed.connect(
+            lambda msg: self._on_export_completed(False, msg)
+        )
+        self._export_dialog.cancel_requested.connect(
+            self._export_service.cancel
+        )
+
+        # 启动导出
+        self._export_service.export_all(
+            output_dir=dir_path,
+            epconfig=self._config,
+            logo_mat=export_data.get('logo_mat'),
+            overlay_mat=export_data.get('overlay_mat'),
+            loop_video_params=export_data.get('loop_video_params'),
+            intro_video_params=export_data.get('intro_video_params')
+        )
+
+        # 显示进度对话框
+        self._export_dialog.exec()
 
     def _on_batch_convert(self):
         """批量转换老素材"""
@@ -382,12 +451,27 @@ class MainWindow(QMainWindow):
         if not dst_dir:
             return
 
+        # 选择overlay处理模式
+        overlay_mode, auto_ocr, ok = self._ask_overlay_mode()
+        if not ok:
+            return
+
         # 确认转换
+        if overlay_mode == "auto":
+            mode_desc = "自动检测（OCR识别干员）"
+        elif overlay_mode == "arknights":
+            mode_desc = "arknights模板" + ("（OCR识别）" if auto_ocr else "（默认值）")
+        else:
+            mode_desc = "保留原有overlay图片"
+
         result = QMessageBox.question(
             self, "确认转换",
             f"将从以下目录转换老素材:\n\n"
             f"源目录: {src_dir}\n"
-            f"目标目录: {dst_dir}\n\n"
+            f"目标目录: {dst_dir}\n"
+            f"Overlay模式: {mode_desc}\n\n"
+            f"注意: 视频将重新编码（旋转180度校正），可能需要较长时间。\n"
+            f"如果启用OCR识别，首次运行需要下载模型（约100MB）。\n\n"
             f"是否继续?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -396,12 +480,21 @@ class MainWindow(QMainWindow):
             return
 
         # 执行转换
-        logger.info(f"开始批量转换: {src_dir} -> {dst_dir}")
+        logger.info(f"开始批量转换: {src_dir} -> {dst_dir}, overlay_mode={overlay_mode}, auto_ocr={auto_ocr}")
         self.status_bar.showMessage("正在转换老素材...")
 
         try:
             converter = LegacyConverter()
-            results = converter.batch_convert(src_dir, dst_dir)
+
+            # 设置OCR确认回调
+            if auto_ocr:
+                converter.set_confirm_callback(self._on_ocr_confirm)
+
+            results = converter.batch_convert(
+                src_dir, dst_dir,
+                overlay_mode=overlay_mode,
+                auto_ocr=auto_ocr
+            )
 
             summary = converter.get_summary()
             logger.info(summary)
@@ -424,10 +517,11 @@ class MainWindow(QMainWindow):
                     self, "转换结果",
                     f"未找到可转换的老素材文件夹\n\n"
                     f"老素材格式应包含:\n"
-                    f"  - epconfig.txt\n"
-                    f"  - loop.mp4\n"
+                    f"  - loop.mp4 (必需)\n"
+                    f"  - epconfig.txt (可选)\n"
                     f"  - logo.argb (可选)\n"
-                    f"  - overlay.argb (可选)"
+                    f"  - overlay.argb (可选)\n"
+                    f"  - intro.mp4 (可选)"
                 )
 
             self.status_bar.showMessage(summary)
@@ -436,6 +530,67 @@ class MainWindow(QMainWindow):
             logger.error(f"批量转换失败: {e}")
             QMessageBox.critical(self, "错误", f"转换失败:\n{e}")
             self.status_bar.showMessage("转换失败")
+
+    def _ask_overlay_mode(self):
+        """询问用户overlay处理模式"""
+        from PyQt6.QtWidgets import QInputDialog
+
+        items = [
+            "auto - 自动检测（OCR识别干员，非标准模板用图片）[推荐]",
+            "arknights - 使用arknights模板（OCR识别干员名称）",
+            "arknights_default - 使用arknights模板（默认干员名称）",
+            "image - 保留并转换老overlay图片"
+        ]
+        item, ok = QInputDialog.getItem(
+            self,
+            "选择Overlay模式",
+            "如何处理老素材的overlay.argb文件？\n\n"
+            "推荐选择 auto 模式，将自动识别干员信息。\n"
+            "首次使用OCR功能需要下载模型（约100MB）。",
+            items,
+            0,  # 默认选择auto
+            False  # 不可编辑
+        )
+        if ok:
+            if "auto" in item:
+                return "auto", True, True
+            elif "arknights_default" in item:
+                return "arknights", False, True
+            elif "arknights" in item:
+                return "arknights", True, True
+            else:
+                return "image", False, True
+        return "auto", True, False
+
+    def _on_ocr_confirm(self, ocr_text: str, candidates: list):
+        """
+        OCR模糊匹配确认回调
+
+        Args:
+            ocr_text: OCR识别的文本
+            candidates: 候选干员列表 [(OperatorInfo, score), ...]
+
+        Returns:
+            用户选择的干员，或None
+        """
+        from gui.dialogs.operator_confirm_dialog import OperatorConfirmDialog
+        from core.operator_lookup import get_operator_lookup
+
+        try:
+            lookup = get_operator_lookup()
+            dialog = OperatorConfirmDialog(
+                ocr_text, candidates,
+                operator_lookup=lookup,
+                parent=self
+            )
+
+            if dialog.exec() == dialog.Accepted:
+                return dialog.get_selected_operator()
+            return None
+
+        except Exception as e:
+            logger.error(f"OCR确认对话框出错: {e}")
+            return None
 
     def _on_about(self):
         """关于"""
@@ -455,6 +610,8 @@ class MainWindow(QMainWindow):
         # 更新JSON预览
         if self._config:
             self.json_preview.set_config(self._config, self._base_dir)
+            # 更新视频预览的叠加UI配置
+            self.video_preview.set_epconfig(self._config)
 
     def _on_video_file_selected(self, path: str):
         """视频文件被选择"""
@@ -479,6 +636,146 @@ class MainWindow(QMainWindow):
     def _on_playback_changed(self, is_playing: bool):
         """播放状态变更"""
         self.timeline.set_playing(is_playing)
+
+    def _collect_export_data(self) -> dict:
+        """收集导出所需的数据"""
+        from core.export_service import VideoExportParams
+        from core.image_processor import ImageProcessor
+
+        data = {}
+
+        # 收集 Logo/Icon 图片
+        icon_path = self._config.icon
+        if icon_path:
+            if not os.path.isabs(icon_path):
+                icon_path = os.path.join(self._base_dir, icon_path)
+            if os.path.exists(icon_path):
+                logo_img = ImageProcessor.load_image(icon_path)
+                if logo_img is not None:
+                    data['logo_mat'] = ImageProcessor.process_for_logo(logo_img)
+
+        # 收集循环视频参数
+        if self.video_preview.video_path:
+            cropbox = self.video_preview.get_cropbox()
+            in_point = self.timeline.get_in_point()
+            out_point = self.timeline.get_out_point()
+
+            data['loop_video_params'] = VideoExportParams(
+                video_path=self.video_preview.video_path,
+                cropbox=cropbox,
+                start_frame=in_point,
+                end_frame=out_point,
+                fps=self.video_preview.video_fps,
+                resolution=self._config.screen.value
+            )
+
+        # 收集入场视频参数 (如果启用)
+        if self._config.intro.enabled and self._config.intro.file:
+            intro_path = self._config.intro.file
+            if not os.path.isabs(intro_path):
+                intro_path = os.path.join(self._base_dir, intro_path)
+
+            if os.path.exists(intro_path):
+                import cv2
+                cap = cv2.VideoCapture(intro_path)
+                if cap.isOpened():
+                    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    cap.release()
+
+                    data['intro_video_params'] = VideoExportParams(
+                        video_path=intro_path,
+                        cropbox=(0, 0, width, height),
+                        start_frame=0,
+                        end_frame=total_frames,
+                        fps=fps,
+                        resolution=self._config.screen.value
+                    )
+
+        return data
+
+    def _process_arknights_custom_images(self, output_dir: str):
+        """
+        处理arknights叠加的自定义图片
+
+        将自定义的logo和operator_class_icon缩放后复制到导出目录
+
+        Args:
+            output_dir: 导出目录
+        """
+        from config.epconfig import OverlayType
+        from config.constants import ARK_CLASS_ICON_SIZE, ARK_LOGO_SIZE
+        from core.image_processor import ImageProcessor
+        import cv2
+
+        if not self._config:
+            return
+
+        # 检查是否为arknights类型叠加
+        if self._config.overlay.type != OverlayType.ARKNIGHTS:
+            return
+
+        ark_opts = self._config.overlay.arknights_options
+        if not ark_opts:
+            return
+
+        # 处理职业图标 (50x50)
+        if ark_opts.operator_class_icon:
+            src_path = ark_opts.operator_class_icon
+            if not os.path.isabs(src_path):
+                src_path = os.path.join(self._base_dir, src_path)
+
+            if os.path.exists(src_path):
+                img = ImageProcessor.load_image(src_path)
+                if img is not None:
+                    # 缩放到目标尺寸
+                    img = cv2.resize(img, ARK_CLASS_ICON_SIZE)
+                    # 保存到导出目录
+                    dst_filename = "class_icon.png"
+                    dst_path = os.path.join(output_dir, dst_filename)
+                    success, encoded = cv2.imencode('.png', img)
+                    if success:
+                        with open(dst_path, 'wb') as f:
+                            f.write(encoded.tobytes())
+                        # 更新配置中的路径为相对路径
+                        ark_opts.operator_class_icon = dst_filename
+                        logger.info(f"已导出职业图标: {dst_path}")
+
+        # 处理Logo (75x35)
+        if ark_opts.logo:
+            src_path = ark_opts.logo
+            if not os.path.isabs(src_path):
+                src_path = os.path.join(self._base_dir, src_path)
+
+            if os.path.exists(src_path):
+                img = ImageProcessor.load_image(src_path)
+                if img is not None:
+                    # 缩放到目标尺寸
+                    img = cv2.resize(img, ARK_LOGO_SIZE)
+                    # 保存到导出目录
+                    dst_filename = "ark_logo.png"
+                    dst_path = os.path.join(output_dir, dst_filename)
+                    success, encoded = cv2.imencode('.png', img)
+                    if success:
+                        with open(dst_path, 'wb') as f:
+                            f.write(encoded.tobytes())
+                        # 更新配置中的路径为相对路径
+                        ark_opts.logo = dst_filename
+                        logger.info(f"已导出Logo: {dst_path}")
+
+    def _on_export_completed(self, success: bool, message: str):
+        """导出完成回调"""
+        if hasattr(self, '_export_dialog') and self._export_dialog:
+            self._export_dialog.set_completed(success, message)
+
+        if success:
+            self.status_bar.showMessage(message)
+            logger.info(f"导出成功: {message}")
+        else:
+            self.status_bar.showMessage("导出失败")
+            logger.error(f"导出失败: {message}")
 
     def _check_save(self) -> bool:
         """检查是否需要保存"""

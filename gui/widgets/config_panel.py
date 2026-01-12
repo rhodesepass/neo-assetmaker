@@ -1,6 +1,8 @@
 """
 配置面板 - 左侧配置选项卡容器
 """
+import os
+import shutil
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -278,6 +280,30 @@ class ConfigPanel(QWidget):
         color_layout.addWidget(self.btn_ark_color)
         ark_layout.addRow("主题颜色:", color_layout)
 
+        # 职业图标
+        class_icon_layout = QHBoxLayout()
+        self.edit_ark_class_icon = QLineEdit()
+        self.edit_ark_class_icon.setPlaceholderText("可选，50x50")
+        self.edit_ark_class_icon.setReadOnly(True)
+        class_icon_layout.addWidget(self.edit_ark_class_icon)
+        self.btn_ark_class_icon = QPushButton("选择...")
+        class_icon_layout.addWidget(self.btn_ark_class_icon)
+        self.btn_clear_class_icon = QPushButton("清除")
+        class_icon_layout.addWidget(self.btn_clear_class_icon)
+        ark_layout.addRow("职业图标:", class_icon_layout)
+
+        # Logo
+        logo_layout = QHBoxLayout()
+        self.edit_ark_logo = QLineEdit()
+        self.edit_ark_logo.setPlaceholderText("可选，75x35")
+        self.edit_ark_logo.setReadOnly(True)
+        logo_layout.addWidget(self.edit_ark_logo)
+        self.btn_ark_logo = QPushButton("选择...")
+        logo_layout.addWidget(self.btn_ark_logo)
+        self.btn_clear_logo = QPushButton("清除")
+        logo_layout.addWidget(self.btn_clear_logo)
+        ark_layout.addRow("Logo:", logo_layout)
+
         layout.addWidget(self.group_arknights)
 
         layout.addStretch()
@@ -322,6 +348,10 @@ class ConfigPanel(QWidget):
         self.edit_ark_staff.textChanged.connect(self._on_config_changed)
         self.edit_ark_color.textChanged.connect(self._on_config_changed)
         self.btn_ark_color.clicked.connect(lambda: self._pick_color(self.edit_ark_color))
+        self.btn_ark_class_icon.clicked.connect(self._on_select_class_icon)
+        self.btn_clear_class_icon.clicked.connect(self._on_clear_class_icon)
+        self.btn_ark_logo.clicked.connect(self._on_select_logo)
+        self.btn_clear_logo.clicked.connect(self._on_clear_logo)
 
     def set_config(self, config: EPConfig, base_dir: str = ""):
         """设置配置"""
@@ -381,6 +411,8 @@ class ConfigPanel(QWidget):
                 self.edit_ark_aux.setPlainText(opts.aux_text)
                 self.edit_ark_staff.setText(opts.staff_text)
                 self.edit_ark_color.setText(opts.color)
+                self.edit_ark_class_icon.setText(opts.operator_class_icon or "")
+                self.edit_ark_logo.setText(opts.logo or "")
 
             self._on_overlay_type_changed()
 
@@ -450,7 +482,9 @@ class ConfigPanel(QWidget):
                     barcode_text=self.edit_ark_barcode.text(),
                     aux_text=self.edit_ark_aux.toPlainText(),
                     staff_text=self.edit_ark_staff.text(),
-                    color=self.edit_ark_color.text()
+                    color=self.edit_ark_color.text(),
+                    operator_class_icon=self.edit_ark_class_icon.text(),
+                    logo=self.edit_ark_logo.text()
                 )
             )
         else:
@@ -489,7 +523,35 @@ class ConfigPanel(QWidget):
             "图片文件 (*.png *.jpg *.jpeg)"
         )
         if path:
-            self.edit_icon.setText(path)
+            # 如果项目目录已设置，复制文件到项目目录
+            if self._base_dir:
+                # 生成目标文件名
+                filename = os.path.basename(path)
+                name, ext = os.path.splitext(filename)
+                dest_path = os.path.join(self._base_dir, f"icon{ext}")
+
+                # 如果目标文件已存在且不同，生成唯一文件名
+                if os.path.exists(dest_path) and not os.path.samefile(path, dest_path):
+                    counter = 1
+                    while os.path.exists(dest_path):
+                        dest_path = os.path.join(self._base_dir, f"icon_{counter}{ext}")
+                        counter += 1
+
+                # 复制文件（如果不是同一文件）
+                if not os.path.exists(dest_path) or not os.path.samefile(path, dest_path):
+                    try:
+                        shutil.copy2(path, dest_path)
+                    except Exception as e:
+                        # 复制失败时使用原路径
+                        self.edit_icon.setText(path)
+                        return
+
+                # 使用相对路径
+                rel_path = os.path.basename(dest_path)
+                self.edit_icon.setText(rel_path)
+            else:
+                # 没有项目目录时使用原路径
+                self.edit_icon.setText(path)
 
     def _browse_loop(self):
         """浏览循环视频"""
@@ -518,3 +580,77 @@ class ConfigPanel(QWidget):
         color = QColorDialog.getColor(current, self, "选择颜色")
         if color.isValid():
             edit.setText(color.name())
+
+    def _on_select_class_icon(self):
+        """选择职业图标"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择职业图标", self._base_dir,
+            "图片文件 (*.png *.jpg *.jpeg *.bmp)"
+        )
+        if file_path:
+            # 复制到项目目录并使用相对路径
+            rel_path = self._copy_to_project_dir(file_path, "class_icon")
+            if rel_path:
+                self.edit_ark_class_icon.setText(rel_path)
+                self._on_config_changed()
+
+    def _on_clear_class_icon(self):
+        """清除职业图标"""
+        self.edit_ark_class_icon.clear()
+        self._on_config_changed()
+
+    def _on_select_logo(self):
+        """选择Logo"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择Logo", self._base_dir,
+            "图片文件 (*.png *.jpg *.jpeg *.bmp)"
+        )
+        if file_path:
+            # 复制到项目目录并使用相对路径
+            rel_path = self._copy_to_project_dir(file_path, "ark_logo")
+            if rel_path:
+                self.edit_ark_logo.setText(rel_path)
+                self._on_config_changed()
+
+    def _on_clear_logo(self):
+        """清除Logo"""
+        self.edit_ark_logo.clear()
+        self._on_config_changed()
+
+    def _copy_to_project_dir(self, src_path: str, base_name: str) -> str:
+        """
+        将文件复制到项目目录
+
+        Args:
+            src_path: 源文件路径
+            base_name: 目标文件基础名称
+
+        Returns:
+            相对路径，失败返回空字符串
+        """
+        if not self._base_dir:
+            # 没有项目目录，返回原路径
+            return src_path
+
+        try:
+            _, ext = os.path.splitext(src_path)
+            dest_path = os.path.join(self._base_dir, f"{base_name}{ext}")
+
+            # 如果目标已存在且不同，生成唯一文件名
+            counter = 1
+            while os.path.exists(dest_path):
+                if os.path.samefile(src_path, dest_path):
+                    # 同一文件，直接返回相对路径
+                    return f"{base_name}{ext}"
+                dest_path = os.path.join(self._base_dir, f"{base_name}_{counter}{ext}")
+                counter += 1
+
+            # 复制文件
+            shutil.copy2(src_path, dest_path)
+            return os.path.basename(dest_path)
+
+        except Exception as e:
+            # 复制失败，返回原路径
+            import logging
+            logging.getLogger(__name__).warning(f"复制文件失败: {e}")
+            return src_path

@@ -6,3 +6,8 @@ numpy>=1.24.0
 nuitka
 zstandard
 ordered-set
+
+# OCR识别和干员查询功能
+easyocr>=1.7.0
+thefuzz>=0.22.0
+python-Levenshtein>=0.25.0

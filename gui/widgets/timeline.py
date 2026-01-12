@@ -170,6 +170,7 @@ class TimelineWidget(QWidget):
     goto_end_clicked = pyqtSignal()
     set_in_point_clicked = pyqtSignal()
     set_out_point_clicked = pyqtSignal()
+    preview_mode_changed = pyqtSignal(bool)  # 预览模式切换信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -178,6 +179,7 @@ class TimelineWidget(QWidget):
         self._current_frame = 0
         self._fps = 30.0
         self._is_playing = False
+        self._preview_mode = False  # 预览模式标志
 
         self._init_ui()
         self._connect_signals()
@@ -235,6 +237,14 @@ class TimelineWidget(QWidget):
         self.label_fps = QLabel("30.0 FPS")
         control_layout.addWidget(self.label_fps)
 
+        control_layout.addWidget(QLabel("|"))
+
+        # 预览模式切换按钮
+        self.btn_preview = QPushButton("预览效果")
+        self.btn_preview.setToolTip("切换预览模式：显示最终导出效果")
+        self.btn_preview.setCheckable(True)
+        control_layout.addWidget(self.btn_preview)
+
         control_layout.addStretch()
 
         # 时间轴滑块
@@ -259,6 +269,11 @@ class TimelineWidget(QWidget):
             QPushButton:hover {
                 background-color: #555;
             }
+            QPushButton:checked {
+                background-color: #4285f4;
+                color: #fff;
+                border: 1px solid #3367d6;
+            }
             QLabel {
                 color: #ccc;
             }
@@ -274,6 +289,16 @@ class TimelineWidget(QWidget):
         self.btn_set_in.clicked.connect(self.set_in_point_clicked.emit)
         self.btn_set_out.clicked.connect(self.set_out_point_clicked.emit)
         self.timeline_slider.seek_requested.connect(self.seek_requested.emit)
+        self.btn_preview.clicked.connect(self._on_preview_toggled)
+
+    def _on_preview_toggled(self):
+        """预览模式切换"""
+        self._preview_mode = self.btn_preview.isChecked()
+        self.preview_mode_changed.emit(self._preview_mode)
+
+    def is_preview_mode(self) -> bool:
+        """获取预览模式状态"""
+        return self._preview_mode
 
     def set_total_frames(self, count: int):
         """设置总帧数"""

@@ -59,6 +59,9 @@ python main.py
 - Pillow >= 10.0.0 - 图片处理
 - numpy >= 1.24.0 - 数组运算
 - jsonschema >= 4.17.0 - JSON验证
+- easyocr >= 1.7.0 - OCR文字识别（用于识别干员名称）
+- thefuzz >= 0.22.0 - 模糊字符串匹配
+- python-Levenshtein >= 0.25.0 - 加速模糊匹配
 
 ## 使用方法
 
@@ -103,7 +106,7 @@ python main.py
 
 工具 -> 批量转换老素材
 
-支持将老版本素材格式（epconfig.txt + logo.argb + overlay.argb + loop.mp4）转换为新格式。
+支持将老版本素材格式（epconfig.txt + logo.argb + overlay.argb + loop.mp4 + intro.mp4）转换为新格式。
 
 老素材文件结构：
 - loop.mp4 循环播放的视频（必选），384x640，h.264，颠倒180度。实际显示的是360x640
@@ -172,9 +175,14 @@ arknights_pass_maker/
 │   ├── video_processor.py # 视频处理
 │   ├── image_processor.py # 图片处理
 │   ├── export_service.py  # 导出服务
-│   └── legacy_converter.py # 老素材转换器
+│   ├── legacy_converter.py # 老素材转换器
+│   ├── operator_lookup.py # 干员信息查询 (v1.0.1)
+│   └── ocr_service.py     # OCR识别服务 (v1.0.1)
 ├── gui/                   # 图形界面
 │   ├── main_window.py     # 主窗口
+│   ├── dialogs/           # 对话框
+│   │   ├── export_progress_dialog.py  # 导出进度
+│   │   └── operator_confirm_dialog.py # 干员确认 (v1.0.1)
 │   └── widgets/           # UI组件
 │       ├── config_panel.py    # 配置面板
 │       ├── video_preview.py   # 视频预览
@@ -185,7 +193,12 @@ arknights_pass_maker/
 │   ├── file_utils.py      # 文件操作
 │   └── color_utils.py     # 颜色处理
 ├── resources/             # 资源文件
-│   └── icons/            # 图标
+│   ├── icons/             # 图标
+│   ├── class_icons/       # 职业图标
+│   └── data/              # 数据文件 (v1.0.1)
+│       ├── character_table.json    # 干员信息表
+│       ├── handbookpos_table.json  # 干员颜色表
+│       └── overlay_template.png    # 模板匹配图
 └── logs/                  # 日志文件
 ```
 
@@ -220,6 +233,24 @@ arknights_pass_maker/
 本项目仅供学习和研究使用。
 
 ## 更新日志
+
+### v1.0.1
+- 新增OCR自动识别干员名称功能
+  - 使用EasyOCR从overlay图片中识别干员名称
+  - 支持精确匹配和模糊匹配（相似度>80%）
+  - 模糊匹配时弹窗让用户确认选择
+- 新增干员信息库（600+干员）
+  - 包含干员名称、代号、职业、势力、颜色等信息
+  - 支持中英文名称搜索
+- 批量转换增加overlay模式选项
+  - auto：自动检测模板，OCR识别干员（推荐）
+  - arknights：使用arknights模板 + OCR识别
+  - arknights_default：使用arknights模板 + 默认值
+  - image：保留原overlay图片
+- 生成完整的arknights overlay配置
+  - 自动填充干员名称、代号、职业图标
+  - 自动获取干员专属颜色
+- 新增依赖：easyocr, thefuzz, python-Levenshtein
 
 ### v1.0.0
 - 初始版本

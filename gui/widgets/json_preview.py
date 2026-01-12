@@ -156,7 +156,22 @@ class JsonPreviewWidget(QWidget):
             self.text_edit.setText("")
             return
 
-        json_str = self._config.to_json(indent=4)
+        # 获取配置字典并标准化路径（与导出结果保持一致）
+        config_dict = self._config.to_dict()
+
+        # 标准化 loop.file 路径
+        if "loop" in config_dict and config_dict["loop"].get("file"):
+            config_dict["loop"]["file"] = "loop.mp4"
+
+        # 标准化 icon 路径
+        if config_dict.get("icon"):
+            config_dict["icon"] = "icon.png"
+
+        # 标准化 intro.file 路径
+        if "intro" in config_dict and config_dict["intro"].get("file"):
+            config_dict["intro"]["file"] = "intro.mp4"
+
+        json_str = json.dumps(config_dict, ensure_ascii=False, indent=4)
         self.text_edit.setText(json_str)
 
     def _update_validation(self):

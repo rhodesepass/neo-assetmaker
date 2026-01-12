@@ -93,12 +93,10 @@ class ExportWorker(QThread):
 
     def _find_ffmpeg(self) -> str:
         """查找ffmpeg"""
-        # 当前目录
         local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             return local_ffmpeg
 
-        # 系统PATH
         try:
             cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -213,7 +211,7 @@ class ExportWorker(QThread):
         padding_side = spec["padding_side"]
         rotate_180 = spec["rotate_180"]
 
-        temp_dir = os.path.join(self._output_dir, "_temp_frames")
+        temp_dir = os.path.join(self._output_dir, "_temp_frames").replace("\\", "/")
         os.makedirs(temp_dir, exist_ok=True)
 
         try:
@@ -224,6 +222,7 @@ class ExportWorker(QThread):
             cap.set(cv2.CAP_PROP_POS_FRAMES, params.start_frame)
             total_frames = params.end_frame - params.start_frame
 
+            frames_written = 0
             for frame_idx in range(total_frames):
                 if self._cancelled:
                     raise InterruptedError("导出已取消")
@@ -232,18 +231,13 @@ class ExportWorker(QThread):
                 if not ret:
                     break
 
-                # 裁剪
                 x, y, w, h = params.cropbox
                 frame = frame[y:y+h, x:x+w]
-
-                # 缩放
                 frame = cv2.resize(frame, (target_w, target_h))
 
-                # 旋转
                 if rotate_180:
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
 
-                # 补黑边
                 if padding_side == "right":
                     pad_w = padded_w - target_w
                     if pad_w > 0:
@@ -255,8 +249,12 @@ class ExportWorker(QThread):
                         padding = np.zeros((pad_h, target_w, 3), dtype=np.uint8)
                         frame = np.vstack([frame, padding])
 
-                frame_path = os.path.join(temp_dir, f"frame_{frame_idx:06d}.png")
-                cv2.imwrite(frame_path, frame)
+                frame_path = os.path.join(temp_dir, f"frame_{frame_idx:06d}.png").replace("\\", "/")
+                success, encoded = cv2.imencode('.png', frame)
+                if success:
+                    with open(frame_path, 'wb') as f:
+                        f.write(encoded.tobytes())
+                    frames_written += 1
 
                 if frame_idx % 10 == 0:
                     progress = base_progress + int((frame_idx / total_frames) * 50 / total_tasks)
@@ -264,25 +262,40 @@ class ExportWorker(QThread):
 
             cap.release()
 
-            # FFmpeg编码
+            if frames_written == 0:
+                raise RuntimeError("没有成功写入任何视频帧")
+            logger.info(f"成功写入 {frames_written} 帧")
+
             self.progress_updated.emit(base_progress + 50, "正在编码视频...")
+            input_pattern = f"{temp_dir}/frame_%06d.png"
+            output_file = output_path.replace("\\", "/")
 
             ffmpeg_cmd = [
                 self._ffmpeg_path,
+                "-hide_banner",
                 "-framerate", str(params.fps),
-                "-i", os.path.join(temp_dir, "frame_%06d.png"),
+                "-i", input_pattern,
                 "-c:v", "libx264",
-                "-profile:v", "baseline",
-                "-level", "3.1",
+                "-profile:v", "high",
+                "-level", "4.0",
                 "-pix_fmt", "yuv420p",
-                "-b:v", "600k",
+                "-b:v", "1000k",
                 "-an", "-y",
-                output_path
+                output_file
             ]
 
-            process = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            logger.info(f"执行ffmpeg命令: {' '.join(ffmpeg_cmd)}")
+
+            process = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                encoding='utf-8',
+                errors='replace'
+            )
             if process.returncode != 0:
-                raise RuntimeError(f"ffmpeg编码失败: {process.stderr[:200]}")
+                stderr_msg = process.stderr[-500:] if process.stderr else "未知错误"
+                logger.error(f"ffmpeg完整stderr: {process.stderr}")
+                raise RuntimeError(f"ffmpeg编码失败 (code {process.returncode}): {stderr_msg}")
 
         finally:
             if os.path.exists(temp_dir):
@@ -295,6 +308,15 @@ class ExportWorker(QThread):
 
         config_path = os.path.join(self._output_dir, "epconfig.json")
         try:
+            exported_types = {task.export_type for task in self._tasks}
+
+            if ExportType.LOOP_VIDEO in exported_types:
+                self._epconfig.loop.file = "loop.mp4"
+            if ExportType.ICON in exported_types:
+                self._epconfig.icon = "icon.png"
+            if ExportType.INTRO_VIDEO in exported_types:
+                self._epconfig.intro.file = "intro.mp4"
+
             self._epconfig.save_to_file(config_path)
             logger.info(f"已生成配置: {config_path}")
         except Exception as e:
