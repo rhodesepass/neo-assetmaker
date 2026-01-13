@@ -22,6 +22,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QObject
 
 from config.constants import get_resolution_spec
 from config.epconfig import EPConfig
+from utils.file_utils import get_app_dir
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class VideoExportParams:
     end_frame: int
     fps: float
     resolution: str = "360x640"
+    is_image: bool = False  # True=从图片生成视频
 
 
 @dataclass
@@ -92,11 +94,18 @@ class ExportWorker(QThread):
         logger.info("导出任务已请求取消")
 
     def _find_ffmpeg(self) -> str:
-        """查找ffmpeg"""
+        """查找ffmpeg（支持打包环境）"""
+        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+        if os.path.isfile(app_ffmpeg):
+            return app_ffmpeg
+
+        # 2. 在当前工作目录查找
         local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             return local_ffmpeg
 
+        # 3. 在系统 PATH 中查找
         try:
             cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -203,6 +212,11 @@ class ExportWorker(QThread):
         if not HAS_CV2:
             raise RuntimeError("未安装opencv-python，无法处理视频")
 
+        # 图片模式：从单张图片生成1秒循环视频
+        if params.is_image:
+            self._export_video_from_image(output_path, params, base_progress, total_tasks)
+            return
+
         spec = get_resolution_spec(params.resolution)
         target_w = spec["width"]
         target_h = spec["height"]
@@ -301,6 +315,108 @@ class ExportWorker(QThread):
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
+    def _export_video_from_image(
+        self,
+        output_path: str,
+        params: VideoExportParams,
+        base_progress: int,
+        total_tasks: int
+    ):
+        """从单张图片生成1秒循环视频（30fps，共30帧）"""
+        spec = get_resolution_spec(params.resolution)
+        target_w = spec["width"]
+        target_h = spec["height"]
+        padded_w = spec["padded_width"]
+        padded_h = spec["padded_height"]
+        padding_side = spec["padding_side"]
+        rotate_180 = spec["rotate_180"]
+
+        # 读取图片
+        image_path = params.video_path
+        img_array = np.fromfile(image_path, dtype=np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise RuntimeError(f"无法打开图片: {image_path}")
+
+        # 缩放到目标分辨率
+        frame = cv2.resize(frame, (target_w, target_h))
+
+        # 旋转180度
+        if rotate_180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+
+        # 添加黑边
+        if padding_side == "right":
+            pad_w = padded_w - target_w
+            if pad_w > 0:
+                padding = np.zeros((target_h, pad_w, 3), dtype=np.uint8)
+                frame = np.hstack([frame, padding])
+        elif padding_side == "bottom":
+            pad_h = padded_h - target_h
+            if pad_h > 0:
+                padding = np.zeros((pad_h, target_w, 3), dtype=np.uint8)
+                frame = np.vstack([frame, padding])
+
+        temp_dir = os.path.join(self._output_dir, "_temp_frames").replace("\\", "/")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        try:
+            # 生成30帧（1秒@30fps）
+            fps = 30.0
+            total_frames = 30
+
+            for frame_idx in range(total_frames):
+                if self._cancelled:
+                    raise InterruptedError("导出已取消")
+
+                frame_path = os.path.join(temp_dir, f"frame_{frame_idx:06d}.png").replace("\\", "/")
+                success, encoded = cv2.imencode('.png', frame)
+                if success:
+                    with open(frame_path, 'wb') as f:
+                        f.write(encoded.tobytes())
+
+                if frame_idx % 10 == 0:
+                    progress = base_progress + int((frame_idx / total_frames) * 50 / total_tasks)
+                    self.progress_updated.emit(progress, f"生成帧 {frame_idx}/{total_frames}")
+
+            logger.info(f"成功生成 {total_frames} 帧")
+
+            # 使用ffmpeg编码
+            self.progress_updated.emit(base_progress + 50, "正在编码视频...")
+            input_pattern = f"{temp_dir}/frame_%06d.png"
+            output_file = output_path.replace("\\", "/")
+
+            ffmpeg_cmd = [
+                self._ffmpeg_path,
+                "-hide_banner",
+                "-framerate", str(fps),
+                "-i", input_pattern,
+                "-c:v", "libx264",
+                "-profile:v", "high",
+                "-level", "4.0",
+                "-pix_fmt", "yuv420p",
+                "-b:v", "1000k",
+                "-an", "-y",
+                output_file
+            ]
+
+            logger.info(f"执行ffmpeg命令: {' '.join(ffmpeg_cmd)}")
+
+            process = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            if process.returncode != 0:
+                stderr_msg = process.stderr[-500:] if process.stderr else "未知错误"
+                logger.error(f"ffmpeg完整stderr: {process.stderr}")
+                raise RuntimeError(f"ffmpeg编码失败 (code {process.returncode}): {stderr_msg}")
+
+        finally:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+
     def _generate_epconfig(self):
         """生成epconfig.json"""
         if not self._epconfig:
@@ -347,11 +463,18 @@ class ExportService(QObject):
         return bool(self._ffmpeg_path)
 
     def _find_ffmpeg(self) -> str:
-        """查找ffmpeg"""
+        """查找ffmpeg（支持打包环境）"""
+        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+        if os.path.isfile(app_ffmpeg):
+            return app_ffmpeg
+
+        # 2. 在当前工作目录查找
         local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             return local_ffmpeg
 
+        # 3. 在系统 PATH 中查找
         try:
             cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -454,6 +577,6 @@ class ExportService(QObject):
 
     def _cleanup(self):
         if self._worker:
-            self._worker.wait()
+            # 不阻塞主线程，让工作线程自然结束
             self._worker.deleteLater()
             self._worker = None

@@ -178,11 +178,18 @@ class EPConfigValidator:
             return
 
         loop_file = loop.get("file", "")
+        is_image = loop.get("is_image", False)
+
         if not loop_file:
             self._add_result(ValidationLevel.ERROR, "loop.file",
                            "loop.file为必填字段")
         elif self.base_dir:
-            self._validate_file_exists("loop.file", loop_file)
+            if is_image:
+                # 图片模式校验
+                self._validate_optional_image("loop.file", loop_file)
+            else:
+                # 视频模式校验
+                self._validate_file_exists("loop.file", loop_file)
 
     def _validate_intro(self, config: dict):
         """校验入场动画配置"""

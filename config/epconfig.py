@@ -110,13 +110,20 @@ class Transition:
 class LoopConfig:
     """循环动画配置"""
     file: str = ""
+    is_image: bool = False  # True=图片模式，False=视频模式
 
     def to_dict(self) -> dict:
-        return {"file": self.file}
+        result = {"file": self.file}
+        if self.is_image:
+            result["is_image"] = True
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "LoopConfig":
-        return cls(file=data.get("file", ""))
+        return cls(
+            file=data.get("file", ""),
+            is_image=data.get("is_image", False)
+        )
 
 
 @dataclass

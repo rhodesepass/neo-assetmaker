@@ -1,0 +1,122 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'README.md'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      version_changed: ${{ steps.check-change.outputs.changed }}
+      tag_exists: ${{ steps.check-tag.outputs.exists }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get current version from README
+        id: get-version
+        run: |
+          VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Check if version changed
+        id: check-change
+        run: |
+          if git diff HEAD~1 README.md | grep -q '### v'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version line changed"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version line not changed"
+          fi
+
+      - name: Check if tag exists
+        id: check-tag
+        run: |
+          VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+          if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v$VERSION already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v$VERSION does not exist"
+          fi
+
+  build-and-release:
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true' && needs.check-version.outputs.tag_exists == 'false' && needs.check-version.outputs.version != ''
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install cx_Freeze
+
+      - name: Cache FFmpeg
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg.exe
+          key: ffmpeg-win64-latest
+
+      - name: Download FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_temp
+          $ffmpegExe = Get-ChildItem -Path ffmpeg_temp -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "ffmpeg.exe"
+          Remove-Item -Recurse -Force ffmpeg_temp, ffmpeg.zip
+        shell: pwsh
+
+      - name: Cache 7z SFX
+        id: cache-sfx
+        uses: actions/cache@v4
+        with:
+          path: 7zSD.sfx
+          key: 7z-sfx-2301
+
+      - name: Download 7z SFX module
+        if: steps.cache-sfx.outputs.cache-hit != 'true'
+        run: |
+          Invoke-WebRequest -Uri "https://www.7-zip.org/a/lzma2301.7z" -OutFile lzma.7z
+          7z x lzma.7z -olzma_temp
+          Copy-Item "lzma_temp/bin/7zSD.sfx" -Destination "7zSD.sfx"
+          Remove-Item -Recurse -Force lzma_temp, lzma.7z
+        shell: pwsh
+
+      - name: Build with cx_Freeze
+        run: python build.py
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: v${{ needs.check-version.outputs.version }}
+          files: |
+            dist/*.exe
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,9 +3,7 @@ opencv-python>=4.8.0
 Pillow>=10.0.0
 jsonschema>=4.17.0
 numpy>=1.24.0
-nuitka
-zstandard
-ordered-set
+cx_Freeze
 
 # OCR识别和干员查询功能
 easyocr>=1.7.0

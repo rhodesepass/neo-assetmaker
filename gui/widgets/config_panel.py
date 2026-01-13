@@ -30,6 +30,9 @@ class ConfigPanel(QWidget):
 
     config_changed = pyqtSignal()  # 配置变更信号
     video_file_selected = pyqtSignal(str)  # 视频文件选择信号
+    validate_requested = pyqtSignal()  # 验证配置请求信号
+    export_requested = pyqtSignal()  # 导出素材请求信号
+    capture_frame_requested = pyqtSignal()  # 截取视频帧请求信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -125,6 +128,8 @@ class ConfigPanel(QWidget):
         icon_layout.addWidget(self.edit_icon)
         self.btn_browse_icon = QPushButton("浏览...")
         icon_layout.addWidget(self.btn_browse_icon)
+        self.btn_capture_frame = QPushButton("截取视频帧")
+        icon_layout.addWidget(self.btn_capture_frame)
         layout.addWidget(group_icon)
 
         layout.addStretch()
@@ -132,17 +137,37 @@ class ConfigPanel(QWidget):
 
     def _create_video_tab(self) -> QWidget:
         """创建视频配置选项卡"""
+        from PyQt6.QtWidgets import QRadioButton, QButtonGroup
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
         # 循环视频
         group_loop = QGroupBox("循环视频 (必选)")
-        loop_layout = QHBoxLayout(group_loop)
+        loop_main_layout = QVBoxLayout(group_loop)
+
+        # 模式选择
+        mode_layout = QHBoxLayout()
+        self.radio_loop_video = QRadioButton("视频")
+        self.radio_loop_image = QRadioButton("图片")
+        self.radio_loop_video.setChecked(True)
+        self.loop_mode_group = QButtonGroup()
+        self.loop_mode_group.addButton(self.radio_loop_video, 0)
+        self.loop_mode_group.addButton(self.radio_loop_image, 1)
+        mode_layout.addWidget(QLabel("模式:"))
+        mode_layout.addWidget(self.radio_loop_video)
+        mode_layout.addWidget(self.radio_loop_image)
+        mode_layout.addStretch()
+        loop_main_layout.addLayout(mode_layout)
+
+        # 文件选择
+        file_layout = QHBoxLayout()
         self.edit_loop_file = QLineEdit()
         self.edit_loop_file.setPlaceholderText("loop.mp4")
-        loop_layout.addWidget(self.edit_loop_file)
+        file_layout.addWidget(self.edit_loop_file)
         self.btn_browse_loop = QPushButton("浏览...")
-        loop_layout.addWidget(self.btn_browse_loop)
+        file_layout.addWidget(self.btn_browse_loop)
+        loop_main_layout.addLayout(file_layout)
+
         layout.addWidget(group_loop)
 
         # 入场视频
@@ -202,6 +227,16 @@ class ConfigPanel(QWidget):
         color_layout_in.addWidget(self.btn_trans_in_color)
         in_layout.addRow("背景色:", color_layout_in)
 
+        # 进入过渡图片
+        image_layout_in = QHBoxLayout()
+        self.edit_trans_in_image = QLineEdit()
+        self.edit_trans_in_image.setPlaceholderText("可选，用于过渡效果的图片")
+        image_layout_in.addWidget(self.edit_trans_in_image)
+        self.btn_trans_in_image = QPushButton("浏览...")
+        self.btn_trans_in_image.clicked.connect(lambda: self._browse_transition_image("in"))
+        image_layout_in.addWidget(self.btn_trans_in_image)
+        in_layout.addRow("过渡图片:", image_layout_in)
+
         layout.addWidget(group_in)
 
         # 循环过渡
@@ -225,6 +260,16 @@ class ConfigPanel(QWidget):
         self.btn_trans_loop_color = QPushButton("选择颜色")
         color_layout_loop.addWidget(self.btn_trans_loop_color)
         loop_layout.addRow("背景色:", color_layout_loop)
+
+        # 循环过渡图片
+        image_layout_loop = QHBoxLayout()
+        self.edit_trans_loop_image = QLineEdit()
+        self.edit_trans_loop_image.setPlaceholderText("可选，用于过渡效果的图片")
+        image_layout_loop.addWidget(self.edit_trans_loop_image)
+        self.btn_trans_loop_image = QPushButton("浏览...")
+        self.btn_trans_loop_image.clicked.connect(lambda: self._browse_transition_image("loop"))
+        image_layout_loop.addWidget(self.btn_trans_loop_image)
+        loop_layout.addRow("过渡图片:", image_layout_loop)
 
         layout.addWidget(group_loop)
 
@@ -306,6 +351,42 @@ class ConfigPanel(QWidget):
 
         layout.addWidget(self.group_arknights)
 
+        # Image叠加选项
+        self.group_image_overlay = QGroupBox("图片叠加选项")
+        img_layout = QFormLayout(self.group_image_overlay)
+
+        self.spin_img_appear = QSpinBox()
+        self.spin_img_appear.setRange(0, 5000000)
+        self.spin_img_appear.setValue(100000)
+        img_layout.addRow("出现时间(微秒):", self.spin_img_appear)
+
+        self.spin_img_duration = QSpinBox()
+        self.spin_img_duration.setRange(0, 5000000)
+        self.spin_img_duration.setValue(100000)
+        img_layout.addRow("持续时间(微秒):", self.spin_img_duration)
+
+        image_layout = QHBoxLayout()
+        self.edit_img_overlay = QLineEdit()
+        self.edit_img_overlay.setPlaceholderText("overlay.png")
+        image_layout.addWidget(self.edit_img_overlay)
+        self.btn_img_overlay = QPushButton("浏览...")
+        image_layout.addWidget(self.btn_img_overlay)
+        img_layout.addRow("叠加图片:", image_layout)
+
+        layout.addWidget(self.group_image_overlay)
+
+        # 操作按钮
+        group_actions = QGroupBox("操作")
+        actions_layout = QVBoxLayout(group_actions)
+
+        self.btn_validate = QPushButton("验证配置")
+        actions_layout.addWidget(self.btn_validate)
+
+        self.btn_export = QPushButton("导出素材")
+        actions_layout.addWidget(self.btn_export)
+
+        layout.addWidget(group_actions)
+
         layout.addStretch()
         return self._create_scroll_area(widget)
 
@@ -318,10 +399,13 @@ class ConfigPanel(QWidget):
         self.combo_screen.currentIndexChanged.connect(self._on_config_changed)
         self.edit_icon.textChanged.connect(self._on_config_changed)
         self.btn_browse_icon.clicked.connect(self._browse_icon)
+        self.btn_capture_frame.clicked.connect(self.capture_frame_requested.emit)
 
         # 视频配置
         self.edit_loop_file.textChanged.connect(self._on_config_changed)
         self.btn_browse_loop.clicked.connect(self._browse_loop)
+        self.radio_loop_video.toggled.connect(self._on_loop_mode_changed)
+        self.radio_loop_image.toggled.connect(self._on_loop_mode_changed)
         self.check_intro_enabled.stateChanged.connect(self._on_config_changed)
         self.edit_intro_file.textChanged.connect(self._on_config_changed)
         self.btn_browse_intro.clicked.connect(self._browse_intro)
@@ -332,11 +416,13 @@ class ConfigPanel(QWidget):
         self.spin_trans_in_duration.valueChanged.connect(self._on_config_changed)
         self.edit_trans_in_color.textChanged.connect(self._on_config_changed)
         self.btn_trans_in_color.clicked.connect(lambda: self._pick_color(self.edit_trans_in_color))
+        self.edit_trans_in_image.textChanged.connect(self._on_config_changed)
 
         self.combo_trans_loop_type.currentIndexChanged.connect(self._on_config_changed)
         self.spin_trans_loop_duration.valueChanged.connect(self._on_config_changed)
         self.edit_trans_loop_color.textChanged.connect(self._on_config_changed)
         self.btn_trans_loop_color.clicked.connect(lambda: self._pick_color(self.edit_trans_loop_color))
+        self.edit_trans_loop_image.textChanged.connect(self._on_config_changed)
 
         # 叠加UI
         self.combo_overlay_type.currentIndexChanged.connect(self._on_overlay_type_changed)
@@ -352,6 +438,16 @@ class ConfigPanel(QWidget):
         self.btn_clear_class_icon.clicked.connect(self._on_clear_class_icon)
         self.btn_ark_logo.clicked.connect(self._on_select_logo)
         self.btn_clear_logo.clicked.connect(self._on_clear_logo)
+
+        # Image叠加信号
+        self.spin_img_appear.valueChanged.connect(self._on_config_changed)
+        self.spin_img_duration.valueChanged.connect(self._on_config_changed)
+        self.edit_img_overlay.textChanged.connect(self._on_config_changed)
+        self.btn_img_overlay.clicked.connect(self._on_select_img_overlay)
+
+        # 操作按钮
+        self.btn_validate.clicked.connect(self.validate_requested.emit)
+        self.btn_export.clicked.connect(self.export_requested.emit)
 
     def set_config(self, config: EPConfig, base_dir: str = ""):
         """设置配置"""
@@ -373,6 +469,10 @@ class ConfigPanel(QWidget):
 
             # 循环视频
             self.edit_loop_file.setText(config.loop.file)
+            if config.loop.is_image:
+                self.radio_loop_image.setChecked(True)
+            else:
+                self.radio_loop_video.setChecked(True)
 
             # 入场视频
             self.check_intro_enabled.setChecked(config.intro.enabled)
@@ -387,6 +487,7 @@ class ConfigPanel(QWidget):
                 if config.transition_in.options:
                     self.spin_trans_in_duration.setValue(config.transition_in.options.duration)
                     self.edit_trans_in_color.setText(config.transition_in.options.background_color)
+                    self.edit_trans_in_image.setText(config.transition_in.options.image or "")
 
             # 过渡效果 - 循环
             if config.transition_loop.type != TransitionType.NONE:
@@ -396,6 +497,7 @@ class ConfigPanel(QWidget):
                 if config.transition_loop.options:
                     self.spin_trans_loop_duration.setValue(config.transition_loop.options.duration)
                     self.edit_trans_loop_color.setText(config.transition_loop.options.background_color)
+                    self.edit_trans_loop_image.setText(config.transition_loop.options.image or "")
 
             # 叠加UI
             index = self.combo_overlay_type.findData(config.overlay.type.value)
@@ -413,6 +515,12 @@ class ConfigPanel(QWidget):
                 self.edit_ark_color.setText(opts.color)
                 self.edit_ark_class_icon.setText(opts.operator_class_icon or "")
                 self.edit_ark_logo.setText(opts.logo or "")
+
+            if config.overlay.image_options:
+                opts = config.overlay.image_options
+                self.spin_img_appear.setValue(opts.appear_time)
+                self.spin_img_duration.setValue(opts.duration)
+                self.edit_img_overlay.setText(opts.image or "")
 
             self._on_overlay_type_changed()
 
@@ -438,6 +546,7 @@ class ConfigPanel(QWidget):
 
         # 循环视频
         self._config.loop.file = self.edit_loop_file.text()
+        self._config.loop.is_image = self.radio_loop_image.isChecked()
 
         # 入场视频
         self._config.intro.enabled = self.check_intro_enabled.isChecked()
@@ -451,7 +560,8 @@ class ConfigPanel(QWidget):
                 type=trans_in_type,
                 options=TransitionOptions(
                     duration=self.spin_trans_in_duration.value(),
-                    background_color=self.edit_trans_in_color.text()
+                    background_color=self.edit_trans_in_color.text(),
+                    image=self.edit_trans_in_image.text() or None
                 )
             )
         else:
@@ -464,7 +574,8 @@ class ConfigPanel(QWidget):
                 type=trans_loop_type,
                 options=TransitionOptions(
                     duration=self.spin_trans_loop_duration.value(),
-                    background_color=self.edit_trans_loop_color.text()
+                    background_color=self.edit_trans_loop_color.text(),
+                    image=self.edit_trans_loop_image.text() or None
                 )
             )
         else:
@@ -485,6 +596,15 @@ class ConfigPanel(QWidget):
                     color=self.edit_ark_color.text(),
                     operator_class_icon=self.edit_ark_class_icon.text(),
                     logo=self.edit_ark_logo.text()
+                )
+            )
+        elif overlay_type == OverlayType.IMAGE:
+            self._config.overlay = Overlay(
+                type=overlay_type,
+                image_options=ImageOverlayOptions(
+                    appear_time=self.spin_img_appear.value(),
+                    duration=self.spin_img_duration.value(),
+                    image=self.edit_img_overlay.text()
                 )
             )
         else:
@@ -514,6 +634,7 @@ class ConfigPanel(QWidget):
         """叠加类型变更"""
         overlay_type = self.combo_overlay_type.currentData()
         self.group_arknights.setVisible(overlay_type == "arknights")
+        self.group_image_overlay.setVisible(overlay_type == "image")
         self._on_config_changed()
 
     def _browse_icon(self):
@@ -554,15 +675,33 @@ class ConfigPanel(QWidget):
                 self.edit_icon.setText(path)
 
     def _browse_loop(self):
-        """浏览循环视频"""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择循环视频", self._base_dir,
-            "视频文件 (*.mp4 *.avi *.mov)"
-        )
+        """浏览循环视频/图片"""
+        if self.radio_loop_image.isChecked():
+            # 图片模式
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择循环图片", self._base_dir,
+                "图片文件 (*.png *.jpg *.jpeg)"
+            )
+        else:
+            # 视频模式
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择循环视频", self._base_dir,
+                "视频文件 (*.mp4 *.avi *.mov)"
+            )
         if path:
             self.edit_loop_file.setText(path)
-            # 发送视频选择信号用于预览
-            self.video_file_selected.emit(path)
+            # 发送视频选择信号用于预览（仅视频模式）
+            if not self.radio_loop_image.isChecked():
+                self.video_file_selected.emit(path)
+
+    def _on_loop_mode_changed(self):
+        """循环模式变更"""
+        is_image = self.radio_loop_image.isChecked()
+        if is_image:
+            self.edit_loop_file.setPlaceholderText("loop.png")
+        else:
+            self.edit_loop_file.setPlaceholderText("loop.mp4")
+        self._on_config_changed()
 
     def _browse_intro(self):
         """浏览入场视频"""
@@ -654,3 +793,52 @@ class ConfigPanel(QWidget):
             import logging
             logging.getLogger(__name__).warning(f"复制文件失败: {e}")
             return src_path
+
+    def _browse_transition_image(self, trans_type: str):
+        """浏览过渡图片"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择过渡图片", self._base_dir,
+            "图片文件 (*.png *.jpg *.jpeg)"
+        )
+        if file_path and self._base_dir:
+            from PyQt6.QtWidgets import QApplication
+            from PyQt6.QtCore import Qt
+            from core.image_processor import ImageProcessor
+
+            # 显示等待光标
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                # 加载图片
+                img = ImageProcessor.load_image(file_path)
+                if img is None:
+                    return
+
+                # 缩放到 360x640
+                img = ImageProcessor.resize_image(img, 360, 640, keep_aspect=True)
+
+                # 保存到项目目录
+                base_name = f"trans_{trans_type}_image"
+                _, ext = os.path.splitext(file_path)
+                dest_path = os.path.join(self._base_dir, f"{base_name}{ext}")
+
+                if ImageProcessor.save_image(img, dest_path):
+                    rel_path = os.path.basename(dest_path)
+                    if trans_type == "in":
+                        self.edit_trans_in_image.setText(rel_path)
+                    else:
+                        self.edit_trans_loop_image.setText(rel_path)
+                    self._on_config_changed()
+            finally:
+                QApplication.restoreOverrideCursor()
+
+    def _on_select_img_overlay(self):
+        """选择叠加图片"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择叠加图片", self._base_dir,
+            "图片文件 (*.png *.jpg *.jpeg)"
+        )
+        if file_path:
+            rel_path = self._copy_to_project_dir(file_path, "overlay")
+            if rel_path:
+                self.edit_img_overlay.setText(rel_path)
+                self._on_config_changed()

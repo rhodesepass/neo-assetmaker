@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional, Callable, Tuple, Dict, Any
 
 from config.constants import RESOLUTION_SPECS, get_resolution_spec
+from utils.file_utils import get_app_dir
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +73,18 @@ class VideoProcessor:
             return False, f"检查FFmpeg时出错: {e}"
 
     def find_ffmpeg(self) -> str:
-        """查找系统中的ffmpeg"""
-        # 检查当前目录
+        """查找系统中的ffmpeg（支持打包环境）"""
+        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+        if os.path.isfile(app_ffmpeg):
+            return app_ffmpeg
+
+        # 2. 在当前工作目录查找
         local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             return local_ffmpeg
 
-        # 检查系统PATH
+        # 3. 在系统 PATH 中查找
         try:
             cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
             result = subprocess.run(cmd, capture_output=True, text=True)

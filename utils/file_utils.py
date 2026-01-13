@@ -2,6 +2,7 @@
 文件操作工具函数
 """
 import os
+import sys
 from typing import Optional, Tuple
 
 from config.constants import SUPPORTED_VIDEO_FORMATS, SUPPORTED_IMAGE_FORMATS
@@ -186,3 +187,18 @@ def get_json_filter() -> str:
 def get_all_files_filter() -> str:
     """获取所有文件过滤器字符串"""
     return "所有文件 (*.*)"
+
+
+def get_app_dir() -> str:
+    """
+    获取应用程序所在目录（支持 Nuitka/PyInstaller 打包）
+
+    Returns:
+        应用程序所在目录的绝对路径
+    """
+    if getattr(sys, 'frozen', False):
+        # Nuitka/PyInstaller 打包后，sys.executable 指向打包的 exe
+        return os.path.dirname(sys.executable)
+    else:
+        # 开发环境，返回项目根目录
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

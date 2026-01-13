@@ -7,8 +7,19 @@ import sys
 import os
 import logging
 
+# 打包环境兼容处理 (cx_Freeze)
+if getattr(sys, 'frozen', False):
+    # 冻结环境下获取应用目录
+    APP_DIR = os.path.dirname(sys.executable)
+    # 设置 PyQt6 插件路径
+    plugin_path = os.path.join(APP_DIR, 'lib', 'PyQt6', 'Qt6', 'plugins')
+    if os.path.exists(plugin_path):
+        os.environ['QT_PLUGIN_PATH'] = plugin_path
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # 添加项目根目录到路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, APP_DIR)
 
 
 def check_dependencies():
@@ -71,9 +82,7 @@ def main():
     app.setOrganizationName("ArknightsPassMaker")
 
     # 设置应用程序图标
-    icon_path = os.path.join(
-        os.path.dirname(__file__), 'resources', 'icons', 'favicon.ico'
-    )
+    icon_path = os.path.join(APP_DIR, 'resources', 'icons', 'favicon.ico')
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 

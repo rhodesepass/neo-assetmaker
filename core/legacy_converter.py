@@ -29,6 +29,7 @@ from config.epconfig import (
     EPConfig, Overlay, OverlayType, ArknightsOverlayOptions,
     ImageOverlayOptions, IntroConfig, Transition, TransitionType, TransitionOptions
 )
+from utils.file_utils import get_app_dir
 
 if TYPE_CHECKING:
     from core.operator_lookup import OperatorInfo, OperatorLookup
@@ -306,17 +307,23 @@ class LegacyConverter:
         self._results.clear()
 
     def _find_ffmpeg(self) -> str:
-        """查找ffmpeg"""
+        """查找ffmpeg（支持打包环境）"""
         if self._ffmpeg_path:
             return self._ffmpeg_path
 
-        # 当前目录
+        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+        if os.path.isfile(app_ffmpeg):
+            self._ffmpeg_path = app_ffmpeg
+            return self._ffmpeg_path
+
+        # 2. 在当前工作目录查找
         local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             self._ffmpeg_path = local_ffmpeg
             return self._ffmpeg_path
 
-        # 系统PATH
+        # 3. 在系统 PATH 中查找
         try:
             cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
             result = subprocess.run(cmd, capture_output=True, text=True)

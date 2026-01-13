@@ -172,6 +172,9 @@ class MainWindow(QMainWindow):
         # 配置面板
         self.config_panel.config_changed.connect(self._on_config_changed)
         self.config_panel.video_file_selected.connect(self._on_video_file_selected)
+        self.config_panel.validate_requested.connect(self._on_validate)
+        self.config_panel.export_requested.connect(self._on_export)
+        self.config_panel.capture_frame_requested.connect(self._on_capture_frame)
 
         # 视频预览
         self.video_preview.video_loaded.connect(self._on_video_loaded)
@@ -262,7 +265,7 @@ class MainWindow(QMainWindow):
             self.json_preview.set_config(self._config, self._base_dir)
             self.video_preview.set_epconfig(self._config)
 
-            # 尝试加载循环视频
+            # 尝试加载循环视频（延迟执行，避免阻塞UI）
             if self._config.loop.file:
                 video_path = self._config.loop.file
                 # 如果是相对路径，转换为绝对路径
@@ -270,7 +273,9 @@ class MainWindow(QMainWindow):
                     video_path = os.path.join(self._base_dir, video_path)
                 logger.info(f"尝试加载循环视频: {video_path}")
                 if os.path.exists(video_path):
-                    self.video_preview.load_video(video_path)
+                    # 使用 singleShot 延迟加载，让UI先完成更新
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(100, lambda vp=video_path: self.video_preview.load_video(vp))
                 else:
                     logger.warning(f"循环视频文件不存在: {video_path}")
 
@@ -636,6 +641,27 @@ class MainWindow(QMainWindow):
     def _on_playback_changed(self, is_playing: bool):
         """播放状态变更"""
         self.timeline.set_playing(is_playing)
+
+    def _on_capture_frame(self):
+        """截取当前视频帧作为图标"""
+        if not self._base_dir:
+            QMessageBox.warning(self, "警告", "请先创建或打开项目")
+            return
+
+        # 获取当前帧
+        frame = self.video_preview.current_frame
+        if frame is None:
+            QMessageBox.warning(self, "警告", "请先加载视频")
+            return
+
+        # 保存为图标文件
+        import cv2
+        icon_path = os.path.join(self._base_dir, "icon.png")
+        cv2.imwrite(icon_path, frame)
+
+        # 更新配置
+        self.config_panel.edit_icon.setText("icon.png")
+        self.status_bar.showMessage("已截取视频帧作为图标")
 
     def _collect_export_data(self) -> dict:
         """收集导出所需的数据"""
