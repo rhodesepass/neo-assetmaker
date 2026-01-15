@@ -293,7 +293,7 @@ class ExportWorker(QThread):
                 "-profile:v", "high",
                 "-level", "4.0",
                 "-pix_fmt", "yuv420p",
-                "-b:v", "1000k",
+                "-b:v", "3000k",
                 "-an", "-y",
                 output_file
             ]
@@ -395,7 +395,7 @@ class ExportWorker(QThread):
                 "-profile:v", "high",
                 "-level", "4.0",
                 "-pix_fmt", "yuv420p",
-                "-b:v", "1000k",
+                "-b:v", "3000k",
                 "-an", "-y",
                 output_file
             ]

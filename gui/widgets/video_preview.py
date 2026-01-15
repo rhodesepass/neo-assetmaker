@@ -36,6 +36,7 @@ class VideoPreviewWidget(QWidget):
     frame_changed = pyqtSignal(int)  # 当前帧号
     playback_state_changed = pyqtSignal(bool)  # 播放状态
     video_loaded = pyqtSignal(int, float)  # 总帧数, fps
+    rotation_changed = pyqtSignal(int)  # 旋转角度 (0, 90, 180, 270)
 
     # 拖拽模式
     DRAG_NONE = 0
@@ -84,6 +85,9 @@ class VideoPreviewWidget(QWidget):
         self._preview_mode: bool = False
         self._epconfig: Optional["EPConfig"] = None
         self._overlay_renderer = None
+
+        # 视频旋转 (0, 90, 180, 270)
+        self._rotation: int = 0
 
         self._setup_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -210,9 +214,10 @@ class VideoPreviewWidget(QWidget):
     def _update_info_label(self):
         """更新信息标签"""
         x, y, w, h = self.cropbox
+        rotation_str = f" | 旋转: {self._rotation}°" if self._rotation != 0 else ""
         self.info_label.setText(
             f"帧: {self.current_frame_index}/{self.total_frames} | "
-            f"裁剪: ({x}, {y}, {w}, {h})"
+            f"裁剪: ({x}, {y}, {w}, {h}){rotation_str}"
         )
 
     def _read_and_display_frame(self):
@@ -238,14 +243,17 @@ class VideoPreviewWidget(QWidget):
         if frame is None or not HAS_CV2:
             return
 
+        # 应用旋转
+        rotated_frame = self._apply_rotation(frame)
+
         x, y, w, h = self.cropbox
 
         if self._preview_mode:
             # 预览模式：显示裁剪后的最终效果
-            display_frame = self._render_preview_frame(frame)
+            display_frame = self._render_preview_frame(rotated_frame)
         else:
             # 编辑模式：显示完整帧+裁剪框
-            display_frame = frame.copy()
+            display_frame = rotated_frame.copy()
 
             # 绘制裁剪框
             cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -404,6 +412,43 @@ class VideoPreviewWidget(QWidget):
     def is_preview_mode(self) -> bool:
         """获取预览模式状态"""
         return self._preview_mode
+
+    def set_rotation(self, degrees: int):
+        """设置视频旋转角度 (0, 90, 180, 270)"""
+        degrees = degrees % 360
+        if degrees not in (0, 90, 180, 270):
+            degrees = 0
+        if self._rotation != degrees:
+            self._rotation = degrees
+            self.rotation_changed.emit(degrees)
+            if self.current_frame is not None:
+                self._display_frame(self.current_frame)
+
+    def get_rotation(self) -> int:
+        """获取视频旋转角度"""
+        return self._rotation
+
+    def rotate_clockwise(self):
+        """顺时针旋转90度"""
+        new_rotation = (self._rotation + 90) % 360
+        self.set_rotation(new_rotation)
+
+    def rotate_counterclockwise(self):
+        """逆时针旋转90度"""
+        new_rotation = (self._rotation - 90) % 360
+        self.set_rotation(new_rotation)
+
+    def _apply_rotation(self, frame: np.ndarray) -> np.ndarray:
+        """应用旋转到帧"""
+        if self._rotation == 0:
+            return frame
+        elif self._rotation == 90:
+            return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        elif self._rotation == 180:
+            return cv2.rotate(frame, cv2.ROTATE_180)
+        elif self._rotation == 270:
+            return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return frame
 
     def set_epconfig(self, config: "EPConfig"):
         """设置配置（用于叠加UI渲染）"""

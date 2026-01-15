@@ -29,6 +29,7 @@ from config.epconfig import (
     EPConfig, Overlay, OverlayType, ArknightsOverlayOptions,
     ImageOverlayOptions, IntroConfig, Transition, TransitionType, TransitionOptions
 )
+from config.constants import MICROSECONDS_PER_SECOND, DEFAULT_INTRO_DURATION
 from utils.file_utils import get_app_dir
 
 if TYPE_CHECKING:
@@ -171,8 +172,8 @@ class LegacyConverter:
         Returns:
             (干员信息, 是否为arknights模板)
             - 成功: (OperatorInfo, True)
-            - 非标准模板: (None, False)
-            - 识别失败: (None, True)
+            - 非标准模板且OCR失败: (None, False)
+            - 标准模板但识别失败: (None, True)
         """
         ocr = self._get_ocr_service()
         lookup = self._get_operator_lookup()
@@ -182,15 +183,20 @@ class LegacyConverter:
             return None, False
 
         # 检测是否为标准模板
-        if not ocr.is_arknights_template(overlay_image):
-            logger.info("overlay不是标准arknights模板")
-            return None, False
+        is_template = ocr.is_arknights_template(overlay_image)
 
-        # OCR识别干员名称
+        if not is_template:
+            logger.info("overlay不是标准arknights模板，尝试OCR识别...")
+
+        # 无论是否为标准模板，都尝试OCR识别
         ocr_text = ocr.extract_operator_name(overlay_image)
         if not ocr_text:
-            logger.warning("OCR识别失败，无法提取干员名称")
-            return None, True
+            if is_template:
+                logger.warning("OCR识别失败，但为标准模板")
+                return None, True
+            else:
+                logger.info("OCR识别失败，非通行证样式")
+                return None, False
 
         logger.info(f"OCR识别结果: {ocr_text}")
 
@@ -211,14 +217,19 @@ class LegacyConverter:
                     return confirmed, True
                 else:
                     logger.info("用户跳过模糊匹配")
-                    return None, True
+                    return None, is_template
             else:
                 # 没有确认回调，自动使用最佳匹配
                 logger.info(f"无确认回调，自动使用最佳匹配: {operator_info.name}")
                 return operator_info, True
 
-        logger.warning(f"未找到匹配的干员: {ocr_text}")
-        return None, True
+        # OCR识别到文字但未找到干员
+        if is_template:
+            logger.warning(f"未找到匹配的干员: {ocr_text}")
+            return None, True
+        else:
+            logger.info(f"非标准模板，未找到干员: {ocr_text}")
+            return None, False
 
     def _find_class_icon_by_name(self, filename: str) -> Optional[str]:
         """根据文件名查找职业图标"""
@@ -608,7 +619,7 @@ class LegacyConverter:
                 "-profile:v", "high",
                 "-level", "4.0",
                 "-pix_fmt", "yuv420p",
-                "-b:v", "1000k",
+                "-b:v", "3000k",
                 "-an",  # 无音频
                 "-y",   # 覆盖输出
                 dst_path
@@ -632,6 +643,45 @@ class LegacyConverter:
         except Exception as e:
             logger.error(f"视频转换失败: {e}")
             return False
+
+    def _get_video_duration(self, video_path: str) -> Optional[float]:
+        """
+        使用FFprobe获取视频时长（秒）
+
+        Args:
+            video_path: 视频文件路径
+
+        Returns:
+            视频时长（秒），失败返回 None
+        """
+        ffmpeg_path = self._find_ffmpeg()
+        if not ffmpeg_path:
+            return None
+
+        # FFprobe 与 FFmpeg 在同一目录
+        ffmpeg_dir = os.path.dirname(ffmpeg_path)
+        ffprobe_name = 'ffprobe.exe' if os.name == 'nt' else 'ffprobe'
+        ffprobe_path = os.path.join(ffmpeg_dir, ffprobe_name)
+
+        if not os.path.exists(ffprobe_path):
+            logger.warning("未找到FFprobe")
+            return None
+
+        try:
+            cmd = [
+                ffprobe_path,
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+        except Exception as e:
+            logger.error(f"获取视频时长失败: {e}")
+
+        return None
 
     def generate_new_config(
         self,
@@ -836,12 +886,21 @@ class LegacyConverter:
             return result
 
         # 2. 转换 intro.mp4 (可选) - 旋转180度校正
+        actual_intro_duration = DEFAULT_INTRO_DURATION  # 默认 5 秒
         if os.path.exists(intro_src):
             if progress_callback:
                 progress_callback("转换入场视频...")
             if self.convert_video(intro_src, intro_dst):
                 result.files_converted.append('intro.mp4')
                 has_intro = True
+
+                # 使用 FFprobe 获取转换后视频的实际时长
+                duration = self._get_video_duration(intro_dst)
+                if duration and duration > 0:
+                    actual_intro_duration = int(duration * MICROSECONDS_PER_SECOND)
+                    logger.info(f"{folder_name}: intro视频时长 {duration:.2f}秒")
+                else:
+                    logger.warning(f"{folder_name}: 无法获取intro视频时长，使用默认值")
             else:
                 logger.warning(f"{folder_name}: 转换intro.mp4失败，跳过")
 
@@ -955,6 +1014,7 @@ class LegacyConverter:
             folder_name,
             dst_dir,
             has_intro=has_intro,
+            intro_duration=actual_intro_duration,
             overlay_mode=effective_overlay_mode,
             has_overlay_image=has_overlay_image,
             has_logo=has_logo,
@@ -977,7 +1037,9 @@ class LegacyConverter:
         dst_root: str,
         overlay_mode: str = "auto",
         auto_ocr: bool = True,
-        progress_callback=None
+        progress_callback=None,
+        folder_progress_callback=None,
+        confirm_callback=None
     ) -> List[ConversionResult]:
         """
         批量转换多个素材文件夹
@@ -991,6 +1053,8 @@ class LegacyConverter:
                 - "image": 保留原overlay图片
             auto_ocr: 是否启用OCR自动识别
             progress_callback: 进度回调函数 (current, total, name)
+            folder_progress_callback: 文件夹内部进度回调 (message)
+            confirm_callback: 干员确认回调
 
         Returns:
             转换结果列表
@@ -1018,6 +1082,10 @@ class LegacyConverter:
         os.makedirs(dst_root, exist_ok=True)
 
         # 转换每个文件夹
+        # 设置确认回调
+        if confirm_callback:
+            self.set_confirm_callback(confirm_callback)
+
         for i, (name, src_path) in enumerate(folders):
             if progress_callback:
                 progress_callback(i + 1, len(folders), name)
@@ -1026,7 +1094,8 @@ class LegacyConverter:
             self.convert_folder(
                 src_path, dst_path,
                 overlay_mode=overlay_mode,
-                auto_ocr=auto_ocr
+                auto_ocr=auto_ocr,
+                progress_callback=folder_progress_callback
             )
 
         return self._results

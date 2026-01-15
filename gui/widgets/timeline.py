@@ -171,6 +171,7 @@ class TimelineWidget(QWidget):
     set_in_point_clicked = pyqtSignal()
     set_out_point_clicked = pyqtSignal()
     preview_mode_changed = pyqtSignal(bool)  # 预览模式切换信号
+    rotation_clicked = pyqtSignal()  # 旋转按钮点击信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -245,6 +246,12 @@ class TimelineWidget(QWidget):
         self.btn_preview.setCheckable(True)
         control_layout.addWidget(self.btn_preview)
 
+        # 旋转按钮
+        self.btn_rotate = QPushButton("旋转 0°")
+        self.btn_rotate.setToolTip("旋转视频（点击顺时针旋转90度）")
+        self.btn_rotate.setFixedWidth(70)
+        control_layout.addWidget(self.btn_rotate)
+
         control_layout.addStretch()
 
         # 时间轴滑块
@@ -290,6 +297,7 @@ class TimelineWidget(QWidget):
         self.btn_set_out.clicked.connect(self.set_out_point_clicked.emit)
         self.timeline_slider.seek_requested.connect(self.seek_requested.emit)
         self.btn_preview.clicked.connect(self._on_preview_toggled)
+        self.btn_rotate.clicked.connect(self.rotation_clicked.emit)
 
     def _on_preview_toggled(self):
         """预览模式切换"""
@@ -349,3 +357,7 @@ class TimelineWidget(QWidget):
     def _update_label(self):
         """更新帧标签"""
         self.label_frame.setText(f"{self._current_frame} / {self._total_frames}")
+
+    def set_rotation(self, degrees: int):
+        """更新旋转按钮显示"""
+        self.btn_rotate.setText(f"旋转 {degrees}°")

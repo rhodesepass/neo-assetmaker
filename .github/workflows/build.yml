@@ -32,8 +32,10 @@ jobs:
         id: cache-ffmpeg
         uses: actions/cache@v4
         with:
-          path: ffmpeg.exe
-          key: ffmpeg-win64-latest
+          path: |
+            ffmpeg.exe
+            ffprobe.exe
+          key: ffmpeg-win64-v2
 
       - name: Download FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -42,27 +44,18 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
           Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_temp
           $ffmpegExe = Get-ChildItem -Path ffmpeg_temp -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobeExe = Get-ChildItem -Path ffmpeg_temp -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
           Copy-Item $ffmpegExe.FullName -Destination "ffmpeg.exe"
+          Copy-Item $ffprobeExe.FullName -Destination "ffprobe.exe"
           Remove-Item -Recurse -Force ffmpeg_temp, ffmpeg.zip
         shell: pwsh
 
-      - name: Cache 7z SFX
-        id: cache-sfx
-        uses: actions/cache@v4
-        with:
-          path: 7zSD.sfx
-          key: 7z-sfx-2301
-
-      - name: Download 7z SFX module
-        if: steps.cache-sfx.outputs.cache-hit != 'true'
+      - name: Install Inno Setup
         run: |
-          Invoke-WebRequest -Uri "https://www.7-zip.org/a/lzma2301.7z" -OutFile lzma.7z
-          7z x lzma.7z -olzma_temp
-          Copy-Item "lzma_temp/bin/7zSD.sfx" -Destination "7zSD.sfx"
-          Remove-Item -Recurse -Force lzma_temp, lzma.7z
+          choco install innosetup -y
         shell: pwsh
 
-      - name: Build with cx_Freeze
+      - name: Build with cx_Freeze and Inno Setup
         run: python build.py
 
       - name: Upload build artifact

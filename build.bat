@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal EnableDelayedExpansion
 
 echo ================================================
-echo   ArknightsPassMaker - cx_Freeze + 7Z_SFX Build
+echo   ArknightsPassMaker - cx_Freeze + Inno Setup Build
 echo ================================================
 echo.
 
@@ -29,8 +29,8 @@ set SHOW_HELP=0
 
 :parse_args
 if "%~1"=="" goto end_parse
-if "%~1"=="--no-sfx" (
-    set BUILD_ARGS=%BUILD_ARGS% --no-sfx
+if "%~1"=="--no-installer" (
+    set BUILD_ARGS=%BUILD_ARGS% --no-installer
     shift
     goto parse_args
 )
@@ -58,14 +58,14 @@ if %SHOW_HELP%==1 (
     echo Usage: build.bat [options]
     echo.
     echo Options:
-    echo   --no-sfx     Skip 7Z_SFX packaging
-    echo   --clean      Clean build directories first
-    echo   --help, -h   Show this help message
+    echo   --no-installer   Skip Inno Setup packaging
+    echo   --clean          Clean build directories first
+    echo   --help, -h       Show this help message
     echo.
     echo Examples:
-    echo   build.bat              Build with SFX
-    echo   build.bat --no-sfx     Build without SFX
-    echo   build.bat --clean      Clean build
+    echo   build.bat                  Build with installer
+    echo   build.bat --no-installer   Build without installer
+    echo   build.bat --clean          Clean build
     echo.
     goto end
 )

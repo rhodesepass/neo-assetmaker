@@ -213,7 +213,7 @@ class VideoProcessor:
         cmd.extend([
             "-c:v", "libx264",
             "-preset", "medium",
-            "-crf", "23",
+            "-crf", "18",
             "-pix_fmt", "yuv420p",
             "-an",  # 无音频
             output_path
@@ -284,7 +284,7 @@ class VideoProcessor:
         filter_str = ",".join(filters)
 
         return (f'ffmpeg -i "{input_path}" -vf "{filter_str}" '
-                f'-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p '
+                f'-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p '
                 f'-an "{output_path}"')
 
     def get_resolution_info(self, resolution: str) -> Dict[str, Any]:

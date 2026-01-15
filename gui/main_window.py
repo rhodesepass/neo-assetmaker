@@ -147,6 +147,13 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
+        self.action_simulator = QAction("模拟预览(&M)...", self)
+        self.action_simulator.setShortcut(QKeySequence("Ctrl+M"))
+        self.action_simulator.setToolTip("打开通行证模拟器，预览实际显示效果")
+        tools_menu.addAction(self.action_simulator)
+
+        tools_menu.addSeparator()
+
         self.action_batch_convert = QAction("批量转换老素材(&B)...", self)
         tools_menu.addAction(self.action_batch_convert)
 
@@ -166,6 +173,7 @@ class MainWindow(QMainWindow):
         self.action_exit.triggered.connect(self.close)
         self.action_validate.triggered.connect(self._on_validate)
         self.action_export.triggered.connect(self._on_export)
+        self.action_simulator.triggered.connect(self._on_simulator)
         self.action_batch_convert.triggered.connect(self._on_batch_convert)
         self.action_about.triggered.connect(self._on_about)
 
@@ -193,6 +201,8 @@ class MainWindow(QMainWindow):
         self.timeline.set_in_point_clicked.connect(self.timeline.set_in_point_to_current)
         self.timeline.set_out_point_clicked.connect(self.timeline.set_out_point_to_current)
         self.timeline.preview_mode_changed.connect(self.video_preview.set_preview_mode)
+        self.timeline.rotation_clicked.connect(self.video_preview.rotate_clockwise)
+        self.video_preview.rotation_changed.connect(self.timeline.set_rotation)
 
     def _load_settings(self):
         """加载设置"""
@@ -438,6 +448,28 @@ class MainWindow(QMainWindow):
         # 显示进度对话框
         self._export_dialog.exec()
 
+    def _on_simulator(self):
+        """打开模拟器预览"""
+        if not self._config:
+            QMessageBox.information(self, "提示", "请先创建或打开项目")
+            return
+
+        # 检查是否有循环视频
+        if not self._config.loop.file:
+            QMessageBox.warning(
+                self, "警告",
+                "请先配置循环视频文件\n\n"
+                "在配置面板的'视频配置'选项卡中选择循环视频文件"
+            )
+            return
+
+        # 创建并显示模拟器对话框
+        from gui.dialogs.pass_simulator_dialog import PassSimulatorDialog
+
+        dialog = PassSimulatorDialog(self)
+        dialog.set_config(self._config, self._base_dir)
+        dialog.exec()
+
     def _on_batch_convert(self):
         """批量转换老素材"""
         from core.legacy_converter import LegacyConverter
@@ -486,37 +518,31 @@ class MainWindow(QMainWindow):
 
         # 执行转换
         logger.info(f"开始批量转换: {src_dir} -> {dst_dir}, overlay_mode={overlay_mode}, auto_ocr={auto_ocr}")
-        self.status_bar.showMessage("正在转换老素材...")
 
         try:
+            from gui.dialogs.batch_convert_dialog import BatchConvertDialog
+
             converter = LegacyConverter()
 
             # 设置OCR确认回调
-            if auto_ocr:
-                converter.set_confirm_callback(self._on_ocr_confirm)
+            confirm_callback = self._on_ocr_confirm if auto_ocr else None
 
-            results = converter.batch_convert(
-                src_dir, dst_dir,
-                overlay_mode=overlay_mode,
-                auto_ocr=auto_ocr
+            # 使用进度对话框
+            dialog = BatchConvertDialog(self)
+            dialog.start(
+                converter, src_dir, dst_dir,
+                overlay_mode, auto_ocr,
+                confirm_callback=confirm_callback
             )
+            dialog.exec()
 
-            summary = converter.get_summary()
-            logger.info(summary)
+            results = dialog.get_results()
 
-            # 显示结果
+            # 显示结果摘要
             if results:
                 success_count = sum(1 for r in results if r.success)
-                fail_count = len(results) - success_count
-
-                msg = f"{summary}\n\n"
-                if fail_count > 0:
-                    msg += "失败的转换:\n"
-                    for r in results:
-                        if not r.success:
-                            msg += f"  - {os.path.basename(r.src_path)}: {r.message}\n"
-
-                QMessageBox.information(self, "转换完成", msg)
+                summary = f"转换完成: {success_count}/{len(results)} 成功"
+                self.status_bar.showMessage(summary)
             else:
                 QMessageBox.warning(
                     self, "转换结果",
@@ -528,8 +554,7 @@ class MainWindow(QMainWindow):
                     f"  - overlay.argb (可选)\n"
                     f"  - intro.mp4 (可选)"
                 )
-
-            self.status_bar.showMessage(summary)
+                self.status_bar.showMessage("未找到老素材")
 
         except Exception as e:
             logger.error(f"批量转换失败: {e}")

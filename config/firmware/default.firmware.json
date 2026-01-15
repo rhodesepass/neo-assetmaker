@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "name": "drm_app_neo_extracted",
+  "source": "D:\\Document\\GitHub\\drm_app_neo",
+  "extracted_at": "2026-01-16T01:08:26.508201",
+  "animation": {
+    "fps": 50,
+    "step_time_us": 20000,
+    "typewriter": {
+      "name": {
+        "start_frame": 30,
+        "frame_per_char": 3
+      },
+      "code": {
+        "start_frame": 40,
+        "frame_per_char": 3
+      },
+      "staff": {
+        "start_frame": 40,
+        "frame_per_char": 3
+      },
+      "aux": {
+        "start_frame": 50,
+        "frame_per_char": 2
+      }
+    },
+    "eink": {
+      "barcode": {
+        "start_frame": 30,
+        "frame_per_state": 15
+      },
+      "classicon": {
+        "start_frame": 60,
+        "frame_per_state": 15
+      },
+      "states": [
+        "FIRST_BLACK",
+        "FIRST_WHITE",
+        "SECOND_BLACK",
+        "SECOND_WHITE",
+        "IDLE",
+        "CONTENT"
+      ]
+    },
+    "color_fade": {
+      "start_frame": 15,
+      "value_per_frame": 10,
+      "end_value": 192
+    },
+    "logo_fade": {
+      "start_frame": 30,
+      "value_per_frame": 5
+    },
+    "bars_lines": {
+      "ak_bar": {
+        "start_frame": 100,
+        "frame_count": 40
+      },
+      "upper_line": {
+        "start_frame": 80,
+        "frame_count": 40
+      },
+      "lower_line": {
+        "start_frame": 90,
+        "frame_count": 40
+      },
+      "line_width": 280
+    },
+    "arrow": {
+      "y_incr_per_frame": 1
+    },
+    "entry": {
+      "total_frames": 50
+    }
+  },
+  "layout": {
+    "overlay": {
+      "width": 360,
+      "height": 640
+    },
+    "offsets": {
+      "btm_info_x": 70,
+      "opname_y": 415,
+      "upperline_y": 455,
+      "lowerline_y": 475,
+      "opcode_y": 457,
+      "staff_text_y": 480,
+      "class_icon_y": 525,
+      "ak_bar_y": 578,
+      "aux_text_y": 592,
+      "aux_text_line_height": 15,
+      "arrow_y": 100
+    },
+    "barcode": {
+      "x": 1,
+      "y": 450,
+      "width": 50,
+      "height": 180
+    },
+    "class_icon": {
+      "width": 50,
+      "height": 50
+    }
+  },
+  "bezier_presets": {
+    "ease_out": [
+      0.0,
+      0.0,
+      0.58,
+      1.0
+    ],
+    "ease_in": [
+      0.42,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "ease_in_out": [
+      0.42,
+      0.0,
+      0.58,
+      1.0
+    ]
+  },
+  "transition": {
+    "default_frames": 75,
+    "phase_ratio": [
+      0.333,
+      0.333,
+      0.333
+    ]
+  },
+  "enums": {
+    "prts_state": {
+      "IDLE": 0,
+      "正在播放loop动画": 1,
+      "TRANSITION_IN": 2,
+      "入场过渡": 3,
+      "INTRO": 4,
+      "入场视频": 5,
+      "TRANSITION_LOOP": 6,
+      "循环过渡": 7,
+      "PRE_OPINFO": 8,
+      "显示干员信息前的等待": 9
+    },
+    "transition_type": {
+      "FADE": 0,
+      "MOVE": 1,
+      "SWIPE": 2,
+      "NONE": 3
+    },
+    "eink_state": {
+      "FIRST_BLACK": 0,
+      "FIRST_WHITE": 1,
+      "SECOND_BLACK": 2,
+      "SECOND_WHITE": 3,
+      "IDLE": 4,
+      "CONTENT": 5
+    },
+    "opinfo_type": {
+      "IMAGE": 0,
+      "ARKNIGHTS": 1,
+      "NONE": 2
+    }
+  }
+}

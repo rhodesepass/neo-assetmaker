@@ -169,7 +169,11 @@ arknights_pass_maker/
 ├── README.md              # 说明文档
 ├── config/                # 配置模块
 │   ├── constants.py       # 常量定义
-│   └── epconfig.py        # 配置数据模型
+│   ├── epconfig.py        # 配置数据模型
+│   ├── firmware_config.py # 固件配置数据模型 (v1.0.3)
+│   ├── config_manager.py  # 配置管理器 (v1.0.3)
+│   └── firmware/          # 固件配置目录 (v1.0.3)
+│       └── default.firmware.json  # 默认固件配置
 ├── core/                  # 核心业务逻辑
 │   ├── validator.py       # 配置验证器
 │   ├── video_processor.py # 视频处理
@@ -177,12 +181,16 @@ arknights_pass_maker/
 │   ├── export_service.py  # 导出服务
 │   ├── legacy_converter.py # 老素材转换器
 │   ├── operator_lookup.py # 干员信息查询 (v1.0.1)
-│   └── ocr_service.py     # OCR识别服务 (v1.0.1)
+│   ├── ocr_service.py     # OCR识别服务 (v1.0.1)
+│   ├── overlay_renderer.py    # 叠加层渲染器
+│   ├── transition_renderer.py # 过渡效果渲染器 (v1.0.3)
+│   └── overlay_animator.py    # 叠加层动画渲染器 (v1.0.3)
 ├── gui/                   # 图形界面
 │   ├── main_window.py     # 主窗口
 │   ├── dialogs/           # 对话框
 │   │   ├── export_progress_dialog.py  # 导出进度
-│   │   └── operator_confirm_dialog.py # 干员确认 (v1.0.1)
+│   │   ├── operator_confirm_dialog.py # 干员确认 (v1.0.1)
+│   │   └── pass_simulator_dialog.py   # 通行证模拟器 (v1.0.3)
 │   └── widgets/           # UI组件
 │       ├── config_panel.py    # 配置面板
 │       ├── video_preview.py   # 视频预览
@@ -192,6 +200,8 @@ arknights_pass_maker/
 │   ├── logger.py          # 日志系统
 │   ├── file_utils.py      # 文件操作
 │   └── color_utils.py     # 颜色处理
+├── tools/                 # 工具脚本 (v1.0.3)
+│   └── firmware_config_extractor.py  # 固件配置提取器
 ├── resources/             # 资源文件
 │   ├── icons/             # 图标
 │   ├── class_icons/       # 职业图标
@@ -233,6 +243,36 @@ arknights_pass_maker/
 本项目仅供学习和研究使用。
 
 ## 更新日志
+
+### v1.0.3
+- 新增通行证模拟预览功能（工具 → 模拟预览）
+  - 360×640 独立窗口模拟真机显示效果（50fps）
+  - 完整播放流程：入场过渡 → 入场视频 → 循环过渡 → 循环视频+叠加层
+  - 支持三种过渡效果：FADE（淡入淡出）、MOVE（贝塞尔滑动）、SWIPE（像素扫动）
+  - 叠加层动画效果：
+    - 入场动画：从底部向上滑入（1秒ease-in-out）
+    - 文字打字机效果：干员名/代号逐字符显示
+    - EINK电子墨水效果：条码/职业图标黑白闪烁后显示（5状态×15帧）
+    - 颜色渐晕：右下角径向渐变
+    - 进度条/分割线：贝塞尔曲线宽度动画
+    - 箭头循环：持续上下扫动
+  - 支持播放/暂停/重置控制
+  - 首次过渡强制使用 SWIPE（与固件行为一致）
+- 新增数据驱动架构
+  - 固件配置提取器：从 C 源码自动提取 118 个常量和枚举
+  - FirmwareConfig 数据模型：42 个便捷属性访问配置值
+  - ConfigManager 配置管理器：单例模式，支持多配置切换
+  - JSON 配置文件：`config/firmware/default.firmware.json`
+  - 固件更新时只需重新运行提取脚本，无需修改 Python 代码
+- 新增视频旋转预览功能
+  - 支持 0°/90°/180°/270° 旋转
+  - 时间轴添加旋转按钮，方便查看倒置的源视频素材
+- 重构构建系统：从 7Z_SFX 改为 cx_Freeze + Inno Setup
+- 添加自定义安装界面（欢迎文字、logo图片）
+- 添加中文安装界面语言支持
+- 添加许可协议页面（CC BY-NC-SA 风格）
+- GitHub Actions 版本号自动同步到构建文件
+- 视频编码质量提升（CRF 18，码率 3000k）
 
 ### v1.0.2
 - 过渡效果图片自动调整为360x640分辨率
