@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         self._load_settings()
 
         self._update_title()
+        self._check_first_run()
         logger.info("主窗口初始化完成")
 
     def _setup_icon(self):
@@ -95,10 +96,10 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.json_preview)
 
         # 设置分割比例
-        self.splitter.setSizes([350, 600, 350])
-        self.splitter.setStretchFactor(0, 0)  # 左侧固定
-        self.splitter.setStretchFactor(1, 1)  # 中间可伸缩
-        self.splitter.setStretchFactor(2, 0)  # 右侧固定
+        self.splitter.setSizes([380, 600, 350])
+        self.splitter.setStretchFactor(0, 1)   # 左侧允许少量伸缩
+        self.splitter.setStretchFactor(1, 10)  # 中间优先伸缩
+        self.splitter.setStretchFactor(2, 1)   # 右侧允许少量伸缩
 
         # 状态栏
         self.status_bar = QStatusBar()
@@ -147,18 +148,17 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
-        self.action_simulator = QAction("模拟预览(&M)...", self)
-        self.action_simulator.setShortcut(QKeySequence("Ctrl+M"))
-        self.action_simulator.setToolTip("打开通行证模拟器，预览实际显示效果")
-        tools_menu.addAction(self.action_simulator)
-
-        tools_menu.addSeparator()
-
         self.action_batch_convert = QAction("批量转换老素材(&B)...", self)
         tools_menu.addAction(self.action_batch_convert)
 
         # 帮助菜单
         help_menu = menubar.addMenu("帮助(&H)")
+
+        self.action_shortcuts = QAction("快捷键帮助(&K)", self)
+        self.action_shortcuts.setShortcut(QKeySequence("F1"))
+        help_menu.addAction(self.action_shortcuts)
+
+        help_menu.addSeparator()
 
         self.action_about = QAction("关于(&A)", self)
         help_menu.addAction(self.action_about)
@@ -173,8 +173,8 @@ class MainWindow(QMainWindow):
         self.action_exit.triggered.connect(self.close)
         self.action_validate.triggered.connect(self._on_validate)
         self.action_export.triggered.connect(self._on_export)
-        self.action_simulator.triggered.connect(self._on_simulator)
         self.action_batch_convert.triggered.connect(self._on_batch_convert)
+        self.action_shortcuts.triggered.connect(self._on_shortcuts)
         self.action_about.triggered.connect(self._on_about)
 
         # 配置面板
@@ -200,7 +200,7 @@ class MainWindow(QMainWindow):
         )
         self.timeline.set_in_point_clicked.connect(self.timeline.set_in_point_to_current)
         self.timeline.set_out_point_clicked.connect(self.timeline.set_out_point_to_current)
-        self.timeline.preview_mode_changed.connect(self.video_preview.set_preview_mode)
+        self.timeline.simulator_requested.connect(self._on_simulator)
         self.timeline.rotation_clicked.connect(self.video_preview.rotate_clockwise)
         self.video_preview.rotation_changed.connect(self.timeline.set_rotation)
 
@@ -211,6 +211,22 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
             logger.debug("已恢复窗口几何设置")
+
+    def _check_first_run(self):
+        """检查是否首次运行"""
+        settings = QSettings("ArknightsPassMaker", "MainWindow")
+        if not settings.value("first_run_completed", False, type=bool):
+            from gui.dialogs.welcome_dialog import WelcomeDialog
+            dialog = WelcomeDialog(self)
+            dialog.exec()
+            if dialog.should_not_show_again():
+                settings.setValue("first_run_completed", True)
+
+    def _on_shortcuts(self):
+        """显示快捷键帮助"""
+        from gui.dialogs.shortcuts_dialog import ShortcutsDialog
+        dialog = ShortcutsDialog(self)
+        dialog.exec()
 
     def _save_settings(self):
         """保存设置"""
@@ -450,6 +466,10 @@ class MainWindow(QMainWindow):
 
     def _on_simulator(self):
         """打开模拟器预览"""
+        import subprocess
+        import tempfile
+        import json
+
         if not self._config:
             QMessageBox.information(self, "提示", "请先创建或打开项目")
             return
@@ -463,12 +483,40 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # 创建并显示模拟器对话框
-        from gui.dialogs.pass_simulator_dialog import PassSimulatorDialog
+        # 查找 Rust 模拟器可执行文件
+        simulator_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "simulator", "target", "release", "arknights_pass_simulator.exe"
+        )
 
-        dialog = PassSimulatorDialog(self)
-        dialog.set_config(self._config, self._base_dir)
-        dialog.exec()
+        if not os.path.exists(simulator_path):
+            QMessageBox.critical(
+                self, "错误",
+                f"模拟器未找到\n\n"
+                f"请先编译 Rust 模拟器:\n"
+                f"cd simulator && cargo build --release\n\n"
+                f"路径: {simulator_path}"
+            )
+            return
+
+        try:
+            # 导出配置到临时文件
+            config_path = os.path.join(tempfile.gettempdir(), "arknights_sim_config.json")
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(self._config.to_dict(), f, ensure_ascii=False, indent=2)
+
+            # 启动 Rust 模拟器
+            subprocess.Popen([
+                simulator_path,
+                "--config", config_path,
+                "--base-dir", self._base_dir
+            ])
+
+            logger.info(f"模拟器已启动: {simulator_path}")
+
+        except Exception as e:
+            logger.error(f"启动模拟器失败: {e}")
+            QMessageBox.critical(self, "错误", f"启动模拟器失败:\n{e}")
 
     def _on_batch_convert(self):
         """批量转换老素材"""

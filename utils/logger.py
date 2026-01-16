@@ -3,6 +3,7 @@
 """
 import os
 import logging
+import tempfile
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
@@ -12,19 +13,29 @@ def setup_logger(log_dir: str = None) -> logging.Logger:
     配置应用日志系统
 
     Args:
-        log_dir: 日志目录，默认为项目根目录下的 logs 文件夹
+        log_dir: 日志目录，默认为 AppData 目录，降级到临时目录
 
     Returns:
         配置好的根日志记录器
     """
     # 确定日志目录
     if log_dir is None:
-        log_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), 'logs'
-        )
+        # 优先使用 AppData 目录
+        appdata = os.getenv('LOCALAPPDATA')
+        if appdata:
+            log_dir = os.path.join(appdata, 'ArknightsPassMaker', 'logs')
+        else:
+            log_dir = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), 'logs'
+            )
 
-    # 创建日志目录
-    os.makedirs(log_dir, exist_ok=True)
+    # 创建日志目录，带权限降级
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except PermissionError:
+        # 降级到临时目录
+        log_dir = os.path.join(tempfile.gettempdir(), 'ArknightsPassMaker_logs')
+        os.makedirs(log_dir, exist_ok=True)
 
     # 日志文件名（按日期）
     log_file = os.path.join(
@@ -84,9 +95,14 @@ def cleanup_old_logs(log_dir: str = None, days: int = 30):
     from datetime import timedelta
 
     if log_dir is None:
-        log_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), 'logs'
-        )
+        # 使用与 setup_logger 相同的目录逻辑
+        appdata = os.getenv('LOCALAPPDATA')
+        if appdata:
+            log_dir = os.path.join(appdata, 'ArknightsPassMaker', 'logs')
+        else:
+            log_dir = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), 'logs'
+            )
 
     if not os.path.exists(log_dir):
         return

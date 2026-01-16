@@ -2,7 +2,7 @@
 
 #define MyAppName "ArknightsPassMaker"
 #define MyAppNameCN "明日方舟通行证素材制作器"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "Rafael-ban"
 #define MyAppURL "https://github.com/rhodesepass/arknights_pass_maker"
 #define MyAppExeName "ArknightsPassMaker.exe"
@@ -17,7 +17,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={localappdata}\{#MyAppName}
 DefaultGroupName={#MyAppNameCN}
 DisableProgramGroupPage=yes
 OutputDir=dist

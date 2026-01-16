@@ -170,7 +170,7 @@ class TimelineWidget(QWidget):
     goto_end_clicked = pyqtSignal()
     set_in_point_clicked = pyqtSignal()
     set_out_point_clicked = pyqtSignal()
-    preview_mode_changed = pyqtSignal(bool)  # 预览模式切换信号
+    simulator_requested = pyqtSignal()  # 模拟器启动请求信号
     rotation_clicked = pyqtSignal()  # 旋转按钮点击信号
 
     def __init__(self, parent=None):
@@ -180,7 +180,6 @@ class TimelineWidget(QWidget):
         self._current_frame = 0
         self._fps = 30.0
         self._is_playing = False
-        self._preview_mode = False  # 预览模式标志
 
         self._init_ui()
         self._connect_signals()
@@ -202,16 +201,17 @@ class TimelineWidget(QWidget):
 
         self.btn_prev_frame = QPushButton("<")
         self.btn_prev_frame.setFixedWidth(35)
-        self.btn_prev_frame.setToolTip("上一帧")
+        self.btn_prev_frame.setToolTip("上一帧 (\u2190)")
         control_layout.addWidget(self.btn_prev_frame)
 
         self.btn_play_pause = QPushButton("播放")
         self.btn_play_pause.setFixedWidth(50)
+        self.btn_play_pause.setToolTip("播放/暂停 (Space)")
         control_layout.addWidget(self.btn_play_pause)
 
         self.btn_next_frame = QPushButton(">")
         self.btn_next_frame.setFixedWidth(35)
-        self.btn_next_frame.setToolTip("下一帧")
+        self.btn_next_frame.setToolTip("下一帧 (\u2192)")
         control_layout.addWidget(self.btn_next_frame)
 
         self.btn_goto_end = QPushButton(">|")
@@ -240,27 +240,28 @@ class TimelineWidget(QWidget):
 
         control_layout.addWidget(QLabel("|"))
 
-        # 预览模式切换按钮
-        self.btn_preview = QPushButton("预览效果")
-        self.btn_preview.setToolTip("切换预览模式：显示最终导出效果")
-        self.btn_preview.setCheckable(True)
+        # 模拟预览按钮
+        self.btn_preview = QPushButton("模拟预览")
+        self.btn_preview.setToolTip("启动模拟器预览实际显示效果")
         control_layout.addWidget(self.btn_preview)
 
         # 旋转按钮
         self.btn_rotate = QPushButton("旋转 0°")
         self.btn_rotate.setToolTip("旋转视频（点击顺时针旋转90度）")
-        self.btn_rotate.setFixedWidth(70)
+        self.btn_rotate.setMinimumWidth(85)
         control_layout.addWidget(self.btn_rotate)
 
         control_layout.addStretch()
 
         # 时间轴滑块
         self.timeline_slider = TimelineSlider()
+        self.timeline_slider.setToolTip("拖动或点击跳转")
 
         main_layout.addLayout(control_layout)
         main_layout.addWidget(self.timeline_slider)
 
-        self.setFixedHeight(100)
+        self.setMinimumHeight(100)
+        self.setMaximumHeight(150)
         self.setStyleSheet("""
             TimelineWidget {
                 background-color: #2d2d2d;
@@ -296,17 +297,8 @@ class TimelineWidget(QWidget):
         self.btn_set_in.clicked.connect(self.set_in_point_clicked.emit)
         self.btn_set_out.clicked.connect(self.set_out_point_clicked.emit)
         self.timeline_slider.seek_requested.connect(self.seek_requested.emit)
-        self.btn_preview.clicked.connect(self._on_preview_toggled)
+        self.btn_preview.clicked.connect(self.simulator_requested.emit)
         self.btn_rotate.clicked.connect(self.rotation_clicked.emit)
-
-    def _on_preview_toggled(self):
-        """预览模式切换"""
-        self._preview_mode = self.btn_preview.isChecked()
-        self.preview_mode_changed.emit(self._preview_mode)
-
-    def is_preview_mode(self) -> bool:
-        """获取预览模式状态"""
-        return self._preview_mode
 
     def set_total_frames(self, count: int):
         """设置总帧数"""

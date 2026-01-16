@@ -30,9 +30,6 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Claude Code
-.claude/
-
 # Large executables
 ffmpeg.exe
 *.exe

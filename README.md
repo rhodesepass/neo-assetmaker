@@ -169,11 +169,7 @@ arknights_pass_maker/
 ├── README.md              # 说明文档
 ├── config/                # 配置模块
 │   ├── constants.py       # 常量定义
-│   ├── epconfig.py        # 配置数据模型
-│   ├── firmware_config.py # 固件配置数据模型 (v1.0.3)
-│   ├── config_manager.py  # 配置管理器 (v1.0.3)
-│   └── firmware/          # 固件配置目录 (v1.0.3)
-│       └── default.firmware.json  # 默认固件配置
+│   └── epconfig.py        # 配置数据模型
 ├── core/                  # 核心业务逻辑
 │   ├── validator.py       # 配置验证器
 │   ├── video_processor.py # 视频处理
@@ -182,15 +178,15 @@ arknights_pass_maker/
 │   ├── legacy_converter.py # 老素材转换器
 │   ├── operator_lookup.py # 干员信息查询 (v1.0.1)
 │   ├── ocr_service.py     # OCR识别服务 (v1.0.1)
-│   ├── overlay_renderer.py    # 叠加层渲染器
-│   ├── transition_renderer.py # 过渡效果渲染器 (v1.0.3)
-│   └── overlay_animator.py    # 叠加层动画渲染器 (v1.0.3)
+│   └── overlay_renderer.py # 叠加层渲染器
 ├── gui/                   # 图形界面
 │   ├── main_window.py     # 主窗口
 │   ├── dialogs/           # 对话框
 │   │   ├── export_progress_dialog.py  # 导出进度
 │   │   ├── operator_confirm_dialog.py # 干员确认 (v1.0.1)
-│   │   └── pass_simulator_dialog.py   # 通行证模拟器 (v1.0.3)
+│   │   ├── batch_convert_dialog.py    # 批量转换对话框
+│   │   ├── welcome_dialog.py          # 欢迎对话框
+│   │   └── shortcuts_dialog.py        # 快捷键帮助
 │   └── widgets/           # UI组件
 │       ├── config_panel.py    # 配置面板
 │       ├── video_preview.py   # 视频预览
@@ -200,8 +196,6 @@ arknights_pass_maker/
 │   ├── logger.py          # 日志系统
 │   ├── file_utils.py      # 文件操作
 │   └── color_utils.py     # 颜色处理
-├── tools/                 # 工具脚本 (v1.0.3)
-│   └── firmware_config_extractor.py  # 固件配置提取器
 ├── resources/             # 资源文件
 │   ├── icons/             # 图标
 │   ├── class_icons/       # 职业图标
@@ -243,6 +237,25 @@ arknights_pass_maker/
 本项目仅供学习和研究使用。
 
 ## 更新日志
+
+### v1.0.4
+
+**新功能**
+- 新增首次运行欢迎引导对话框，介绍基本操作流程
+- 新增快捷键帮助对话框 (F1)，分类展示所有快捷键
+- 为所有控件添加 Tooltip 提示，方便用户理解功能
+
+**UI 优化**
+- 修复配置面板文本截断问题，增加面板宽度
+- 修复旋转按钮显示不全问题 ("旋转 270°")
+- 优化小窗口下的布局自适应，降低视频预览最小尺寸
+- 使用 QStackedWidget 重构叠加UI选项卡，消除切换时的布局抖动
+- 优化 Splitter 伸缩策略，改善窗口大小调整体验
+
+**代码优化**
+- 从仓库移除 ffmpeg.exe/ffprobe.exe (125MB)，改由 CI 自动下载
+- 修复 config/firmware 模块缺少 __init__.py 导致打包失败的问题
+- 统一版本号管理，修复各文件版本不一致问题
 
 ### v1.0.3
 - 新增通行证模拟预览功能（工具 → 模拟预览）

@@ -341,13 +341,16 @@ class EPConfig:
 
     def save_to_file(self, filepath: str):
         """保存配置到文件"""
-        # 确保目录存在
-        directory = os.path.dirname(filepath)
-        if directory and not os.path.exists(directory):
-            os.makedirs(directory)
+        try:
+            # 确保目录存在
+            directory = os.path.dirname(filepath)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory)
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(self.to_dict(), f, ensure_ascii=False, indent=4)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.to_dict(), f, ensure_ascii=False, indent=4)
+        except PermissionError:
+            raise RuntimeError(f"无法保存到 {filepath}，权限不足")
 
     def generate_new_uuid(self):
         """生成新的UUID"""

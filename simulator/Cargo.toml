@@ -1,0 +1,67 @@
+[package]
+name = "arknights_pass_simulator"
+version = "0.1.0"
+edition = "2021"
+authors = ["Arknights Pass Maker"]
+description = "Arknights Electronic Pass Simulator - Real device preview emulator"
+
+[features]
+default = []
+
+[dependencies]
+# GUI
+eframe = { version = "0.29", default-features = false, features = [
+    "default_fonts",
+    "glow",
+] }
+egui = "0.29"
+egui_extras = { version = "0.29", features = ["image"] }
+
+# Image processing
+image = "0.25"
+fontdue = "0.8"
+
+# Barcode generation
+barcoders = "2.0"
+
+# Video decoding via FFmpeg
+ffmpeg-next = "8.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# IPC - Windows Named Pipe
+interprocess = "2.2"
+
+# Async runtime
+tokio = { version = "1.40", features = ["rt-multi-thread", "sync", "io-std"] }
+
+# Concurrency
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Math
+glam = "0.29"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# UUID
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_System_Pipes", "Win32_Foundation"] }

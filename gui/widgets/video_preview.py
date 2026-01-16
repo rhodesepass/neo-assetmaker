@@ -101,7 +101,7 @@ class VideoPreviewWidget(QWidget):
         # 视频显示标签
         self.video_label = QLabel()
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_label.setMinimumSize(480, 270)
+        self.video_label.setMinimumSize(320, 180)
         self.video_label.setStyleSheet(
             "background-color: #1a1a1a; border: 1px solid #333;"
         )
@@ -110,6 +110,7 @@ class VideoPreviewWidget(QWidget):
         )
         self.video_label.setText("未加载视频")
         self.video_label.setMouseTracking(True)
+        self.video_label.setToolTip("视频预览区域\nWASD移动裁剪框，空格播放/暂停")
         layout.addWidget(self.video_label)
 
         # 信息标签（控制按钮已移至时间轴组件）
