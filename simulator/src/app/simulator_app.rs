@@ -76,6 +76,9 @@ pub struct SimulatorApp {
     /// Logo texture
     logo_texture: Option<egui::TextureHandle>,
 
+    /// Overlay template texture (static background for all decorations)
+    overlay_template_texture: Option<egui::TextureHandle>,
+
     /// Whether textures have been loaded for current config
     textures_loaded: bool,
 }
@@ -168,6 +171,7 @@ impl SimulatorApp {
             barcode_texture: None,
             class_icon_texture: None,
             logo_texture: None,
+            overlay_template_texture: None,
             textures_loaded: false,
         };
 
@@ -208,6 +212,7 @@ impl SimulatorApp {
         self.barcode_texture = None;
         self.class_icon_texture = None;
         self.logo_texture = None;
+        self.overlay_template_texture = None;
         self.textures_loaded = false;
 
         info!("Configuration loaded");
@@ -745,6 +750,28 @@ impl SimulatorApp {
             return;
         }
 
+        // Load overlay template texture (static background with all decorations)
+        if self.overlay_template_texture.is_none() {
+            let template_path = self.base_dir.join("resources/data/overlay_template.png");
+            if let Ok(img) = image::open(&template_path) {
+                let rgba = img.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
+                let pixels: Vec<Color32> = rgba
+                    .pixels()
+                    .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                    .collect();
+                let color_image = egui::ColorImage { size, pixels };
+                self.overlay_template_texture = Some(ctx.load_texture(
+                    "overlay_template",
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                ));
+                info!("Loaded overlay template: {}", template_path.display());
+            } else {
+                warn!("Failed to load overlay template: {}", template_path.display());
+            }
+        }
+
         let options = match self.get_arknights_options() {
             Some(opts) => opts,
             None => return,
@@ -833,41 +860,35 @@ impl SimulatorApp {
         let btm_info_x = offsets.btm_info_x as f32 * scale_x + image_rect.min.x;
         let theme_color = self.get_theme_color();
 
-        // Render order follows the plan:
-        // 1. Top-left corner decoration (black triangle + horizontal bar)
-        self.render_top_left_corner(painter, image_rect, scale_x, scale_y);
+        // 1. Draw template as base layer (contains all static decorations:
+        //    top-left corner, top-right gradient, right side bar, vertical text,
+        //    bottom-left gradient, logo background)
+        if let Some(ref template) = self.overlay_template_texture {
+            let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+            // Apply entry animation alpha for smooth fade-in
+            let entry_alpha = (anim.entry_progress * 255.0) as u8;
+            let tint = Color32::from_rgba_unmultiplied(255, 255, 255, entry_alpha);
+            painter.image(template.id(), image_rect, uv, tint);
+        }
 
-        // 2. Top-right yellow gradient area
-        self.render_top_right_gradient(painter, image_rect, scale_x, scale_y);
+        // 2. Render dynamic elements only (on top of the template)
 
-        // 3. Right side black vertical bar (with angled cut)
-        self.render_right_side_bar(painter, image_rect, scale_x, scale_y);
-
-        // 4. Arrow indicator (3 yellow chevrons in the top-right area)
+        // Arrow indicator (3 yellow chevrons pointing upward with scrolling animation)
         self.render_arrow_indicator(painter, image_rect, scale_x, scale_y, y_offset, theme_color);
 
-        // 5. Vertical "RHODES ISLAND INC." text (on the black bar)
-        self.render_vertical_text(painter, image_rect, scale_x, scale_y, y_offset);
-
-        // 6. Typewriter texts (operator name, code, staff_text, etc.)
+        // Typewriter texts (operator name, code, staff_text, etc.)
         self.render_typewriter_texts(painter, image_rect, scale_x, scale_y, y_offset, &options, theme_color);
 
-        // 7. EINK areas (barcode with gradient, class icon)
+        // EINK areas (barcode with gradient, class icon)
         self.render_eink_areas(painter, image_rect, scale_x, scale_y, y_offset);
 
-        // 8. Divider lines (white color per C reference)
+        // Divider lines (white color per C reference)
         self.render_divider_lines(painter, image_rect, scale_x, scale_y, y_offset, btm_info_x, theme_color);
 
-        // 9. Progress bar (AK bar)
+        // Progress bar (AK bar)
         self.render_progress_bar(painter, image_rect, scale_x, scale_y, y_offset, btm_info_x, theme_color);
 
-        // 10. Bottom-left blue/cyan gradient
-        self.render_bottom_left_gradient(painter, image_rect, scale_x, scale_y);
-
-        // 11. Logo area black background
-        self.render_logo_background(painter, image_rect, scale_x, scale_y);
-
-        // 12. Logo image (on top of the black background)
+        // Logo image (dynamic fade-in)
         self.render_logo_image(painter, image_rect, scale_x, scale_y, y_offset);
     }
 
@@ -1142,8 +1163,9 @@ impl SimulatorApp {
         }
     }
 
-    /// Render arrow animation indicator (3 chevrons pointing down on the right side)
+    /// Render arrow animation indicator (3 chevrons pointing UP on the right side)
     /// Uses yellow/gold color to match the reference design
+    /// Per C reference (opinfo.c:553): arrows scroll upward via Y decrement
     fn render_arrow_indicator(
         &self,
         painter: &egui::Painter,
@@ -1167,7 +1189,7 @@ impl SimulatorApp {
         // Position on the right side of the screen (inside the yellow gradient area)
         let x = image_rect.max.x - 40.0 * scale_x;
 
-        // Draw 3 chevrons pointing downward
+        // Draw 3 chevrons pointing UPWARD (^ shape)
         let chevron_spacing = 12.0 * scale_y;
         let chevron_size = 8.0 * scale_x;
 
@@ -1179,214 +1201,22 @@ impl SimulatorApp {
             let y = base_y + arrow_offset + (i as f32 * chevron_spacing);
 
             if y >= image_rect.min.y && y <= image_rect.max.y {
-                // Draw chevron (V shape pointing down)
-                let left = Pos2::new(x - chevron_size, y);
-                let bottom = Pos2::new(x, y + chevron_size);
-                let right = Pos2::new(x + chevron_size, y);
+                // Draw chevron (^ shape pointing UP)
+                // Top vertex points up, left and right vertices are below
+                let left = Pos2::new(x - chevron_size, y + chevron_size);
+                let top = Pos2::new(x, y);
+                let right = Pos2::new(x + chevron_size, y + chevron_size);
 
-                painter.line_segment([left, bottom], stroke);
-                painter.line_segment([bottom, right], stroke);
+                painter.line_segment([left, top], stroke);
+                painter.line_segment([top, right], stroke);
             }
         }
     }
 
-    /// Render top-left corner black decoration with horizontal bar extension
-    fn render_top_left_corner(
-        &self,
-        painter: &egui::Painter,
-        image_rect: Rect,
-        scale_x: f32,
-        scale_y: f32,
-    ) {
-        // 1. Draw a triangular black decoration in the top-left corner
-        let corner_size_x = 40.0 * scale_x;
-        let corner_size_y = 40.0 * scale_y;
-
-        let triangle_points = vec![
-            image_rect.min,
-            Pos2::new(image_rect.min.x + corner_size_x, image_rect.min.y),
-            Pos2::new(image_rect.min.x, image_rect.min.y + corner_size_y),
-        ];
-
-        painter.add(egui::Shape::convex_polygon(
-            triangle_points,
-            Color32::BLACK,
-            Stroke::NONE,
-        ));
-
-        // 2. Add horizontal black bar extension
-        let bar_rect = Rect::from_min_size(
-            Pos2::new(image_rect.min.x + corner_size_x, image_rect.min.y),
-            egui::vec2(30.0 * scale_x, 8.0 * scale_y),
-        );
-        painter.rect_filled(bar_rect, 0.0, Color32::BLACK);
-    }
-
-    /// Render right side black vertical bar with angled cut
-    fn render_right_side_bar(
-        &self,
-        painter: &egui::Painter,
-        image_rect: Rect,
-        scale_x: f32,
-        scale_y: f32,
-    ) {
-        let bar_width = 25.0 * scale_x;
-        let bar_x = image_rect.max.x - bar_width;
-
-        // Draw black vertical bar with angled top
-        let points = vec![
-            Pos2::new(bar_x, image_rect.min.y + 60.0 * scale_y), // Top-left with angle
-            Pos2::new(image_rect.max.x, image_rect.min.y + 40.0 * scale_y), // Top-right
-            Pos2::new(image_rect.max.x, image_rect.max.y), // Bottom-right
-            Pos2::new(bar_x, image_rect.max.y), // Bottom-left
-        ];
-
-        painter.add(egui::Shape::convex_polygon(
-            points,
-            Color32::BLACK,
-            Stroke::NONE,
-        ));
-    }
-
-    /// Render top-right yellow/gold gradient area
-    fn render_top_right_gradient(
-        &self,
-        painter: &egui::Painter,
-        image_rect: Rect,
-        scale_x: f32,
-        scale_y: f32,
-    ) {
-        let gradient_width = 120.0 * scale_x;
-        let gradient_height = 50.0 * scale_y;
-
-        // Draw gradient using multiple rectangles with decreasing alpha
-        let step_count = 20;
-        let step_width = gradient_width / step_count as f32;
-
-        for i in 0..step_count {
-            let alpha = (255 - (i * 12).min(255)) as u8;
-            if alpha == 0 {
-                break;
-            }
-
-            let x = image_rect.max.x - gradient_width + (i as f32 * step_width);
-            let rect = Rect::from_min_size(
-                Pos2::new(x, image_rect.min.y),
-                egui::vec2(step_width + 1.0, gradient_height - (i as f32 * 2.0 * scale_y).max(0.0)),
-            );
-
-            // Golden yellow color with fading alpha
-            painter.rect_filled(
-                rect,
-                0.0,
-                Color32::from_rgba_unmultiplied(255, 200, 50, alpha),
-            );
-        }
-    }
-
-    /// Render bottom-left blue/cyan gradient
-    fn render_bottom_left_gradient(
-        &self,
-        painter: &egui::Painter,
-        image_rect: Rect,
-        scale_x: f32,
-        scale_y: f32,
-    ) {
-        let gradient_width = 200.0 * scale_x;
-        let gradient_height = 40.0 * scale_y;
-        let y = image_rect.max.y - gradient_height;
-
-        // Draw horizontal gradient using multiple rectangles
-        let step_count = 30;
-        let step_width = gradient_width / step_count as f32;
-
-        for i in 0..step_count {
-            let alpha = (200 - (i * 6).min(200)) as u8;
-            if alpha == 0 {
-                break;
-            }
-
-            let x = image_rect.min.x + (i as f32 * step_width);
-            let rect = Rect::from_min_size(
-                Pos2::new(x, y),
-                egui::vec2(step_width + 1.0, gradient_height),
-            );
-
-            // Cyan/blue color with fading alpha
-            painter.rect_filled(
-                rect,
-                0.0,
-                Color32::from_rgba_unmultiplied(100, 200, 230, alpha),
-            );
-        }
-    }
-
-    /// Render logo area black background
-    fn render_logo_background(
-        &self,
-        painter: &egui::Painter,
-        image_rect: Rect,
-        scale_x: f32,
-        scale_y: f32,
-    ) {
-        let bg_width = 110.0 * scale_x;
-        let bg_height = 40.0 * scale_y;
-        let x = image_rect.max.x - bg_width - 5.0 * scale_x;
-        let y = image_rect.max.y - bg_height - 5.0 * scale_y;
-
-        // Draw black background with angled left edge
-        let points = vec![
-            Pos2::new(x - 15.0 * scale_x, y), // Left with angle
-            Pos2::new(image_rect.max.x, y), // Top-right
-            Pos2::new(image_rect.max.x, y + bg_height), // Bottom-right
-            Pos2::new(x, y + bg_height), // Bottom-left
-        ];
-
-        painter.add(egui::Shape::convex_polygon(
-            points,
-            Color32::BLACK,
-            Stroke::NONE,
-        ));
-    }
-
-    /// Render vertical "RHODES ISLAND INC." text on the right side
-    fn render_vertical_text(
-        &self,
-        painter: &egui::Painter,
-        image_rect: Rect,
-        scale_x: f32,
-        scale_y: f32,
-        y_offset: f32,
-    ) {
-        let anim = &self.state.animation;
-
-        // Only show when entry animation is complete
-        if !anim.is_entry_complete() {
-            return;
-        }
-
-        let text = "RHODES ISLAND INC.";
-        let char_height = 14.0 * scale_y;
-        let font_size = 10.0 * scale_y;
-        let x = image_rect.max.x - 15.0 * scale_x;
-        let start_y = image_rect.min.y + 180.0 * scale_y + y_offset;
-
-        // Draw each character vertically
-        for (i, ch) in text.chars().enumerate() {
-            let y = start_y + (i as f32 * char_height);
-
-            if y >= image_rect.min.y && y <= image_rect.max.y {
-                let pos = Pos2::new(x, y);
-                painter.text(
-                    pos,
-                    Align2::CENTER_TOP,
-                    ch.to_string(),
-                    FontId::proportional(font_size),
-                    Color32::WHITE,
-                );
-            }
-        }
-    }
+    // NOTE: Static decoration functions removed (render_top_left_corner, render_right_side_bar,
+    // render_top_right_gradient, render_bottom_left_gradient, render_logo_background, render_vertical_text)
+    // These elements are now pre-rendered in overlay_template.png to match C firmware behavior.
+    // C firmware uses fbdraw_copy_rect() to copy pre-rendered assets, not programmatic drawing.
 
     /// Render logo image in the bottom-right corner
     fn render_logo_image(

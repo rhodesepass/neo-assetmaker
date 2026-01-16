@@ -176,16 +176,15 @@ impl AnimationController {
     }
 
     fn update_arrow(&self, state: &mut AnimationState) {
+        // Per C reference (opinfo.c:553): arrow_y_value DECREMENTS to scroll upward
+        // data->arrow_y_value -= OVERLAY_ANIMATION_OPINFO_ARROW_Y_INCR_PER_FRAME;
         let incr = self.config.animation.arrow.y_incr_per_frame;
-        state.arrow_y += incr * state.arrow_direction;
+        state.arrow_y -= incr;
 
-        // Simple bounce between -20 and +20
-        if state.arrow_y > 20 {
-            state.arrow_y = 20;
-            state.arrow_direction = -1;
-        } else if state.arrow_y < -20 {
-            state.arrow_y = -20;
-            state.arrow_direction = 1;
+        // Loop back to height when reaching 0 (continuous upward scroll)
+        const ARROW_HEIGHT: i32 = 36;
+        if state.arrow_y <= 0 {
+            state.arrow_y = ARROW_HEIGHT;
         }
     }
 }

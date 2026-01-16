@@ -138,13 +138,14 @@ impl OverlayRenderer {
             line_width
         );
 
-        // Arrow animation (cycles)
+        // Arrow animation - decrement to scroll upward (per C reference opinfo.c:553)
         let arrow_incr = self.config.animation.arrow.y_incr_per_frame;
-        state.arrow_y += arrow_incr * state.arrow_direction;
+        state.arrow_y -= arrow_incr;
 
-        // Reverse direction at bounds (simplified cycling)
-        if state.arrow_y > 20 || state.arrow_y < -20 {
-            state.arrow_direction = -state.arrow_direction;
+        // Loop back to height when reaching 0 (continuous upward scroll)
+        const ARROW_HEIGHT: i32 = 36;
+        if state.arrow_y <= 0 {
+            state.arrow_y = ARROW_HEIGHT;
         }
     }
 }
