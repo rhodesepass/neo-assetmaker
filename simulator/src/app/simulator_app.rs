@@ -9,7 +9,7 @@ use egui::{Color32, RichText, Vec2, Rect, Pos2, Stroke, FontId, Align2};
 use image::RgbImage;
 use tracing::{info, warn};
 
-use crate::config::{EPConfig, FirmwareConfig, TransitionType, OverlayType, ArknightsOverlayOptions};
+use crate::config::{EPConfig, FirmwareConfig, TransitionType, TransitionOptions, OverlayType, ArknightsOverlayOptions, ImageOverlayOptions};
 use crate::app::state::EinkState;
 use crate::render::{TransitionRenderer, OverlayRenderer, ImageLoader, generate_vertical_barcode_gradient};
 use crate::animation::AnimationController;
@@ -80,6 +80,15 @@ pub struct SimulatorApp {
 
     /// Overlay template texture (static background for all decorations)
     overlay_template_texture: Option<egui::TextureHandle>,
+
+    /// Image overlay texture (for OverlayType::Image)
+    image_overlay_texture: Option<egui::TextureHandle>,
+
+    /// Transition image texture (for transition effect)
+    transition_image_texture: Option<egui::TextureHandle>,
+
+    /// Transition image raw pixel data (for direct pixel access during transition)
+    transition_image_data: Option<(Vec<Color32>, usize, usize)>, // (pixels, width, height)
 
     /// Whether textures have been loaded for current config
     textures_loaded: bool,
@@ -176,6 +185,9 @@ impl SimulatorApp {
             class_icon_texture: None,
             logo_texture: None,
             overlay_template_texture: None,
+            image_overlay_texture: None,
+            transition_image_texture: None,
+            transition_image_data: None,
             textures_loaded: false,
         };
 
@@ -217,6 +229,9 @@ impl SimulatorApp {
         self.class_icon_texture = None;
         self.logo_texture = None;
         self.overlay_template_texture = None;
+        self.image_overlay_texture = None;
+        self.transition_image_texture = None;
+        self.transition_image_data = None;
         self.textures_loaded = false;
 
         info!("Configuration loaded");
@@ -615,27 +630,87 @@ impl SimulatorApp {
     fn apply_transition_overlay(&self, image: &mut egui::ColorImage) {
         let progress = self.state.transition.progress();
         let trans_type = self.state.transition.transition_type;
+        let phase = self.state.transition.phase();
         let width = image.size[0];
         let height = image.size[1];
+
+        // Get transition options based on current state
+        let is_intro = self.state.play_state == PlayState::TransitionIn;
+        let options = self.get_transition_options(is_intro);
+
+        // Get background color from config (default black)
+        let bg_color = options
+            .map(|o| Self::parse_hex_color(&o.background_color))
+            .unwrap_or(Color32::BLACK);
+
+        // Check if we have a transition image and we're in Hold phase
+        let has_transition_image = options
+            .map(|o| !o.image.is_empty())
+            .unwrap_or(false);
 
         match trans_type {
             TransitionType::Fade => {
                 // Calculate fade alpha based on progress
                 let alpha = self.transition_renderer.calculate_fade_alpha(progress);
-                // Apply black overlay with alpha
+
+                // During Hold phase with transition image, show the image
+                if phase == TransitionPhase::PhaseHold && has_transition_image {
+                    if let Some((ref trans_pixels, trans_width, trans_height)) = self.transition_image_data {
+                        // Fill entire image with transition image (scaled)
+                        for (i, pixel) in image.pixels.iter_mut().enumerate() {
+                            let x = i % width;
+                            let y = i / width;
+
+                            // Scale coordinates to transition image space
+                            let tex_x = (x * trans_width) / width;
+                            let tex_y = (y * trans_height) / height;
+                            let tex_idx = tex_y * trans_width + tex_x;
+
+                            if tex_idx < trans_pixels.len() {
+                                let trans_pixel = trans_pixels[tex_idx];
+                                // Apply alpha blend: video -> transition image
+                                let blend = alpha as f32 / 255.0;
+                                let inv_blend = 1.0 - blend;
+
+                                *pixel = Color32::from_rgb(
+                                    ((trans_pixel.r() as f32 * blend) + (pixel.r() as f32 * inv_blend)) as u8,
+                                    ((trans_pixel.g() as f32 * blend) + (pixel.g() as f32 * inv_blend)) as u8,
+                                    ((trans_pixel.b() as f32 * blend) + (pixel.b() as f32 * inv_blend)) as u8,
+                                );
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Apply background color overlay with alpha (instead of hardcoded black)
                 for pixel in image.pixels.iter_mut() {
-                    let blend = ((255 - alpha as u16) * 255 / 255) as u8;
+                    let blend = alpha as f32 / 255.0;
+                    let inv_blend = 1.0 - blend;
+
                     *pixel = Color32::from_rgb(
-                        ((pixel.r() as u16 * blend as u16) / 255) as u8,
-                        ((pixel.g() as u16 * blend as u16) / 255) as u8,
-                        ((pixel.b() as u16 * blend as u16) / 255) as u8,
+                        ((bg_color.r() as f32 * blend) + (pixel.r() as f32 * inv_blend)) as u8,
+                        ((bg_color.g() as f32 * blend) + (pixel.g() as f32 * inv_blend)) as u8,
+                        ((bg_color.b() as f32 * blend) + (pixel.b() as f32 * inv_blend)) as u8,
                     );
                 }
             }
             TransitionType::Move => {
                 // Calculate move offset
                 let offset = self.transition_renderer.calculate_move_offset(progress);
-                // For simplicity, just show a line at the offset position
+
+                // During Hold phase with transition image, fill above the line with bg_color
+                if phase == TransitionPhase::PhaseHold {
+                    // Fill area above the offset line with background color
+                    for y in 0..(offset as usize).min(height) {
+                        for x in 0..width {
+                            let idx = y * width + x;
+                            image.pixels[idx] = bg_color;
+                        }
+                    }
+                }
+
+                // Draw line at the offset position
                 if offset > 0 && (offset as usize) < height {
                     for x in 0..width {
                         image.pixels[offset as usize * width + x] = Color32::WHITE;
@@ -646,21 +721,29 @@ impl SimulatorApp {
                 // Calculate swipe progress (0.0 to 1.0)
                 let swipe_progress = self.transition_renderer.calculate_swipe_progress(progress);
                 let swipe_y = (swipe_progress * height as f32) as usize;
+
                 // Draw swipe line
                 if swipe_y > 0 && swipe_y < height {
                     for x in 0..width {
                         image.pixels[swipe_y * width + x] = Color32::from_rgb(200, 200, 200);
                     }
-                    // Darken area above swipe line
+
+                    // Fill area above swipe line with background color (or darkened if no bg specified)
                     for y in 0..swipe_y.min(height) {
                         for x in 0..width {
                             let idx = y * width + x;
-                            let p = image.pixels[idx];
-                            image.pixels[idx] = Color32::from_rgb(
-                                p.r() / 3,
-                                p.g() / 3,
-                                p.b() / 3,
-                            );
+                            if bg_color != Color32::BLACK {
+                                // Use configured background color
+                                image.pixels[idx] = bg_color;
+                            } else {
+                                // Default: darken the existing pixels
+                                let p = image.pixels[idx];
+                                image.pixels[idx] = Color32::from_rgb(
+                                    p.r() / 3,
+                                    p.g() / 3,
+                                    p.b() / 3,
+                                );
+                            }
                         }
                     }
                 }
@@ -748,6 +831,25 @@ impl SimulatorApp {
             .and_then(|o| o.arknights_options())
     }
 
+    /// Get ImageOverlayOptions from config
+    fn get_image_overlay_options(&self) -> Option<ImageOverlayOptions> {
+        self.epconfig
+            .as_ref()
+            .and_then(|c| c.overlay.as_ref())
+            .and_then(|o| o.image_options())
+    }
+
+    /// Get transition options for current state (in or loop)
+    fn get_transition_options(&self, is_intro: bool) -> Option<&TransitionOptions> {
+        self.epconfig.as_ref().and_then(|config| {
+            if is_intro {
+                config.transition_in.as_ref().and_then(|t| t.options.as_ref())
+            } else {
+                config.transition_loop.as_ref().and_then(|t| t.options.as_ref())
+            }
+        })
+    }
+
     /// Load textures for the current configuration
     fn load_textures(&mut self, ctx: &egui::Context) {
         if self.textures_loaded {
@@ -777,9 +879,77 @@ impl SimulatorApp {
             }
         }
 
+        // Load image overlay texture if type is Image
+        if let Some(image_opts) = self.get_image_overlay_options() {
+            if !image_opts.image.is_empty() && self.image_overlay_texture.is_none() {
+                let image_path = self.image_loader.resolve_path(&image_opts.image);
+                if let Ok(img) = image::open(&image_path) {
+                    let rgba = img.to_rgba8();
+                    let size = [rgba.width() as usize, rgba.height() as usize];
+                    let pixels: Vec<Color32> = rgba
+                        .pixels()
+                        .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                        .collect();
+                    let color_image = egui::ColorImage { size, pixels };
+                    self.image_overlay_texture = Some(ctx.load_texture(
+                        "image_overlay",
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    ));
+                    info!("Loaded image overlay: {}", image_path.display());
+                } else {
+                    warn!("Failed to load image overlay: {}", image_path.display());
+                }
+            }
+        }
+
+        // Load transition image texture if specified in transition_in or transition_loop
+        if self.transition_image_texture.is_none() {
+            // Check transition_in first, then transition_loop
+            let image_path = self.get_transition_options(true)
+                .filter(|opts| !opts.image.is_empty())
+                .map(|opts| opts.image.clone())
+                .or_else(|| {
+                    self.get_transition_options(false)
+                        .filter(|opts| !opts.image.is_empty())
+                        .map(|opts| opts.image.clone())
+                });
+
+            if let Some(image_file) = image_path {
+                let resolved_path = self.image_loader.resolve_path(&image_file);
+                if let Ok(img) = image::open(&resolved_path) {
+                    let rgba = img.to_rgba8();
+                    let img_width = rgba.width() as usize;
+                    let img_height = rgba.height() as usize;
+                    let size = [img_width, img_height];
+                    let pixels: Vec<Color32> = rgba
+                        .pixels()
+                        .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                        .collect();
+
+                    // Store raw pixel data for direct access during transition
+                    self.transition_image_data = Some((pixels.clone(), img_width, img_height));
+
+                    let color_image = egui::ColorImage { size, pixels };
+                    self.transition_image_texture = Some(ctx.load_texture(
+                        "transition_image",
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    ));
+                    info!("Loaded transition image: {}", resolved_path.display());
+                } else {
+                    warn!("Failed to load transition image: {}", resolved_path.display());
+                }
+            }
+        }
+
+        // Load Arknights-specific textures
         let options = match self.get_arknights_options() {
             Some(opts) => opts,
-            None => return,
+            None => {
+                self.textures_loaded = true;
+                return;
+            }
         };
 
         // Generate barcode texture from barcode_text (with gradient colors)
@@ -895,6 +1065,39 @@ impl SimulatorApp {
 
         // Logo image (dynamic fade-in)
         self.render_logo_image(painter, image_rect, scale_x, scale_y, y_offset);
+    }
+
+    /// Render image overlay (for OverlayType::Image)
+    fn render_image_overlay(&self, painter: &egui::Painter, image_rect: Rect) {
+        // Get image overlay options
+        let options = match self.get_image_overlay_options() {
+            Some(opts) => opts,
+            None => return,
+        };
+
+        // Calculate current time in microseconds since Loop state started
+        let fps = self.firmware_config.fps();
+        let current_time_us = (self.state.animation.frame_counter as i64 * 1_000_000) / fps as i64;
+
+        // Check if we're within the display window
+        // appear_time: when overlay starts showing (relative to Loop state start)
+        // duration: how long to show the overlay (0 means show indefinitely)
+        let should_show = if options.duration > 0 {
+            current_time_us >= options.appear_time && current_time_us < options.appear_time + options.duration
+        } else {
+            // If duration is 0 or negative, show indefinitely after appear_time
+            current_time_us >= options.appear_time
+        };
+
+        if !should_show {
+            return;
+        }
+
+        // Draw the image overlay
+        if let Some(ref texture) = self.image_overlay_texture {
+            let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+            painter.image(texture.id(), image_rect, uv, Color32::WHITE);
+        }
     }
 
     /// Render typewriter effect texts
@@ -1319,10 +1522,12 @@ impl eframe::App for SimulatorApp {
             if self.state.play_state == PlayState::Loop {
                 if let Some(ref config) = self.epconfig {
                     if let Some(ref overlay) = config.overlay {
-                        if overlay.overlay_type == OverlayType::Arknights {
-                            if let Some(image_rect) = image_response.inner {
-                                let painter = ui.painter_at(image_rect);
-                                self.render_overlay_ui(&painter, image_rect);
+                        if let Some(image_rect) = image_response.inner {
+                            let painter = ui.painter_at(image_rect);
+                            match overlay.overlay_type {
+                                OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
+                                OverlayType::Image => self.render_image_overlay(&painter, image_rect),
+                                OverlayType::None => {}
                             }
                         }
                     }
