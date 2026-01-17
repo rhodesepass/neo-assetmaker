@@ -1449,24 +1449,38 @@ impl SimulatorApp {
         scale_y: f32,
         alpha: u8,
     ) {
-        let color = Color32::from_rgba_unmultiplied(0, 0, 0, alpha);
+        let black = Color32::from_rgba_unmultiplied(0, 0, 0, alpha);
 
-        // Horizontal bar: ~60x20 pixels
+        // Horizontal bar: 95x25 pixels (original template precise value)
         let h_rect = Rect::from_min_size(
             image_rect.min,
-            egui::vec2(60.0 * scale_x, 20.0 * scale_y),
+            egui::vec2(95.0 * scale_x, 25.0 * scale_y),
         );
-        painter.rect_filled(h_rect, 0.0, color);
+        painter.rect_filled(h_rect, 0.0, black);
 
-        // Vertical bar: ~20x80 pixels
+        // Vertical bar: 25x105 pixels (original template precise value)
         let v_rect = Rect::from_min_size(
             image_rect.min,
-            egui::vec2(20.0 * scale_x, 80.0 * scale_y),
+            egui::vec2(25.0 * scale_x, 105.0 * scale_y),
         );
-        painter.rect_filled(v_rect, 0.0, color);
+        painter.rect_filled(v_rect, 0.0, black);
+
+        // White triangle cutout (at inner corner of L-shape)
+        let white = Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
+        let triangle_size = 15.0;
+        let tri_x = image_rect.min.x + 25.0 * scale_x;
+        let tri_y = image_rect.min.y + 25.0 * scale_y;
+
+        // Triangle points: right-angle triangle pointing to bottom-right
+        let points = vec![
+            Pos2::new(tri_x, tri_y),
+            Pos2::new(tri_x + triangle_size * scale_x, tri_y),
+            Pos2::new(tri_x, tri_y + triangle_size * scale_y),
+        ];
+        painter.add(egui::Shape::convex_polygon(points, white, Stroke::NONE));
     }
 
-    /// Render top-right yellow-orange gradient stripes
+    /// Render top-right yellow-orange gradient stripes with chevron arrows
     fn render_top_right_gradient(
         &self,
         painter: &egui::Painter,
@@ -1475,30 +1489,66 @@ impl SimulatorApp {
         scale_y: f32,
         alpha: u8,
     ) {
-        // Yellow-orange gradient stripe area
-        let gradient_x = image_rect.max.x - 80.0 * scale_x;
-        let gradient_y = image_rect.min.y + 60.0 * scale_y;
-        let gradient_width = 50.0 * scale_x;
-        let gradient_height = 60.0 * scale_y;
+        // Gradient area: X=280-360, Y=48-143 (original template precise values)
+        let base_x = image_rect.min.x + 280.0 * scale_x;
+        let base_y = image_rect.min.y + 48.0 * scale_y;
 
-        // Draw horizontal gradient stripes
-        let stripe_count = 8;
-        let stripe_height = gradient_height / stripe_count as f32;
+        // Define stripes (Y offset, height, width ratio) - simulate original uneven-width stripes
+        let stripes: [(f32, f32, f32); 12] = [
+            (0.0, 6.0, 0.95),   // Top thin line
+            (8.0, 8.0, 0.90),
+            (18.0, 10.0, 0.85),
+            (30.0, 8.0, 0.80),
+            (40.0, 12.0, 0.75),
+            (54.0, 10.0, 0.70),
+            (66.0, 8.0, 0.65),
+            (76.0, 10.0, 0.60),
+            (88.0, 8.0, 0.55),
+            (98.0, 6.0, 0.50),
+            (106.0, 6.0, 0.45),
+            (114.0, 4.0, 0.40), // Bottom thin line
+        ];
 
-        for i in 0..stripe_count {
-            let y = gradient_y + i as f32 * stripe_height;
+        for (i, (y_off, height, width_ratio)) in stripes.iter().enumerate() {
+            let y = base_y + y_off * scale_y;
+            let stripe_width = 80.0 * width_ratio * scale_x;
+            let x = image_rect.max.x - stripe_width;
+
             // Yellow to orange gradient
-            let t = i as f32 / stripe_count as f32;
+            let t = i as f32 / stripes.len() as f32;
             let r = 255;
-            let g = (220.0 - t * 50.0) as u8;
-            let b = (50.0 * t) as u8;
+            let g = (230.0 - t * 80.0) as u8; // 230 -> 150
+            let b = (50.0 + t * 30.0) as u8;  // 50 -> 80
             let color = Color32::from_rgba_unmultiplied(r, g, b, alpha);
 
-            let stripe_rect = Rect::from_min_size(
-                Pos2::new(gradient_x, y),
-                egui::vec2(gradient_width, stripe_height * 0.6),
+            let rect = Rect::from_min_size(
+                Pos2::new(x, y),
+                egui::vec2(stripe_width, height * scale_y),
             );
-            painter.rect_filled(stripe_rect, 0.0, color);
+            painter.rect_filled(rect, 0.0, color);
+        }
+
+        // Draw 3 static yellow chevron arrows (inside gradient stripes)
+        let arrow_x = image_rect.min.x + 320.0 * scale_x;
+        let arrow_color = Color32::from_rgba_unmultiplied(255, 215, 0, alpha); // Gold yellow
+        let stroke = Stroke::new(2.5 * scale_x.min(scale_y), arrow_color);
+        let chevron_size = 10.0;
+
+        for i in 0..3 {
+            let arrow_y = image_rect.min.y + (58.0 + i as f32 * 22.0) * scale_y;
+            // Upward chevron (^)
+            let left = Pos2::new(
+                arrow_x - chevron_size * scale_x,
+                arrow_y + chevron_size * scale_y,
+            );
+            let top = Pos2::new(arrow_x, arrow_y);
+            let right = Pos2::new(
+                arrow_x + chevron_size * scale_x,
+                arrow_y + chevron_size * scale_y,
+            );
+
+            painter.line_segment([left, top], stroke);
+            painter.line_segment([top, right], stroke);
         }
     }
 
@@ -1512,36 +1562,50 @@ impl SimulatorApp {
         y_offset: f32,
         alpha: u8,
     ) {
-        // Black vertical bar
+        // Black vertical bar: width 30px, from Y=145 to Y=600 (original template precise values)
         let bar_width = 30.0 * scale_x;
         let bar_x = image_rect.max.x - bar_width;
-        let bar_y = image_rect.min.y + 150.0 * scale_y + y_offset;
-        let bar_height = 350.0 * scale_y;
+        let bar_start_y = image_rect.min.y + 145.0 * scale_y + y_offset;
+        let bar_end_y = image_rect.min.y + 600.0 * scale_y + y_offset;
 
-        // Clamp bar to image bounds
-        let clamped_y = bar_y.max(image_rect.min.y);
-        let clamped_height = (bar_height - (clamped_y - bar_y)).max(0.0);
-        let clamped_height = clamped_height.min(image_rect.max.y - clamped_y);
+        // Clamp to image bounds
+        let clamped_start = bar_start_y.max(image_rect.min.y);
+        let clamped_end = bar_end_y.min(image_rect.max.y);
 
-        if clamped_height > 0.0 {
-            let bar_rect = Rect::from_min_size(
-                Pos2::new(bar_x, clamped_y),
-                egui::vec2(bar_width, clamped_height),
+        if clamped_end > clamped_start {
+            let bar_rect = Rect::from_min_max(
+                Pos2::new(bar_x, clamped_start),
+                Pos2::new(image_rect.max.x, clamped_end),
             );
             let bar_color = Color32::from_rgba_unmultiplied(0, 0, 0, alpha);
             painter.rect_filled(bar_rect, 0.0, bar_color);
 
             // "RHODES ISLAND INC." vertical text
-            // Since egui doesn't directly support vertical text, we draw characters individually
-            let text = "RHODES ISLAND INC.";
-            let char_height = 12.0 * scale_y;
-            let text_x = bar_x + bar_width / 2.0;
-            let text_start_y = clamped_y + 20.0 * scale_y;
             let text_color = Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
+            let text_x = bar_x + bar_width / 2.0;
+            let text_start_y = clamped_start + 30.0 * scale_y;
 
-            for (i, ch) in text.chars().enumerate() {
-                let char_y = text_start_y + i as f32 * char_height;
-                if char_y < image_rect.max.y - char_height {
+            // RHODES (bold - simulated with slightly larger font)
+            let rhodes = "RHODES";
+            for (i, ch) in rhodes.chars().enumerate() {
+                let char_y = text_start_y + i as f32 * 18.0 * scale_y;
+                if char_y < image_rect.max.y {
+                    painter.text(
+                        Pos2::new(text_x, char_y),
+                        Align2::CENTER_TOP,
+                        ch.to_string(),
+                        FontId::proportional(14.0 * scale_y), // Larger for bold effect
+                        text_color,
+                    );
+                }
+            }
+
+            // ISLAND INC. (normal)
+            let island_inc = " ISLAND INC.";
+            let island_start_y = text_start_y + rhodes.len() as f32 * 18.0 * scale_y;
+            for (i, ch) in island_inc.chars().enumerate() {
+                let char_y = island_start_y + i as f32 * 14.0 * scale_y;
+                if char_y < image_rect.max.y {
                     painter.text(
                         Pos2::new(text_x, char_y),
                         Align2::CENTER_TOP,
@@ -1554,7 +1618,7 @@ impl SimulatorApp {
         }
     }
 
-    /// Render left colorful gradient stripe (yellow → blue → cyan)
+    /// Render left colorful gradient stripe (yellow → orange → purple → blue → cyan)
     fn render_left_gradient_stripe(
         &self,
         painter: &egui::Painter,
@@ -1564,38 +1628,61 @@ impl SimulatorApp {
         y_offset: f32,
         alpha: u8,
     ) {
-        let stripe_x = image_rect.min.x + 55.0 * scale_x;
-        let stripe_width = 5.0 * scale_x;
-        let stripe_start_y = image_rect.min.y + 80.0 * scale_y + y_offset;
+        // Position X=58, width 7px (original template precise values)
+        let stripe_x = image_rect.min.x + 58.0 * scale_x;
+        let stripe_width = 7.0 * scale_x;
+        let stripe_start_y = image_rect.min.y + 110.0 * scale_y + y_offset;
         let stripe_end_y = image_rect.max.y;
 
-        // Draw vertical gradient stripe (yellow → blue → cyan from top to bottom)
-        let segment_count = 20;
-        let segment_height = (stripe_end_y - stripe_start_y) / segment_count as f32;
+        // More refined gradient: yellow → orange → purple → blue → cyan
+        let segment_count = 30;
+        let total_height = stripe_end_y - stripe_start_y;
+        let segment_height = total_height / segment_count as f32;
 
         for i in 0..segment_count {
             let y = stripe_start_y + i as f32 * segment_height;
-            if y < image_rect.min.y || y + segment_height > image_rect.max.y {
+            if y < image_rect.min.y || y > image_rect.max.y {
                 continue;
             }
 
             let t = i as f32 / segment_count as f32;
-            let (r, g, b) = if t < 0.3 {
-                // Yellow/orange
-                (255, (200.0 + t * 50.0) as u8, 50)
-            } else if t < 0.7 {
-                // Blue/purple
-                let t2 = (t - 0.3) / 0.4;
-                ((150.0 - t2 * 100.0) as u8, (100.0 + t2 * 50.0) as u8, (200.0 + t2 * 55.0) as u8)
+            let (r, g, b) = if t < 0.15 {
+                // Yellow (255, 220, 50)
+                (255, 220, 50)
+            } else if t < 0.30 {
+                // Yellow → orange
+                let t2 = (t - 0.15) / 0.15;
+                (255, (220.0 - t2 * 80.0) as u8, (50.0 + t2 * 30.0) as u8)
+            } else if t < 0.50 {
+                // Orange → purple
+                let t2 = (t - 0.30) / 0.20;
+                (
+                    (255.0 - t2 * 100.0) as u8,
+                    (140.0 - t2 * 40.0) as u8,
+                    (80.0 + t2 * 120.0) as u8,
+                )
+            } else if t < 0.75 {
+                // Purple → blue
+                let t2 = (t - 0.50) / 0.25;
+                (
+                    (155.0 - t2 * 80.0) as u8,
+                    (100.0 + t2 * 80.0) as u8,
+                    (200.0 + t2 * 40.0) as u8,
+                )
             } else {
-                // Cyan
-                (100, 200, 220)
+                // Blue → cyan
+                let t2 = (t - 0.75) / 0.25;
+                (
+                    (75.0 + t2 * 25.0) as u8,
+                    (180.0 + t2 * 40.0) as u8,
+                    (240.0 - t2 * 20.0) as u8,
+                )
             };
 
             let color = Color32::from_rgba_unmultiplied(r, g, b, alpha);
             let rect = Rect::from_min_size(
                 Pos2::new(stripe_x, y),
-                egui::vec2(stripe_width, segment_height),
+                egui::vec2(stripe_width, segment_height + 1.0), // +1 to avoid gaps
             );
             painter.rect_filled(rect, 0.0, color);
         }
@@ -1611,24 +1698,25 @@ impl SimulatorApp {
         y_offset: f32,
         alpha: u8,
     ) {
-        // Light cyan-blue gradient, fading from center outward
-        let center_x = image_rect.min.x + 100.0 * scale_x;
-        let center_y = image_rect.max.y - 100.0 * scale_y + y_offset;
-        let radius = 200.0 * scale_x.min(scale_y);
+        // Larger, softer gradient starting from left edge and bottom
+        let center_x = image_rect.min.x; // Start from left edge
+        let center_y = image_rect.max.y + y_offset; // Start from bottom edge
+        let max_radius = 280.0 * scale_x.min(scale_y);
 
-        // Draw multiple concentric semi-transparent circles for gradient effect
-        let layer_count = 10;
+        // Use more layers for softer gradient effect
+        let layer_count = 20;
         for i in (0..layer_count).rev() {
             let t = i as f32 / layer_count as f32;
-            let r = radius * (1.0 - t * 0.5);
-            let layer_alpha = ((alpha as f32) * 0.15 * (1.0 - t)) as u8;
-            let color = Color32::from_rgba_unmultiplied(176, 224, 230, layer_alpha); // Light cyan-blue
+            let radius = max_radius * (1.0 - t * 0.3);
+            // Lower opacity for softer effect
+            let layer_alpha = ((alpha as f32) * 0.08 * (1.0 - t * 0.5)) as u8;
+            let color = Color32::from_rgba_unmultiplied(180, 230, 240, layer_alpha);
 
-            painter.circle_filled(Pos2::new(center_x, center_y), r, color);
+            painter.circle_filled(Pos2::new(center_x, center_y), radius, color);
         }
     }
 
-    /// Render bottom-right logo background
+    /// Render bottom-right logo background with diagonal cut
     fn render_logo_background(
         &self,
         painter: &egui::Painter,
@@ -1638,22 +1726,38 @@ impl SimulatorApp {
         y_offset: f32,
         alpha: u8,
     ) {
-        // Black background bar
-        let bg_width = 160.0 * scale_x;
-        let bg_height = 30.0 * scale_y;
+        // Size: 200x40, with diagonal cut (original template precise values)
+        let bg_width = 200.0 * scale_x;
+        let bg_height = 40.0 * scale_y;
         let bg_x = image_rect.max.x - bg_width;
         let bg_y = image_rect.max.y - bg_height + y_offset;
+        let cut_size = 20.0 * scale_x; // Top-left diagonal cut size
 
         if bg_y >= image_rect.min.y && bg_y + bg_height <= image_rect.max.y {
-            let bg_rect = Rect::from_min_size(
-                Pos2::new(bg_x, bg_y),
-                egui::vec2(bg_width, bg_height),
-            );
-            let bg_color = Color32::from_rgba_unmultiplied(0, 0, 0, alpha);
-            painter.rect_filled(bg_rect, 0.0, bg_color);
+            let black = Color32::from_rgba_unmultiplied(0, 0, 0, alpha);
 
-            // "明日方舟" text could be added here if a Chinese font is loaded
-            // For now, we leave it as a black bar; the logo_image will be rendered separately
+            // Draw polygon with diagonal cut at top-left corner
+            let points = vec![
+                Pos2::new(bg_x + cut_size, bg_y),           // Top-left (after cut)
+                Pos2::new(image_rect.max.x, bg_y),          // Top-right
+                Pos2::new(image_rect.max.x, bg_y + bg_height), // Bottom-right
+                Pos2::new(bg_x, bg_y + bg_height),          // Bottom-left
+                Pos2::new(bg_x, bg_y + cut_size),           // Cut point on left edge
+            ];
+            painter.add(egui::Shape::convex_polygon(points, black, Stroke::NONE));
+
+            // "Rhodes Island" text
+            let white = Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
+            let text_y = bg_y + 8.0 * scale_y;
+            painter.text(
+                Pos2::new(bg_x + 30.0 * scale_x, text_y),
+                Align2::LEFT_TOP,
+                "Rhodes Island",
+                FontId::proportional(10.0 * scale_y),
+                white,
+            );
+
+            // Note: "明日方舟" requires Chinese font support, logo_image handles this separately
         }
     }
 
