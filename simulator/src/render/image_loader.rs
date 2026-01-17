@@ -150,7 +150,7 @@ impl ImageLoader {
 
 /// Preprocess text for Code128 barcode encoding
 /// Ensures all characters are valid ASCII printable characters (32-126)
-/// and adds Code128 Set B prefix for better compatibility
+/// and adds Code128 Set B prefix required by barcoders library
 fn preprocess_barcode_text(text: &str) -> String {
     // Filter to valid ASCII printable characters only
     let cleaned: String = text
@@ -174,10 +174,12 @@ fn preprocess_barcode_text(text: &str) -> String {
         })
         .collect();
 
-    // Code128 Set B supports ASCII 32-127
-    // Prefix with Set B start character for explicit charset selection
-    // barcoders library expects raw text and handles start/stop codes internally
-    cleaned
+    // Code128 Set B supports ASCII 32-127 (upper/lowercase, digits, punctuation)
+    // barcoders library REQUIRES a charset prefix at the start of the text:
+    // - '\u{00C0}' (À) = Character-set A
+    // - '\u{0181}' (Ɓ) = Character-set B (best for mixed case text)
+    // - '\u{0106}' (Ć) = Character-set C (numeric pairs only)
+    format!("\u{0181}{}", cleaned)
 }
 
 /// Generate a Code128 barcode as a ColorImage
