@@ -32,6 +32,10 @@ struct Args {
     #[arg(short, long)]
     base_dir: Option<PathBuf>,
 
+    /// Application directory (for program resources like overlay_template.png)
+    #[arg(long)]
+    app_dir: Option<PathBuf>,
+
     /// Named pipe name for IPC communication (Windows)
     #[arg(long)]
     pipe: Option<String>,
@@ -86,6 +90,16 @@ fn main() -> Result<()> {
     });
     info!("Base directory: {:?}", base_dir);
 
+    // Determine app_dir for program resources (overlay_template.png, etc.)
+    let app_dir = args.app_dir.unwrap_or_else(|| {
+        // Default to the directory containing the executable
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("."))
+    });
+    info!("App directory: {:?}", app_dir);
+
     // Create native options for eframe
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -105,6 +119,7 @@ fn main() -> Result<()> {
                 cc,
                 initial_config,
                 base_dir,
+                app_dir,
                 args.pipe,
                 args.stdio,
             )))

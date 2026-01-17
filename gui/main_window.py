@@ -518,7 +518,8 @@ class MainWindow(QMainWindow):
             subprocess.Popen([
                 simulator_path,
                 "--config", config_path,
-                "--base-dir", self._base_dir
+                "--base-dir", self._base_dir,
+                "--app-dir", app_dir
             ])
 
             logger.info(f"模拟器已启动: {simulator_path}")

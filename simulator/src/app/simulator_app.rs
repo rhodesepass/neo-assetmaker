@@ -29,6 +29,8 @@ pub struct SimulatorApp {
     epconfig: Option<EPConfig>,
     /// Base directory for assets
     base_dir: PathBuf,
+    /// Application directory for program resources (overlay_template.png, etc.)
+    app_dir: PathBuf,
 
     /// Simulator state
     state: SimulatorState,
@@ -89,6 +91,7 @@ impl SimulatorApp {
         _cc: &eframe::CreationContext<'_>,
         initial_config: Option<EPConfig>,
         base_dir: PathBuf,
+        app_dir: PathBuf,
         pipe_name: Option<String>,
         use_stdio: bool,
     ) -> Self {
@@ -154,6 +157,7 @@ impl SimulatorApp {
             firmware_config: firmware_config.clone(),
             epconfig: initial_config,
             base_dir: base_dir.clone(),
+            app_dir,
             state,
             video_player,
             transition_renderer: TransitionRenderer::new(firmware_config.clone()),
@@ -751,8 +755,9 @@ impl SimulatorApp {
         }
 
         // Load overlay template texture (static background with all decorations)
+        // Use app_dir (program directory) instead of base_dir (user material directory)
         if self.overlay_template_texture.is_none() {
-            let template_path = self.base_dir.join("resources/data/overlay_template.png");
+            let template_path = self.app_dir.join("resources/data/overlay_template.png");
             if let Ok(img) = image::open(&template_path) {
                 let rgba = img.to_rgba8();
                 let size = [rgba.width() as usize, rgba.height() as usize];
