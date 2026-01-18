@@ -88,8 +88,8 @@ class MainWindow(QMainWindow):
         self.preview_tabs = QTabWidget()
         self.video_preview = VideoPreviewWidget()  # 循环视频预览
         self.intro_preview = VideoPreviewWidget()  # 入场视频预览
-        self.preview_tabs.addTab(self.video_preview, "循环视频")
         self.preview_tabs.addTab(self.intro_preview, "入场视频")
+        self.preview_tabs.addTab(self.video_preview, "循环视频")
         preview_layout.addWidget(self.preview_tabs, stretch=1)
 
         self.timeline = TimelineWidget()
@@ -206,8 +206,11 @@ class MainWindow(QMainWindow):
         self.intro_preview.playback_state_changed.connect(self._on_intro_playback_changed)
         self.intro_preview.rotation_changed.connect(self._on_intro_rotation_changed)
 
-        # 时间轴（默认连接到循环视频预览）
-        self._connect_timeline_to_preview(self.video_preview)
+        # 时间轴（默认连接到入场视频预览）
+        self._connect_timeline_to_preview(self.intro_preview)
+
+        # 时间轴模拟器请求
+        self.timeline.simulator_requested.connect(self._on_simulator)
 
     def _load_settings(self):
         """加载设置"""
@@ -731,7 +734,7 @@ class MainWindow(QMainWindow):
         if path and os.path.exists(path):
             self.video_preview.load_video(path)
             # 切换到循环视频标签页
-            self.preview_tabs.setCurrentIndex(0)
+            self.preview_tabs.setCurrentIndex(1)
         else:
             logger.warning(f"视频文件不存在: {path}")
 
@@ -741,7 +744,7 @@ class MainWindow(QMainWindow):
         if path and os.path.exists(path):
             if self.intro_preview.load_video(path):
                 # 切换到入场视频标签页
-                self.preview_tabs.setCurrentIndex(1)
+                self.preview_tabs.setCurrentIndex(0)
         else:
             logger.warning(f"入场视频文件不存在: {path}")
 
@@ -799,18 +802,18 @@ class MainWindow(QMainWindow):
     def _on_preview_tab_changed(self, index: int):
         """预览标签页切换"""
         if index == 0:
-            # 循环视频
-            self._connect_timeline_to_preview(self.video_preview)
-            logger.debug("切换到循环视频预览")
-        else:
             # 入场视频
             self._connect_timeline_to_preview(self.intro_preview)
             logger.debug("切换到入场视频预览")
+        else:
+            # 循环视频
+            self._connect_timeline_to_preview(self.video_preview)
+            logger.debug("切换到循环视频预览")
 
     def _on_intro_video_loaded(self, total_frames: int, fps: float):
         """入场视频加载完成"""
         # 只在入场视频标签页激活时更新时间轴
-        if self.preview_tabs.currentIndex() == 1:
+        if self.preview_tabs.currentIndex() == 0:
             self.timeline.set_total_frames(total_frames)
             self.timeline.set_fps(fps)
             self.timeline.set_in_point(0)
@@ -819,17 +822,17 @@ class MainWindow(QMainWindow):
 
     def _on_intro_frame_changed(self, frame: int):
         """入场视频帧变更"""
-        if self.preview_tabs.currentIndex() == 1:
+        if self.preview_tabs.currentIndex() == 0:
             self.timeline.set_current_frame(frame)
 
     def _on_intro_playback_changed(self, is_playing: bool):
         """入场视频播放状态变更"""
-        if self.preview_tabs.currentIndex() == 1:
+        if self.preview_tabs.currentIndex() == 0:
             self.timeline.set_playing(is_playing)
 
     def _on_intro_rotation_changed(self, rotation: int):
         """入场视频旋转变更"""
-        if self.preview_tabs.currentIndex() == 1:
+        if self.preview_tabs.currentIndex() == 0:
             self.timeline.set_rotation(rotation)
 
     def _load_loop_image(self, path: str):
