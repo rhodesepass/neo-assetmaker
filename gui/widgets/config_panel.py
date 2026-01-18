@@ -31,6 +31,7 @@ class ConfigPanel(QWidget):
 
     config_changed = pyqtSignal()  # 配置变更信号
     video_file_selected = pyqtSignal(str)  # 视频文件选择信号
+    intro_video_selected = pyqtSignal(str)  # 入场视频文件选择信号
     validate_requested = pyqtSignal()  # 验证配置请求信号
     export_requested = pyqtSignal()  # 导出素材请求信号
     capture_frame_requested = pyqtSignal()  # 截取视频帧请求信号
@@ -783,6 +784,7 @@ class ConfigPanel(QWidget):
         )
         if path:
             self.edit_intro_file.setText(path)
+            self.intro_video_selected.emit(path)
 
     def _pick_color(self, edit: QLineEdit):
         """选择颜色"""

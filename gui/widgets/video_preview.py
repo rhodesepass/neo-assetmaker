@@ -256,13 +256,16 @@ class VideoPreviewWidget(QWidget):
             # 编辑模式：显示完整帧+裁剪框
             display_frame = rotated_frame.copy()
 
-            # 绘制裁剪框
-            cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            # 将cropbox坐标变换到旋转后坐标系
+            rx, ry, rw, rh = self._cropbox_to_rotated_coords(x, y, w, h)
 
-            # 绘制角落手柄
+            # 绘制裁剪框（使用变换后的坐标）
+            cv2.rectangle(display_frame, (rx, ry), (rx + rw, ry + rh), (0, 255, 0), 2)
+
+            # 绘制角落手柄（使用变换后的坐标）
             hs = 8
             handle_color = (0, 200, 255)
-            for px, py in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]:
+            for px, py in [(rx, ry), (rx + rw, ry), (rx, ry + rh), (rx + rw, ry + rh)]:
                 cv2.rectangle(
                     display_frame,
                     (px - hs, py - hs), (px + hs, py + hs),
@@ -298,7 +301,9 @@ class VideoPreviewWidget(QWidget):
 
         # 更新显示参数（仅编辑模式需要用于坐标转换）
         if not self._preview_mode:
-            self.display_scale = pixmap.width() / self.video_width if self.video_width > 0 else 1.0
+            # 使用旋转后的帧宽度计算缩放比例
+            rotated_width = self.video_height if self._rotation in (90, 270) else self.video_width
+            self.display_scale = pixmap.width() / rotated_width if rotated_width > 0 else 1.0
             self.display_offset_x = (label_size.width() - pixmap.width()) // 2
             self.display_offset_y = (label_size.height() - pixmap.height()) // 2
 
@@ -451,6 +456,32 @@ class VideoPreviewWidget(QWidget):
             return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
         return frame
 
+    def _cropbox_to_rotated_coords(self, x: int, y: int, w: int, h: int) -> Tuple[int, int, int, int]:
+        """将cropbox坐标从原始视频坐标系变换到旋转后坐标系"""
+        if self._rotation == 0:
+            return (x, y, w, h)
+        elif self._rotation == 90:
+            # 原始: (x, y) -> 旋转后: (video_height - y - h, x)
+            return (self.video_height - y - h, x, h, w)
+        elif self._rotation == 180:
+            return (self.video_width - x - w, self.video_height - y - h, w, h)
+        elif self._rotation == 270:
+            return (y, self.video_width - x - w, h, w)
+        return (x, y, w, h)
+
+    def _rotated_to_video_coords(self, rx: int, ry: int) -> Tuple[int, int]:
+        """将旋转后坐标系的点逆变换回原始视频坐标系"""
+        if self._rotation == 0:
+            return (rx, ry)
+        elif self._rotation == 90:
+            # 逆变换: (rx, ry) -> (ry, video_height - rx)
+            return (ry, self.video_height - rx)
+        elif self._rotation == 180:
+            return (self.video_width - rx, self.video_height - ry)
+        elif self._rotation == 270:
+            return (self.video_width - ry, rx)
+        return (rx, ry)
+
     def set_epconfig(self, config: "EPConfig"):
         """设置配置（用于叠加UI渲染）"""
         self._epconfig = config
@@ -462,11 +493,13 @@ class VideoPreviewWidget(QWidget):
             self._display_frame(self.current_frame)
 
     def _display_to_video_coords(self, pos: QPoint) -> Tuple[int, int]:
-        """将显示坐标转换为视频坐标"""
+        """将显示坐标转换为原始视频坐标（考虑旋转）"""
         label_pos = self.video_label.mapFrom(self, pos)
-        x = int((label_pos.x() - self.display_offset_x) / self.display_scale) if self.display_scale > 0 else 0
-        y = int((label_pos.y() - self.display_offset_y) / self.display_scale) if self.display_scale > 0 else 0
-        return (x, y)
+        # 先转换到旋转后的视频坐标
+        rx = int((label_pos.x() - self.display_offset_x) / self.display_scale) if self.display_scale > 0 else 0
+        ry = int((label_pos.y() - self.display_offset_y) / self.display_scale) if self.display_scale > 0 else 0
+        # 逆变换回原始视频坐标
+        return self._rotated_to_video_coords(rx, ry)
 
     def _get_drag_mode(self, vx: int, vy: int) -> int:
         """判断拖拽模式"""

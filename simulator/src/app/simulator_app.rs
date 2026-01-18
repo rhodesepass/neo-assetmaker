@@ -610,24 +610,6 @@ impl SimulatorApp {
             self.apply_transition_overlay(&mut image);
         }
 
-        // Draw state indicator (debug)
-        let state_color = match self.state.play_state {
-            PlayState::Idle => Color32::DARK_GRAY,
-            PlayState::TransitionIn | PlayState::TransitionLoop => Color32::YELLOW,
-            PlayState::Intro => Color32::BLUE,
-            PlayState::PreOpinfo => Color32::LIGHT_BLUE,
-            PlayState::Loop => Color32::GREEN,
-        };
-
-        // Draw small indicator in top-left corner
-        for y in 0..10 {
-            for x in 0..30 {
-                if y < height && x < width {
-                    image.pixels[y * width + x] = state_color;
-                }
-            }
-        }
-
         // If in loop state with arknights overlay, render color fade at pixel level
         if self.state.play_state == PlayState::Loop {
             if let Some(ref config) = self.epconfig {
@@ -681,26 +663,52 @@ impl SimulatorApp {
                 // During Hold phase with transition image, show the image
                 if phase == TransitionPhase::PhaseHold && has_transition_image {
                     if let Some((ref trans_pixels, trans_width, trans_height)) = self.transition_image_data {
-                        // Fill entire image with transition image (scaled)
+                        // Calculate aspect-ratio-preserving scale (contain mode, centered)
+                        let screen_aspect = width as f32 / height as f32;
+                        let image_aspect = trans_width as f32 / trans_height as f32;
+
+                        let (scaled_w, scaled_h, offset_x, offset_y) = if image_aspect > screen_aspect {
+                            // Image is wider - fit to width
+                            let scaled_w = width as f32;
+                            let scaled_h = width as f32 / image_aspect;
+                            let offset_y = ((height as f32 - scaled_h) / 2.0) as i32;
+                            (scaled_w, scaled_h, 0i32, offset_y)
+                        } else {
+                            // Image is taller - fit to height
+                            let scaled_h = height as f32;
+                            let scaled_w = height as f32 * image_aspect;
+                            let offset_x = ((width as f32 - scaled_w) / 2.0) as i32;
+                            (scaled_w, scaled_h, offset_x, 0i32)
+                        };
+
                         for (i, pixel) in image.pixels.iter_mut().enumerate() {
                             let x = i % width;
                             let y = i / width;
 
-                            // Scale coordinates to transition image space
-                            let tex_x = (x * trans_width) / width;
-                            let tex_y = (y * trans_height) / height;
-                            let tex_idx = tex_y * trans_width + tex_x;
+                            // Map screen coordinates to source image coordinates
+                            let src_x = ((x as i32 - offset_x) as f32 * trans_width as f32 / scaled_w) as i32;
+                            let src_y = ((y as i32 - offset_y) as f32 * trans_height as f32 / scaled_h) as i32;
 
-                            if tex_idx < trans_pixels.len() {
-                                let trans_pixel = trans_pixels[tex_idx];
-                                // Apply alpha blend: video -> transition image
+                            if src_x >= 0 && src_x < trans_width as i32 && src_y >= 0 && src_y < trans_height as i32 {
+                                let tex_idx = src_y as usize * trans_width + src_x as usize;
+                                if tex_idx < trans_pixels.len() {
+                                    let trans_pixel = trans_pixels[tex_idx];
+                                    let blend = alpha as f32 / 255.0;
+                                    let inv_blend = 1.0 - blend;
+                                    *pixel = Color32::from_rgb(
+                                        ((trans_pixel.r() as f32 * blend) + (pixel.r() as f32 * inv_blend)) as u8,
+                                        ((trans_pixel.g() as f32 * blend) + (pixel.g() as f32 * inv_blend)) as u8,
+                                        ((trans_pixel.b() as f32 * blend) + (pixel.b() as f32 * inv_blend)) as u8,
+                                    );
+                                }
+                            } else {
+                                // Outside bounds - fill with background color
                                 let blend = alpha as f32 / 255.0;
                                 let inv_blend = 1.0 - blend;
-
                                 *pixel = Color32::from_rgb(
-                                    ((trans_pixel.r() as f32 * blend) + (pixel.r() as f32 * inv_blend)) as u8,
-                                    ((trans_pixel.g() as f32 * blend) + (pixel.g() as f32 * inv_blend)) as u8,
-                                    ((trans_pixel.b() as f32 * blend) + (pixel.b() as f32 * inv_blend)) as u8,
+                                    ((bg_color.r() as f32 * blend) + (pixel.r() as f32 * inv_blend)) as u8,
+                                    ((bg_color.g() as f32 * blend) + (pixel.g() as f32 * inv_blend)) as u8,
+                                    ((bg_color.b() as f32 * blend) + (pixel.b() as f32 * inv_blend)) as u8,
                                 );
                             }
                         }
@@ -1231,13 +1239,20 @@ impl SimulatorApp {
             painter.image(tex.id(), rect, uv_full, tint);
         }
 
-        // 2. top_left_rect (60, 0) - L-shape black decoration, X=60 not 0
+        // 2. top_left_rect - L-shape black decoration, positioned right after top_left_rhodes
         if let Some(ref tex) = self.top_left_rect_texture {
             let tex_w = tex.size()[0] as f32;
             let tex_h = tex.size()[1] as f32;
+
+            // Use actual rhodes texture width for positioning
+            let rhodes_width = self.top_left_rhodes_texture
+                .as_ref()
+                .map(|t| t.size()[0] as f32)
+                .unwrap_or(60.0);
+
             let rect = Rect::from_min_size(
                 Pos2::new(
-                    image_rect.min.x + 60.0 * scale_x,
+                    image_rect.min.x + rhodes_width * scale_x,
                     image_rect.min.y + y_offset,
                 ),
                 egui::vec2(tex_w * scale_x, tex_h * scale_y),
@@ -1601,19 +1616,26 @@ impl SimulatorApp {
 
         // Use AK bar image texture if available
         if let Some(ref ak_bar_texture) = self.ak_bar_texture {
-            // ak_bar.png dimensions: 165x12, use uniform scale to preserve aspect ratio
-            let bar_height = 12.0 * uniform_scale;
+            // Get actual texture dimensions
+            let tex_width = ak_bar_texture.size()[0] as f32;
+            let tex_height = ak_bar_texture.size()[1] as f32;
+
+            // Calculate reveal ratio for sweep-in animation
+            let max_bar_width = 280.0;
+            let reveal_ratio = (anim.ak_bar_width as f32 / max_bar_width).min(1.0);
+
+            // Use original texture height, only scale for display
+            let displayed_width = tex_width * reveal_ratio * uniform_scale;
+            let displayed_height = tex_height * uniform_scale;
+
             let bar_rect = Rect::from_min_size(
                 Pos2::new(btm_info_x, y),
-                egui::vec2(width, bar_height),
+                egui::vec2(displayed_width, displayed_height),
             );
 
-            // UV clipping to implement sweep-in effect
-            // Maximum width is 280 pixels (target), reveal ratio based on current width
-            let reveal_ratio = anim.ak_bar_width as f32 / 280.0;
             let uv = Rect::from_min_max(
                 Pos2::new(0.0, 0.0),
-                Pos2::new(reveal_ratio.min(1.0), 1.0),
+                Pos2::new(reveal_ratio, 1.0),
             );
 
             painter.image(ak_bar_texture.id(), bar_rect, uv, Color32::WHITE);

@@ -46,6 +46,7 @@ class VideoExportParams:
     fps: float
     resolution: str = "360x640"
     is_image: bool = False  # True=从图片生成视频
+    rotation: int = 0  # 旋转角度 (0, 90, 180, 270)
 
 
 @dataclass
@@ -236,6 +237,22 @@ class ExportWorker(QThread):
             cap.set(cv2.CAP_PROP_POS_FRAMES, params.start_frame)
             total_frames = params.end_frame - params.start_frame
 
+            # 预计算旋转后的裁剪框坐标
+            orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            x, y, w, h = params.cropbox
+            rotation = params.rotation
+
+            # 将cropbox从原始坐标变换到旋转后坐标
+            if rotation == 90:
+                rx, ry, rw, rh = (orig_h - y - h, x, h, w)
+            elif rotation == 180:
+                rx, ry, rw, rh = (orig_w - x - w, orig_h - y - h, w, h)
+            elif rotation == 270:
+                rx, ry, rw, rh = (y, orig_w - x - w, h, w)
+            else:
+                rx, ry, rw, rh = (x, y, w, h)
+
             frames_written = 0
             for frame_idx in range(total_frames):
                 if self._cancelled:
@@ -245,8 +262,16 @@ class ExportWorker(QThread):
                 if not ret:
                     break
 
-                x, y, w, h = params.cropbox
-                frame = frame[y:y+h, x:x+w]
+                # 应用用户设置的旋转
+                if rotation == 90:
+                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                elif rotation == 180:
+                    frame = cv2.rotate(frame, cv2.ROTATE_180)
+                elif rotation == 270:
+                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+                # 应用裁剪（使用旋转后的坐标）
+                frame = frame[ry:ry+rh, rx:rx+rw]
                 frame = cv2.resize(frame, (target_w, target_h))
 
                 if rotate_180:
@@ -492,7 +517,8 @@ class ExportService(QObject):
         logo_mat: Optional[np.ndarray] = None,
         overlay_mat: Optional[np.ndarray] = None,
         loop_video_params: Optional[VideoExportParams] = None,
-        intro_video_params: Optional[VideoExportParams] = None
+        intro_video_params: Optional[VideoExportParams] = None,
+        loop_image_path: Optional[str] = None
     ):
         """导出所有素材"""
         if self.is_exporting:
@@ -518,8 +544,27 @@ class ExportService(QObject):
                 data=overlay_mat
             ))
 
-        # Loop视频
-        if loop_video_params is not None:
+        # Loop视频（图片模式优先）
+        if loop_image_path is not None:
+            if not self.ffmpeg_available:
+                self.export_failed.emit("未找到ffmpeg，无法导出视频")
+                return
+            # 从图片生成循环视频
+            image_params = VideoExportParams(
+                video_path=loop_image_path,
+                cropbox=(0, 0, 0, 0),  # 图片模式不需要裁剪
+                start_frame=0,
+                end_frame=30,
+                fps=30.0,
+                resolution=resolution,
+                is_image=True
+            )
+            tasks.append(ExportTask(
+                export_type=ExportType.LOOP_VIDEO,
+                output_path="loop.mp4",
+                data=image_params
+            ))
+        elif loop_video_params is not None:
             if not self.ffmpeg_available:
                 self.export_failed.emit("未找到ffmpeg，无法导出视频")
                 return

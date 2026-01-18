@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QMenuBar, QMenu, QStatusBar,
-    QFileDialog, QMessageBox, QLabel
+    QFileDialog, QMessageBox, QLabel, QTabWidget
 )
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
@@ -78,14 +78,19 @@ class MainWindow(QMainWindow):
         self.config_panel = ConfigPanel()
         self.splitter.addWidget(self.config_panel)
 
-        # === 中间: 视频预览 + 时间轴 ===
+        # === 中间: 视频预览标签页 + 时间轴 ===
         preview_container = QWidget()
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(5, 5, 5, 5)
         preview_layout.setSpacing(5)
 
-        self.video_preview = VideoPreviewWidget()
-        preview_layout.addWidget(self.video_preview, stretch=1)
+        # 标签页：循环视频 / 入场视频
+        self.preview_tabs = QTabWidget()
+        self.video_preview = VideoPreviewWidget()  # 循环视频预览
+        self.intro_preview = VideoPreviewWidget()  # 入场视频预览
+        self.preview_tabs.addTab(self.video_preview, "循环视频")
+        self.preview_tabs.addTab(self.intro_preview, "入场视频")
+        preview_layout.addWidget(self.preview_tabs, stretch=1)
 
         self.timeline = TimelineWidget()
         preview_layout.addWidget(self.timeline)
@@ -181,29 +186,28 @@ class MainWindow(QMainWindow):
         # 配置面板
         self.config_panel.config_changed.connect(self._on_config_changed)
         self.config_panel.video_file_selected.connect(self._on_video_file_selected)
+        self.config_panel.intro_video_selected.connect(self._on_intro_video_selected)
         self.config_panel.validate_requested.connect(self._on_validate)
         self.config_panel.export_requested.connect(self._on_export)
         self.config_panel.capture_frame_requested.connect(self._on_capture_frame)
 
-        # 视频预览
+        # 标签页切换
+        self.preview_tabs.currentChanged.connect(self._on_preview_tab_changed)
+
+        # 循环视频预览
         self.video_preview.video_loaded.connect(self._on_video_loaded)
         self.video_preview.frame_changed.connect(self._on_frame_changed)
         self.video_preview.playback_state_changed.connect(self._on_playback_changed)
-
-        # 时间轴
-        self.timeline.play_pause_clicked.connect(self.video_preview.toggle_play)
-        self.timeline.seek_requested.connect(self.video_preview.seek_to_frame)
-        self.timeline.prev_frame_clicked.connect(self.video_preview.prev_frame)
-        self.timeline.next_frame_clicked.connect(self.video_preview.next_frame)
-        self.timeline.goto_start_clicked.connect(lambda: self.video_preview.seek_to_frame(0))
-        self.timeline.goto_end_clicked.connect(
-            lambda: self.video_preview.seek_to_frame(self.video_preview.total_frames - 1)
-        )
-        self.timeline.set_in_point_clicked.connect(self.timeline.set_in_point_to_current)
-        self.timeline.set_out_point_clicked.connect(self.timeline.set_out_point_to_current)
-        self.timeline.simulator_requested.connect(self._on_simulator)
-        self.timeline.rotation_clicked.connect(self.video_preview.rotate_clockwise)
         self.video_preview.rotation_changed.connect(self.timeline.set_rotation)
+
+        # 入场视频预览
+        self.intro_preview.video_loaded.connect(self._on_intro_video_loaded)
+        self.intro_preview.frame_changed.connect(self._on_intro_frame_changed)
+        self.intro_preview.playback_state_changed.connect(self._on_intro_playback_changed)
+        self.intro_preview.rotation_changed.connect(self._on_intro_rotation_changed)
+
+        # 时间轴（默认连接到循环视频预览）
+        self._connect_timeline_to_preview(self.video_preview)
 
     def _load_settings(self):
         """加载设置"""
@@ -292,19 +296,35 @@ class MainWindow(QMainWindow):
             self.json_preview.set_config(self._config, self._base_dir)
             self.video_preview.set_epconfig(self._config)
 
-            # 尝试加载循环视频（延迟执行，避免阻塞UI）
+            # 尝试加载循环素材（延迟执行，避免阻塞UI）
             if self._config.loop.file:
-                video_path = self._config.loop.file
+                file_path = self._config.loop.file
                 # 如果是相对路径，转换为绝对路径
-                if not os.path.isabs(video_path):
-                    video_path = os.path.join(self._base_dir, video_path)
-                logger.info(f"尝试加载循环视频: {video_path}")
-                if os.path.exists(video_path):
-                    # 使用 singleShot 延迟加载，让UI先完成更新
+                if not os.path.isabs(file_path):
+                    file_path = os.path.join(self._base_dir, file_path)
+
+                if os.path.exists(file_path):
                     from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(100, lambda vp=video_path: self.video_preview.load_video(vp))
+                    if self._config.loop.is_image:
+                        # 图片模式：加载图片到预览器
+                        logger.info(f"尝试加载循环图片: {file_path}")
+                        QTimer.singleShot(100, lambda fp=file_path: self._load_loop_image(fp))
+                    else:
+                        # 视频模式
+                        logger.info(f"尝试加载循环视频: {file_path}")
+                        QTimer.singleShot(100, lambda vp=file_path: self.video_preview.load_video(vp))
                 else:
-                    logger.warning(f"循环视频文件不存在: {video_path}")
+                    logger.warning(f"循环素材文件不存在: {file_path}")
+
+            # 尝试加载入场视频
+            if self._config.intro.enabled and self._config.intro.file:
+                intro_path = self._config.intro.file
+                if not os.path.isabs(intro_path):
+                    intro_path = os.path.join(self._base_dir, intro_path)
+                if os.path.exists(intro_path):
+                    from PyQt6.QtCore import QTimer
+                    logger.info(f"尝试加载入场视频: {intro_path}")
+                    QTimer.singleShot(200, lambda vp=intro_path: self.intro_preview.load_video(vp))
 
             self._update_title()
             self.status_bar.showMessage(f"已打开: {path}")
@@ -400,12 +420,15 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "验证失败", msg)
             return
 
-        # 检查视频是否加载
-        if not self.video_preview.video_path:
+        # 检查循环素材是否已配置
+        has_loop_video = self.video_preview.video_path
+        has_loop_image = self._config.loop.is_image and hasattr(self, '_loop_image_path') and self._loop_image_path
+
+        if not has_loop_video and not has_loop_image:
             QMessageBox.warning(
                 self, "警告",
-                "请先加载视频文件\n\n"
-                "在配置面板的'视频配置'选项卡中选择循环视频文件"
+                "请先加载循环素材\n\n"
+                "在配置面板的'视频配置'选项卡中选择循环视频或图片文件"
             )
             return
 
@@ -459,7 +482,8 @@ class MainWindow(QMainWindow):
             logo_mat=export_data.get('logo_mat'),
             overlay_mat=export_data.get('overlay_mat'),
             loop_video_params=export_data.get('loop_video_params'),
-            intro_video_params=export_data.get('intro_video_params')
+            intro_video_params=export_data.get('intro_video_params'),
+            loop_image_path=export_data.get('loop_image_path')
         )
 
         # 显示进度对话框
@@ -706,8 +730,154 @@ class MainWindow(QMainWindow):
         logger.info(f"视频文件被选择: {path}")
         if path and os.path.exists(path):
             self.video_preview.load_video(path)
+            # 切换到循环视频标签页
+            self.preview_tabs.setCurrentIndex(0)
         else:
             logger.warning(f"视频文件不存在: {path}")
+
+    def _on_intro_video_selected(self, path: str):
+        """入场视频文件被选择"""
+        logger.info(f"入场视频文件被选择: {path}")
+        if path and os.path.exists(path):
+            if self.intro_preview.load_video(path):
+                # 切换到入场视频标签页
+                self.preview_tabs.setCurrentIndex(1)
+        else:
+            logger.warning(f"入场视频文件不存在: {path}")
+
+    def _connect_timeline_to_preview(self, preview: VideoPreviewWidget):
+        """将时间轴连接到指定预览器"""
+        # 断开旧连接（忽略错误，因为可能没有连接）
+        try:
+            self.timeline.play_pause_clicked.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.timeline.seek_requested.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.timeline.prev_frame_clicked.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.timeline.next_frame_clicked.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.timeline.goto_start_clicked.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.timeline.goto_end_clicked.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.timeline.rotation_clicked.disconnect()
+        except TypeError:
+            pass
+
+        # 连接新预览器
+        self.timeline.play_pause_clicked.connect(preview.toggle_play)
+        self.timeline.seek_requested.connect(preview.seek_to_frame)
+        self.timeline.prev_frame_clicked.connect(preview.prev_frame)
+        self.timeline.next_frame_clicked.connect(preview.next_frame)
+        self.timeline.goto_start_clicked.connect(lambda: preview.seek_to_frame(0))
+        self.timeline.goto_end_clicked.connect(
+            lambda: preview.seek_to_frame(preview.total_frames - 1)
+        )
+        self.timeline.rotation_clicked.connect(preview.rotate_clockwise)
+
+        # 更新时间轴显示
+        if preview.total_frames > 0:
+            self.timeline.set_total_frames(preview.total_frames)
+            self.timeline.set_fps(preview.video_fps)
+            self.timeline.set_current_frame(preview.current_frame_index)
+            self.timeline.set_rotation(preview.get_rotation())
+            self.timeline.set_playing(preview.is_playing)
+
+    def _on_preview_tab_changed(self, index: int):
+        """预览标签页切换"""
+        if index == 0:
+            # 循环视频
+            self._connect_timeline_to_preview(self.video_preview)
+            logger.debug("切换到循环视频预览")
+        else:
+            # 入场视频
+            self._connect_timeline_to_preview(self.intro_preview)
+            logger.debug("切换到入场视频预览")
+
+    def _on_intro_video_loaded(self, total_frames: int, fps: float):
+        """入场视频加载完成"""
+        # 只在入场视频标签页激活时更新时间轴
+        if self.preview_tabs.currentIndex() == 1:
+            self.timeline.set_total_frames(total_frames)
+            self.timeline.set_fps(fps)
+            self.timeline.set_in_point(0)
+            self.timeline.set_out_point(total_frames - 1)
+        self.status_bar.showMessage(f"入场视频已加载: {total_frames} 帧, {fps:.1f} FPS")
+
+    def _on_intro_frame_changed(self, frame: int):
+        """入场视频帧变更"""
+        if self.preview_tabs.currentIndex() == 1:
+            self.timeline.set_current_frame(frame)
+
+    def _on_intro_playback_changed(self, is_playing: bool):
+        """入场视频播放状态变更"""
+        if self.preview_tabs.currentIndex() == 1:
+            self.timeline.set_playing(is_playing)
+
+    def _on_intro_rotation_changed(self, rotation: int):
+        """入场视频旋转变更"""
+        if self.preview_tabs.currentIndex() == 1:
+            self.timeline.set_rotation(rotation)
+
+    def _load_loop_image(self, path: str):
+        """加载循环图片到预览器"""
+        import cv2
+        from PyQt6.QtGui import QImage, QPixmap
+
+        self._loop_image_path = path
+        logger.info(f"加载循环图片: {path}")
+
+        # 加载图片
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            logger.error(f"无法加载图片: {path}")
+            self.video_preview.video_label.setText(f"无法加载图片: {path}")
+            return
+
+        # 显示图片尺寸信息
+        h, w = img.shape[:2]
+        self.status_bar.showMessage(f"图片已加载: {w}x{h}")
+
+        # 转换为RGB显示
+        if len(img.shape) == 2:
+            # 灰度图转换为RGB
+            display_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        elif img.shape[2] == 4:
+            # BGRA转换为RGB
+            display_img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+        else:
+            # BGR转换为RGB
+            display_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # 创建QPixmap并显示
+        h, w, ch = display_img.shape
+        q_image = QImage(display_img.data, w, h, ch * w, QImage.Format.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_image)
+
+        # 缩放到预览区域大小
+        label_size = self.video_preview.video_label.size()
+        scaled_pixmap = pixmap.scaled(
+            label_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.video_preview.video_label.setPixmap(scaled_pixmap)
+
+        # 更新信息标签
+        self.video_preview.info_label.setText(f"图片模式: {w}x{h}")
 
     def _on_video_loaded(self, total_frames: int, fps: float):
         """视频加载完成"""
@@ -737,14 +907,52 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先加载视频")
             return
 
-        # 保存为图标文件
         import cv2
-        icon_path = os.path.join(self._base_dir, "icon.png")
-        cv2.imwrite(icon_path, frame)
 
-        # 更新配置
-        self.config_panel.edit_icon.setText("icon.png")
-        self.status_bar.showMessage("已截取视频帧作为图标")
+        # 1. 应用旋转变换
+        rotation = self.video_preview.get_rotation()
+        if rotation == 90:
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        elif rotation == 180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        elif rotation == 270:
+            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        # 2. 应用裁剪框（需要转换到旋转后的坐标）
+        x, y, w, h = self.video_preview.get_cropbox()
+        orig_w = self.video_preview.video_width
+        orig_h = self.video_preview.video_height
+
+        # 将cropbox从原始坐标变换到旋转后坐标
+        if rotation == 90:
+            rx, ry, rw, rh = (orig_h - y - h, x, h, w)
+        elif rotation == 180:
+            rx, ry, rw, rh = (orig_w - x - w, orig_h - y - h, w, h)
+        elif rotation == 270:
+            rx, ry, rw, rh = (y, orig_w - x - w, h, w)
+        else:
+            rx, ry, rw, rh = (x, y, w, h)
+
+        # 确保裁剪框在有效范围内
+        rotated_h, rotated_w = frame.shape[:2]
+        rx = max(0, min(rx, rotated_w - 1))
+        ry = max(0, min(ry, rotated_h - 1))
+        rw = min(rw, rotated_w - rx)
+        rh = min(rh, rotated_h - ry)
+
+        if rw > 0 and rh > 0:
+            frame = frame[ry:ry+rh, rx:rx+rw]
+
+        # 3. 保存为图标文件
+        icon_path = os.path.join(self._base_dir, "icon.png")
+        success = cv2.imwrite(icon_path, frame)
+
+        if success:
+            # 更新配置
+            self.config_panel.edit_icon.setText("icon.png")
+            self.status_bar.showMessage("已截取视频帧作为图标")
+        else:
+            QMessageBox.warning(self, "错误", "保存图标失败")
 
     def _collect_export_data(self) -> dict:
         """收集导出所需的数据"""
@@ -763,9 +971,16 @@ class MainWindow(QMainWindow):
                 if logo_img is not None:
                     data['logo_mat'] = ImageProcessor.process_for_logo(logo_img)
 
-        # 收集循环视频参数
-        if self.video_preview.video_path:
+        # 收集循环素材参数
+        if self._config.loop.is_image:
+            # 图片模式
+            if hasattr(self, '_loop_image_path') and self._loop_image_path:
+                data['loop_image_path'] = self._loop_image_path
+                data['is_loop_image'] = True
+        elif self.video_preview.video_path:
+            # 视频模式
             cropbox = self.video_preview.get_cropbox()
+            rotation = self.video_preview.get_rotation()
             in_point = self.timeline.get_in_point()
             out_point = self.timeline.get_out_point()
 
@@ -775,33 +990,51 @@ class MainWindow(QMainWindow):
                 start_frame=in_point,
                 end_frame=out_point,
                 fps=self.video_preview.video_fps,
-                resolution=self._config.screen.value
+                resolution=self._config.screen.value,
+                rotation=rotation
             )
 
         # 收集入场视频参数 (如果启用)
         if self._config.intro.enabled and self._config.intro.file:
-            intro_path = self._config.intro.file
-            if not os.path.isabs(intro_path):
-                intro_path = os.path.join(self._base_dir, intro_path)
+            # 优先使用 intro_preview（如果已加载）
+            if self.intro_preview.video_path:
+                cropbox = self.intro_preview.get_cropbox()
+                rotation = self.intro_preview.get_rotation()
 
-            if os.path.exists(intro_path):
-                import cv2
-                cap = cv2.VideoCapture(intro_path)
-                if cap.isOpened():
-                    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    cap.release()
+                data['intro_video_params'] = VideoExportParams(
+                    video_path=self.intro_preview.video_path,
+                    cropbox=cropbox,
+                    start_frame=0,
+                    end_frame=self.intro_preview.total_frames,
+                    fps=self.intro_preview.video_fps,
+                    resolution=self._config.screen.value,
+                    rotation=rotation
+                )
+            else:
+                # 回退：直接读取文件信息
+                intro_path = self._config.intro.file
+                if not os.path.isabs(intro_path):
+                    intro_path = os.path.join(self._base_dir, intro_path)
 
-                    data['intro_video_params'] = VideoExportParams(
-                        video_path=intro_path,
-                        cropbox=(0, 0, width, height),
-                        start_frame=0,
-                        end_frame=total_frames,
-                        fps=fps,
-                        resolution=self._config.screen.value
-                    )
+                if os.path.exists(intro_path):
+                    import cv2
+                    cap = cv2.VideoCapture(intro_path)
+                    if cap.isOpened():
+                        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        cap.release()
+
+                        data['intro_video_params'] = VideoExportParams(
+                            video_path=intro_path,
+                            cropbox=(0, 0, width, height),
+                            start_frame=0,
+                            end_frame=total_frames,
+                            fps=fps,
+                            resolution=self._config.screen.value,
+                            rotation=0
+                        )
 
         return data
 
