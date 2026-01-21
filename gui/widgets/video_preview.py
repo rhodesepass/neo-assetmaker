@@ -171,30 +171,32 @@ class VideoPreviewWidget(QWidget):
         return True
 
     def _init_cropbox(self):
-        """初始化裁剪框"""
+        """初始化裁剪框（在旋转后坐标系中）"""
+        rotated_w, rotated_h = self._get_rotated_video_size()
         w, h = self.target_width, self.target_height
 
-        if w > self.video_width:
-            w = self.video_width
+        if w > rotated_w:
+            w = rotated_w
             h = int(w / self.target_aspect_ratio)
-        if h > self.video_height:
-            h = self.video_height
+        if h > rotated_h:
+            h = rotated_h
             w = int(h * self.target_aspect_ratio)
 
-        x = (self.video_width - w) // 2
-        y = (self.video_height - h) // 2
+        x = (rotated_w - w) // 2
+        y = (rotated_h - h) // 2
         self.cropbox = [x, y, w, h]
         self._emit_cropbox_changed()
 
     def _bound_cropbox(self):
-        """限制裁剪框在视频范围内"""
+        """限制裁剪框在旋转后视频范围内"""
+        rotated_w, rotated_h = self._get_rotated_video_size()
         x, y, w, h = self.cropbox
 
-        if w > self.video_width:
-            w = self.video_width
+        if w > rotated_w:
+            w = rotated_w
             h = int(w / self.target_aspect_ratio)
-        if h > self.video_height:
-            h = self.video_height
+        if h > rotated_h:
+            h = rotated_h
             w = int(h * self.target_aspect_ratio)
 
         # 最小尺寸
@@ -202,8 +204,8 @@ class VideoPreviewWidget(QWidget):
         h = max(h, int(90 / self.target_aspect_ratio))
 
         # 边界限制
-        x = max(0, min(x, self.video_width - w))
-        y = max(0, min(y, self.video_height - h))
+        x = max(0, min(x, rotated_w - w))
+        y = max(0, min(y, rotated_h - h))
         self.cropbox = [x, y, w, h]
 
     def _emit_cropbox_changed(self):
@@ -256,16 +258,13 @@ class VideoPreviewWidget(QWidget):
             # 编辑模式：显示完整帧+裁剪框
             display_frame = rotated_frame.copy()
 
-            # 将cropbox坐标变换到旋转后坐标系
-            rx, ry, rw, rh = self._cropbox_to_rotated_coords(x, y, w, h)
+            # cropbox 已经在旋转后坐标系中，直接使用
+            cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            # 绘制裁剪框（使用变换后的坐标）
-            cv2.rectangle(display_frame, (rx, ry), (rx + rw, ry + rh), (0, 255, 0), 2)
-
-            # 绘制角落手柄（使用变换后的坐标）
+            # 绘制角落手柄
             hs = 8
             handle_color = (0, 200, 255)
-            for px, py in [(rx, ry), (rx + rw, ry), (rx, ry + rh), (rx + rw, ry + rh)]:
+            for px, py in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]:
                 cv2.rectangle(
                     display_frame,
                     (px - hs, py - hs), (px + hs, py + hs),
@@ -394,8 +393,26 @@ class VideoPreviewWidget(QWidget):
         return self.current_frame_index
 
     def get_cropbox(self) -> Tuple[int, int, int, int]:
-        """获取裁剪框"""
+        """获取裁剪框（旋转后坐标系）"""
         return tuple(self.cropbox)
+
+    def _cropbox_to_original_coords(self, x: int, y: int, w: int, h: int) -> Tuple[int, int, int, int]:
+        """将 cropbox 从旋转后坐标系逆变换到原始视频坐标系（用于导出）"""
+        if self._rotation == 0:
+            return (x, y, w, h)
+        elif self._rotation == 90:
+            # 旋转后坐标 -> 原始坐标
+            return (y, self.video_height - x - w, h, w)
+        elif self._rotation == 180:
+            return (self.video_width - x - w, self.video_height - y - h, w, h)
+        elif self._rotation == 270:
+            return (self.video_width - y - h, x, h, w)
+        return (x, y, w, h)
+
+    def get_cropbox_for_export(self) -> Tuple[int, int, int, int]:
+        """获取导出用的 cropbox（原始坐标系）"""
+        x, y, w, h = self.cropbox
+        return self._cropbox_to_original_coords(x, y, w, h)
 
     def set_cropbox(self, x: int, y: int, w: int, h: int):
         """设置裁剪框"""
@@ -427,6 +444,10 @@ class VideoPreviewWidget(QWidget):
         if self._rotation != degrees:
             self._rotation = degrees
             self.rotation_changed.emit(degrees)
+            # 旋转后只验证边界，不重新初始化 cropbox
+            # 这样 cropbox 在屏幕上的视觉位置保持不变
+            if self.video_width > 0 and self.video_height > 0:
+                self._bound_cropbox()  # 只验证边界，确保在新尺寸范围内
             if self.current_frame is not None:
                 self._display_frame(self.current_frame)
 
@@ -456,31 +477,11 @@ class VideoPreviewWidget(QWidget):
             return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
         return frame
 
-    def _cropbox_to_rotated_coords(self, x: int, y: int, w: int, h: int) -> Tuple[int, int, int, int]:
-        """将cropbox坐标从原始视频坐标系变换到旋转后坐标系"""
-        if self._rotation == 0:
-            return (x, y, w, h)
-        elif self._rotation == 90:
-            # 原始: (x, y) -> 旋转后: (video_height - y - h, x)
-            return (self.video_height - y - h, x, h, w)
-        elif self._rotation == 180:
-            return (self.video_width - x - w, self.video_height - y - h, w, h)
-        elif self._rotation == 270:
-            return (y, self.video_width - x - w, h, w)
-        return (x, y, w, h)
-
-    def _rotated_to_video_coords(self, rx: int, ry: int) -> Tuple[int, int]:
-        """将旋转后坐标系的点逆变换回原始视频坐标系"""
-        if self._rotation == 0:
-            return (rx, ry)
-        elif self._rotation == 90:
-            # 逆变换: (rx, ry) -> (ry, video_height - rx)
-            return (ry, self.video_height - rx)
-        elif self._rotation == 180:
-            return (self.video_width - rx, self.video_height - ry)
-        elif self._rotation == 270:
-            return (self.video_width - ry, rx)
-        return (rx, ry)
+    def _get_rotated_video_size(self) -> Tuple[int, int]:
+        """获取旋转后的视频尺寸"""
+        if self._rotation in (90, 270):
+            return (self.video_height, self.video_width)
+        return (self.video_width, self.video_height)
 
     def set_epconfig(self, config: "EPConfig"):
         """设置配置（用于叠加UI渲染）"""
@@ -492,14 +493,12 @@ class VideoPreviewWidget(QWidget):
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
-    def _display_to_video_coords(self, pos: QPoint) -> Tuple[int, int]:
-        """将显示坐标转换为原始视频坐标（考虑旋转）"""
+    def _display_to_rotated_coords(self, pos: QPoint) -> Tuple[int, int]:
+        """将显示坐标转换为旋转后视频坐标"""
         label_pos = self.video_label.mapFrom(self, pos)
-        # 先转换到旋转后的视频坐标
         rx = int((label_pos.x() - self.display_offset_x) / self.display_scale) if self.display_scale > 0 else 0
         ry = int((label_pos.y() - self.display_offset_y) / self.display_scale) if self.display_scale > 0 else 0
-        # 逆变换回原始视频坐标
-        return self._rotated_to_video_coords(rx, ry)
+        return (rx, ry)
 
     def _get_drag_mode(self, vx: int, vy: int) -> int:
         """判断拖拽模式"""
@@ -521,8 +520,8 @@ class VideoPreviewWidget(QWidget):
     def mousePressEvent(self, event: QMouseEvent):
         """鼠标按下"""
         if event.button() == Qt.MouseButton.LeftButton and self.cap is not None:
-            vx, vy = self._display_to_video_coords(event.pos())
-            self.drag_mode = self._get_drag_mode(vx, vy)
+            rx, ry = self._display_to_rotated_coords(event.pos())
+            self.drag_mode = self._get_drag_mode(rx, ry)
             if self.drag_mode != self.DRAG_NONE:
                 self.drag_start_pos = event.pos()
                 self.drag_start_cropbox = self.cropbox.copy()
@@ -531,9 +530,9 @@ class VideoPreviewWidget(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent):
         """鼠标移动"""
         if self.drag_mode != self.DRAG_NONE and self.drag_start_pos is not None:
-            cvx, cvy = self._display_to_video_coords(event.pos())
-            svx, svy = self._display_to_video_coords(self.drag_start_pos)
-            dx, dy = cvx - svx, cvy - svy
+            crx, cry = self._display_to_rotated_coords(event.pos())
+            srx, sry = self._display_to_rotated_coords(self.drag_start_pos)
+            dx, dy = crx - srx, cry - sry
             sx, sy, sw, sh = self.drag_start_cropbox
 
             if self.drag_mode == self.DRAG_MOVE:
@@ -560,8 +559,8 @@ class VideoPreviewWidget(QWidget):
                 self._display_frame(self.current_frame)
 
         elif self.cap is not None:
-            vx, vy = self._display_to_video_coords(event.pos())
-            mode = self._get_drag_mode(vx, vy)
+            rx, ry = self._display_to_rotated_coords(event.pos())
+            mode = self._get_drag_mode(rx, ry)
             cursors = {
                 self.DRAG_RESIZE_TL: Qt.CursorShape.SizeFDiagCursor,
                 self.DRAG_RESIZE_BR: Qt.CursorShape.SizeFDiagCursor,
