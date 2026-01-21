@@ -113,9 +113,25 @@ def clean_build():
             shutil.rmtree(d)
             print(f"  Removed: {d}")
 
+    # 清理所有 __pycache__ 目录，确保使用最新源代码
+    print("Cleaning __pycache__ directories...")
+    for root, dirs, files in os.walk('.'):
+        if '__pycache__' in dirs:
+            cache_path = os.path.join(root, '__pycache__')
+            shutil.rmtree(cache_path)
+            print(f"  Removed cache: {cache_path}")
+
 
 def run_cxfreeze():
     """执行 cx_Freeze 打包"""
+    # 强制清理 __pycache__，确保使用最新源代码编译
+    print("Clearing __pycache__ before build...")
+    for root, dirs, files in os.walk('.'):
+        if '__pycache__' in dirs:
+            cache_path = os.path.join(root, '__pycache__')
+            shutil.rmtree(cache_path)
+            print(f"  Cleared: {cache_path}")
+
     from cx_Freeze import setup, Executable
 
     site_packages = get_site_packages()
