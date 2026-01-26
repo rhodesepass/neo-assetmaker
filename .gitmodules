@@ -1,0 +1,3 @@
+[submodule "epass_flasher"]
+	path = epass_flasher
+	url = https://github.com/rhodesepass/epass_flasher.git
