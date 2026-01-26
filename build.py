@@ -114,8 +114,14 @@ def build_epass_flasher():
         print("  Warning: uv not found, skipping epass_flasher build")
         return False
 
+    # CI 中删除 uv.lock，强制使用 UV_DEFAULT_INDEX 环境变量指定的源
+    # （epass_flasher 的 uv.lock 锁定了清华镜像 URL，CI 无法访问）
+    lock_file = os.path.join(flasher_dir, "uv.lock")
+    if os.environ.get("UV_DEFAULT_INDEX") and os.path.exists(lock_file):
+        print("  Removing uv.lock to use UV_DEFAULT_INDEX...")
+        os.remove(lock_file)
+
     # 同步依赖（--group dev: 安装 dev 依赖，包含 PyInstaller）
-    # CI 中通过 UV_DEFAULT_INDEX 环境变量覆盖 epass_flasher 的清华镜像配置
     print("  Syncing dependencies...")
     result = subprocess.run(
         ["uv", "sync", "--group", "dev"],
