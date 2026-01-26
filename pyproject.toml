@@ -13,6 +13,7 @@ dependencies = [
     "easyocr>=1.7.0",
     "thefuzz>=0.22.0",
     "python-Levenshtein>=0.25.0",
+]
 
 [dependency-groups]
 dev = [
