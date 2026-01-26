@@ -100,6 +100,14 @@ def build_epass_flasher():
         print("  Warning: epass_flasher directory not found")
         return False
 
+    # 检查子模块是否已初始化
+    flasher_pyproject = os.path.join(flasher_dir, "pyproject.toml")
+    if not os.path.exists(flasher_pyproject):
+        print("  ERROR: epass_flasher submodule not initialized")
+        print("         Run: git submodule update --init --recursive")
+        print("         Or in CI: add 'submodules: true' to actions/checkout")
+        return False
+
     # 如果已存在且比源文件新，跳过构建
     flasher_main = os.path.join(flasher_dir, "main.py")
     if os.path.exists(flasher_exe) and os.path.exists(flasher_main):
