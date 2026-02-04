@@ -8,7 +8,6 @@ import subprocess
 import logging
 import tempfile
 import glob
-import time
 from typing import Optional, Dict, Any, Tuple, List
 from dataclasses import dataclass
 from enum import Enum
@@ -376,9 +375,7 @@ class ExportWorker(QThread):
             ]
             
             logger.info(f"执行ffmpeg 2pass第一遍: {' '.join(pass1_cmd)}")
-            
-            # 使用Popen替代run，以支持取消
-            # Python文档: "Popen objects are supported as context managers"
+
             self._ffmpeg_process = subprocess.Popen(
                 pass1_cmd,
                 stdout=subprocess.PIPE,
@@ -386,22 +383,29 @@ class ExportWorker(QThread):
                 encoding='utf-8',
                 errors='replace'
             )
-            
-            # 轮询等待进程完成，同时检查取消标志
-            # Python文档: "poll() - Check if child process has terminated...Otherwise, returns None"
-            while self._ffmpeg_process.poll() is None:
-                if self._cancelled:
-                    self._ffmpeg_process.terminate()
-                    self._ffmpeg_process.wait()  # 等待进程实际终止
-                    self._ffmpeg_process = None
-                    raise InterruptedError("导出已取消")
-                time.sleep(0.1)  # 100ms轮询间隔
-            
-            # 获取输出
-            stdout, stderr = self._ffmpeg_process.communicate()
+
+            # 使用 communicate(timeout) 循环等待进程完成
+            # Python文档警告: 使用 poll() + PIPE 会导致死锁，必须用 communicate()
+            # https://docs.python.org/3/library/subprocess.html#subprocess.Popen.wait
+            stdout, stderr = "", ""
+            while True:
+                try:
+                    out, err = self._ffmpeg_process.communicate(timeout=0.5)
+                    stdout = out or ""
+                    stderr = err or ""
+                    break  # 进程已结束
+                except subprocess.TimeoutExpired:
+                    # 进程仍在运行，检查取消标志
+                    if self._cancelled:
+                        self._ffmpeg_process.kill()
+                        self._ffmpeg_process.communicate()  # 清理管道
+                        self._ffmpeg_process = None
+                        raise InterruptedError("导出已取消")
+                    # 继续等待
+
             returncode = self._ffmpeg_process.returncode
             self._ffmpeg_process = None
-            
+
             if returncode != 0:
                 stderr_msg = stderr[-500:] if stderr else "未知错误"
                 logger.error(f"ffmpeg pass1 stderr: {stderr}")
@@ -430,7 +434,7 @@ class ExportWorker(QThread):
             ]
             
             logger.info(f"执行ffmpeg 2pass第二遍: {' '.join(pass2_cmd)}")
-            
+
             self._ffmpeg_process = subprocess.Popen(
                 pass2_cmd,
                 stdout=subprocess.PIPE,
@@ -438,20 +442,25 @@ class ExportWorker(QThread):
                 encoding='utf-8',
                 errors='replace'
             )
-            
-            # 同样使用轮询等待
-            while self._ffmpeg_process.poll() is None:
-                if self._cancelled:
-                    self._ffmpeg_process.terminate()
-                    self._ffmpeg_process.wait()
-                    self._ffmpeg_process = None
-                    raise InterruptedError("导出已取消")
-                time.sleep(0.1)
-            
-            stdout, stderr = self._ffmpeg_process.communicate()
+
+            # 使用 communicate(timeout) 循环等待进程完成
+            stdout, stderr = "", ""
+            while True:
+                try:
+                    out, err = self._ffmpeg_process.communicate(timeout=0.5)
+                    stdout = out or ""
+                    stderr = err or ""
+                    break
+                except subprocess.TimeoutExpired:
+                    if self._cancelled:
+                        self._ffmpeg_process.kill()
+                        self._ffmpeg_process.communicate()  # 清理管道
+                        self._ffmpeg_process = None
+                        raise InterruptedError("导出已取消")
+
             returncode = self._ffmpeg_process.returncode
             self._ffmpeg_process = None
-            
+
             if returncode != 0:
                 stderr_msg = stderr[-500:] if stderr else "未知错误"
                 logger.error(f"ffmpeg pass2 stderr: {stderr}")
@@ -463,13 +472,13 @@ class ExportWorker(QThread):
             # 确保进程引用被清理
             self._ffmpeg_process = None
             # 清理passlogfile生成的临时文件
-            for pattern in [f"{passlog_prefix}*.log*", f"{passlog_prefix}*.mbtree"]:
-                for f in glob.glob(pattern):
-                    try:
-                        os.remove(f)
-                        logger.debug(f"已清理临时文件: {f}")
-                    except OSError:
-                        pass
+            # FFmpeg 创建 PREFIX-N.log 和 PREFIX-N.log.mbtree，*.log* 可匹配两者
+            for f in glob.glob(f"{passlog_prefix}*.log*"):
+                try:
+                    os.remove(f)
+                    logger.debug(f"已清理临时文件: {f}")
+                except OSError:
+                    pass
 
     def _export_video_from_image(
         self,

@@ -343,7 +343,8 @@ class VideoPreviewWidget(QWidget):
         """播放"""
         if self.cap is None or self.is_playing:
             return
-        interval = int(1000 / self.video_fps)
+        # 使用 round() 减少截断误差
+        interval = round(1000 / self.video_fps)
         self.timer.start(interval)
         self.is_playing = True
         self.playback_state_changed.emit(True)

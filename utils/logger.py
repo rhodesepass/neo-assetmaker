@@ -6,60 +6,78 @@ import logging
 import tempfile
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from typing import Optional
 
 
-def setup_logger(log_dir: str = None) -> logging.Logger:
+def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
     """
     配置应用日志系统
 
     Args:
-        log_dir: 日志目录，默认为 AppData 目录，降级到临时目录
+        log_dir: 日志目录，默认为应用程序目录下的 logs 文件夹
 
     Returns:
         配置好的根日志记录器
     """
-    # 确定日志目录
     if log_dir is None:
-        # 优先使用 AppData 目录
-        appdata = os.getenv('LOCALAPPDATA')
-        if appdata:
-            log_dir = os.path.join(appdata, 'ArknightsPassMaker', 'logs')
-        else:
-            log_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), 'logs'
-            )
+        # 使用应用程序目录（支持打包环境）
+        from utils.file_utils import get_app_dir
+        log_dir = os.path.join(get_app_dir(), 'logs')
 
-    # 创建日志目录，带权限降级
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-    except PermissionError:
-        # 降级到临时目录
-        log_dir = os.path.join(tempfile.gettempdir(), 'ArknightsPassMaker_logs')
-        os.makedirs(log_dir, exist_ok=True)
+    # 多级降级策略
+    dirs_to_try = [
+        log_dir,
+    ]
+    # 添加 AppData 目录作为备选
+    appdata = os.getenv('LOCALAPPDATA')
+    if appdata:
+        dirs_to_try.append(os.path.join(appdata, 'ArknightsPassMaker', 'logs'))
+    # 添加临时目录作为最后备选
+    dirs_to_try.append(os.path.join(tempfile.gettempdir(), 'ArknightsPassMaker_logs'))
 
-    # 日志文件名（按日期）
-    log_file = os.path.join(
-        log_dir, f'app_{datetime.now():%Y%m%d}.log'
-    )
+    actual_log_dir = None
+    for try_dir in dirs_to_try:
+        try:
+            os.makedirs(try_dir, exist_ok=True)
+            actual_log_dir = try_dir
+            break
+        except (PermissionError, OSError):
+            continue
+
+    if actual_log_dir is None:
+        # 所有目录都不可用，只使用控制台输出
+        print("[WARNING] 无法创建日志目录，仅使用控制台输出")
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.handlers.clear()
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+        root_logger.addHandler(console_handler)
+        return root_logger
+
+    log_file = os.path.join(actual_log_dir, f'app_{datetime.now():%Y%m%d}.log')
 
     # 日志格式
     file_formatter = logging.Formatter(
         '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    console_formatter = logging.Formatter(
-        '[%(levelname)s] %(message)s'
-    )
+    console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
 
-    # 文件处理器 - 记录所有级别
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=5 * 1024 * 1024,  # 5MB
-        backupCount=5,
-        encoding='utf-8'
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(file_formatter)
+    # 创建文件处理器，带异常处理
+    file_handler = None
+    try:
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=5 * 1024 * 1024,  # 5MB
+            backupCount=5,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(file_formatter)
+    except (PermissionError, OSError) as e:
+        print(f"[WARNING] 无法创建日志文件: {e}")
 
     # 控制台处理器 - 只记录 INFO 及以上
     console_handler = logging.StreamHandler()
@@ -69,21 +87,22 @@ def setup_logger(log_dir: str = None) -> logging.Logger:
     # 配置根日志记录器
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-
-    # 清除现有处理器（避免重复）
     root_logger.handlers.clear()
 
-    # 添加处理器
-    root_logger.addHandler(file_handler)
+    if file_handler:
+        root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
     # 记录启动信息
-    root_logger.info(f"日志系统已初始化，日志文件: {log_file}")
+    if file_handler:
+        root_logger.info(f"日志系统已初始化，日志文件: {log_file}")
+    else:
+        root_logger.warning("日志系统已初始化（仅控制台输出）")
 
     return root_logger
 
 
-def cleanup_old_logs(log_dir: str = None, days: int = 30):
+def cleanup_old_logs(log_dir: Optional[str] = None, days: int = 30):
     """
     清理超过指定天数的旧日志文件
 
@@ -96,13 +115,8 @@ def cleanup_old_logs(log_dir: str = None, days: int = 30):
 
     if log_dir is None:
         # 使用与 setup_logger 相同的目录逻辑
-        appdata = os.getenv('LOCALAPPDATA')
-        if appdata:
-            log_dir = os.path.join(appdata, 'ArknightsPassMaker', 'logs')
-        else:
-            log_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), 'logs'
-            )
+        from utils.file_utils import get_app_dir
+        log_dir = os.path.join(get_app_dir(), 'logs')
 
     if not os.path.exists(log_dir):
         return

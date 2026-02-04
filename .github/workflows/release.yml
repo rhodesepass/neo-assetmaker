@@ -194,11 +194,35 @@ jobs:
           }
         shell: pwsh
 
+      - name: Extract changelog for current version
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          # 提取当前版本的更新日志（从 ### vX.X.X 到下一个 ### v）
+          CHANGELOG=$(awk "/^### v${VERSION}/,/^### v[0-9]/" README.md | head -n -1)
+
+          # 如果是最后一个版本（没有下一个 ### v），提取到文件结尾
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG=$(awk "/^### v${VERSION}/,0" README.md)
+          fi
+
+          echo "Extracted changelog for v${VERSION}:"
+          echo "$CHANGELOG"
+
+          # 使用 heredoc 输出多行内容
+          {
+            echo "CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           name: v${{ needs.check-version.outputs.version }}
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
           files: |
             dist/*.exe
           generate_release_notes: true

@@ -325,6 +325,10 @@ impl SimulatorApp {
         self.state.start_playback(has_intro, transition_type, total_frames);
         self.animation_controller.reset();
 
+        // Reset frame accumulators for FPS sync
+        self.state.loop_frame_accumulator = 0;
+        self.state.intro_frame_accumulator = 0;
+
         // Prepare videos
         if has_intro {
             self.video_player.seek_intro_to_start();
@@ -453,15 +457,27 @@ impl SimulatorApp {
         // Transition complete
         if self.state.transition.is_complete() {
             self.state.play_state = PlayState::Intro;
+            self.state.intro_frame_accumulator = 0;  // Reset for FPS sync
             self.video_player.seek_intro_to_start();
         }
     }
 
     fn process_intro(&mut self) {
-        // Advance to next intro video frame (updates internal cache)
-        if !self.video_player.advance_intro_frame() {
-            // Intro video ended, start transition to loop
-            self.start_transition_loop();
+        // Calculate video frame duration (microseconds)
+        let video_fps = self.video_player.intro_fps();
+        let frame_duration_us = (1_000_000.0 / video_fps) as i64;
+
+        // Accumulate time (50fps render = 20ms = 20000us per tick)
+        self.state.intro_frame_accumulator += 20000;
+
+        // Advance video frame only when accumulated time exceeds frame duration
+        if self.state.intro_frame_accumulator >= frame_duration_us {
+            self.state.intro_frame_accumulator -= frame_duration_us;
+            // Advance to next intro video frame (updates internal cache)
+            if !self.video_player.advance_intro_frame() {
+                // Intro video ended, start transition to loop
+                self.start_transition_loop();
+            }
         }
     }
 
@@ -486,6 +502,7 @@ impl SimulatorApp {
         if self.state.transition.is_complete() {
             self.state.play_state = PlayState::PreOpinfo;
             self.state.pre_opinfo_counter = 0;
+            self.state.loop_frame_accumulator = 0;  // Reset for FPS sync
             self.video_player.seek_loop_to_start();
         }
     }
@@ -493,8 +510,18 @@ impl SimulatorApp {
     fn process_pre_opinfo(&mut self) {
         self.state.pre_opinfo_counter += 1;
 
-        // Advance loop video frame (updates internal cache, no clone)
-        self.video_player.advance_loop_frame();
+        // Calculate video frame duration (microseconds)
+        let video_fps = self.video_player.loop_fps();
+        let frame_duration_us = (1_000_000.0 / video_fps) as i64;
+
+        // Accumulate time (50fps render = 20ms = 20000us per tick)
+        self.state.loop_frame_accumulator += 20000;
+
+        // Advance loop video frame only when accumulated time exceeds frame duration
+        if self.state.loop_frame_accumulator >= frame_duration_us {
+            self.state.loop_frame_accumulator -= frame_duration_us;
+            self.video_player.advance_loop_frame();
+        }
 
         // Wait for appear_time
         if self.state.pre_opinfo_counter >= self.state.appear_time_frames {
@@ -505,8 +532,18 @@ impl SimulatorApp {
     }
 
     fn process_loop(&mut self) {
-        // Advance loop video frame (updates internal cache, no clone)
-        self.video_player.advance_loop_frame();
+        // Calculate video frame duration (microseconds)
+        let video_fps = self.video_player.loop_fps();
+        let frame_duration_us = (1_000_000.0 / video_fps) as i64;
+
+        // Accumulate time (50fps render = 20ms = 20000us per tick)
+        self.state.loop_frame_accumulator += 20000;
+
+        // Advance loop video frame only when accumulated time exceeds frame duration
+        if self.state.loop_frame_accumulator >= frame_duration_us {
+            self.state.loop_frame_accumulator -= frame_duration_us;
+            self.video_player.advance_loop_frame();
+        }
 
         // Update animation
         self.animation_controller.update(&mut self.state.animation);

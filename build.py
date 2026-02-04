@@ -12,7 +12,7 @@ import zipfile
 sys.setrecursionlimit(10000)
 
 PROJECT_NAME = "ArknightsPassMaker"
-VERSION = "1.5.5"
+VERSION = "1.5.7"
 MAIN_SCRIPT = "main.py"
 ICON_FILE = "resources/icons/favicon.ico"
 BUILD_DIR = PROJECT_NAME
@@ -238,7 +238,7 @@ def run_cxfreeze(skip_flasher=False):
     includes = [
         "config", "config.constants", "config.epconfig",
         "core", "core.validator", "core.video_processor", "core.image_processor",
-        "core.export_service", "core.legacy_converter", "core.overlay_renderer",
+        "core.export_service", "core.overlay_renderer",
         "core.operator_lookup", "core.ocr_service",
         "gui", "gui.main_window", "gui.dialogs", "gui.dialogs.export_progress_dialog",
         "gui.dialogs.operator_confirm_dialog", "gui.widgets", "gui.widgets.config_panel",

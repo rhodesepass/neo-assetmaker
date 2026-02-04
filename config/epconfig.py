@@ -201,7 +201,7 @@ class ArknightsOverlayOptions:
 class ImageOverlayOptions:
     """图片叠加UI选项"""
     appear_time: int = 100000  # 微秒
-    duration: int = 100000  # 微秒
+    duration: int = 0  # 微秒 (0 表示无限显示)
     image: str = ""
 
     def to_dict(self) -> dict:
@@ -217,7 +217,7 @@ class ImageOverlayOptions:
     def from_dict(cls, data: dict) -> "ImageOverlayOptions":
         return cls(
             appear_time=data.get("appear_time", 100000),
-            duration=data.get("duration", 100000),
+            duration=data.get("duration", 0),
             image=data.get("image", "")
         )
 

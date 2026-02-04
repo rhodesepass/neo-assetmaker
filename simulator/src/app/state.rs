@@ -254,6 +254,11 @@ pub struct SimulatorState {
     pub pre_opinfo_counter: u32,
     /// Appear time in frames
     pub appear_time_frames: u32,
+
+    /// Loop video frame accumulator (microseconds) for FPS sync
+    pub loop_frame_accumulator: i64,
+    /// Intro video frame accumulator (microseconds) for FPS sync
+    pub intro_frame_accumulator: i64,
 }
 
 impl SimulatorState {

@@ -171,6 +171,23 @@ class JsonPreviewWidget(QWidget):
         if "intro" in config_dict and config_dict["intro"].get("file"):
             config_dict["intro"]["file"] = "intro.mp4"
 
+        # 标准化 overlay.options 中的路径
+        if "overlay" in config_dict and config_dict["overlay"].get("options"):
+            opts = config_dict["overlay"]["options"]
+            overlay_type = config_dict["overlay"].get("type")
+
+            # ArknightsOverlay 路径
+            if overlay_type == "arknights":
+                if opts.get("logo"):
+                    opts["logo"] = "ark_logo.png"
+                if opts.get("operator_class_icon"):
+                    opts["operator_class_icon"] = "class_icon.png"
+
+            # ImageOverlay 路径
+            elif overlay_type == "image":
+                if opts.get("image"):
+                    opts["image"] = "overlay.argb"
+
         json_str = json.dumps(config_dict, ensure_ascii=False, indent=4)
         self.text_edit.setText(json_str)
 
@@ -200,16 +217,28 @@ class JsonPreviewWidget(QWidget):
             self.status_label.setText("配置无效")
             self.status_label.setStyleSheet("color: #f44;")
 
-        # 更新计数
+        # 更新计数和详细提示
         if len(errors) > 0:
             self.error_count_label.setText(f"{len(errors)} 个错误")
+            # 构建详细的 tooltip
+            tooltip_lines = ["<b>错误列表:</b>"]
+            for r in errors:
+                tooltip_lines.append(f"• {r.field}: {r.message}")
+            self.error_count_label.setToolTip("<br>".join(tooltip_lines))
         else:
             self.error_count_label.setText("")
+            self.error_count_label.setToolTip("")
 
         if len(warnings) > 0:
             self.warning_count_label.setText(f"{len(warnings)} 个警告")
+            # 构建详细的 tooltip
+            tooltip_lines = ["<b>警告列表:</b>"]
+            for r in warnings:
+                tooltip_lines.append(f"• {r.field}: {r.message}")
+            self.warning_count_label.setToolTip("<br>".join(tooltip_lines))
         else:
             self.warning_count_label.setText("")
+            self.warning_count_label.setToolTip("")
 
     def clear(self):
         """清空预览"""

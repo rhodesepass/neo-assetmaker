@@ -1,11 +1,13 @@
 """
 常量定义 - 分辨率、支持格式等
 """
-from typing import Dict, Any
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, Any, List
 
 # ===== 应用信息 =====
 APP_NAME = "明日方舟通行证素材制作器"
-APP_VERSION = "1.5.5"
+APP_VERSION = "1.5.7"
 
 # ===== 基础尺寸配置 =====
 SCREEN_WIDTH = 360
@@ -108,3 +110,69 @@ def seconds_to_microseconds(s: float) -> int:
 GITHUB_OWNER = "rhodesepass"
 GITHUB_REPO = "neo-assetmaker"
 UPDATE_CHECK_INTERVAL_HOURS = 24
+
+
+# ===== 多源更新配置 =====
+# 参考: https://docs.python.org/3/library/concurrent.futures.html
+# 使用 ThreadPoolExecutor + as_completed() 实现多源并发请求
+
+
+class SourceType(Enum):
+    """更新源类型"""
+    GITHUB_API = "github_api"      # GitHub 官方 API
+    GITHUB_PROXY = "github_proxy"  # GitHub 代理镜像
+
+
+@dataclass
+class UpdateSource:
+    """更新源配置"""
+    name: str                      # 源名称（用于日志和UI显示）
+    url_template: str              # URL 模板，支持 {owner}, {repo}, {direct_url} 占位符
+    source_type: SourceType        # 源类型
+    priority: int                  # 优先级（数字越小优先级越高）
+    timeout: float = 10.0          # 超时时间（秒）
+    enabled: bool = True           # 是否启用
+
+
+# API 源池 - 用于检查更新（竞速策略：同时请求所有源，取最快返回）
+UPDATE_API_SOURCES: List[UpdateSource] = [
+    UpdateSource(
+        name="GitHub API",
+        url_template="https://api.github.com/repos/{owner}/{repo}/releases/latest",
+        source_type=SourceType.GITHUB_API,
+        priority=1,
+        timeout=10.0
+    ),
+    UpdateSource(
+        name="ghproxy.cc",
+        url_template="https://ghproxy.cc/https://api.github.com/repos/{owner}/{repo}/releases/latest",
+        source_type=SourceType.GITHUB_PROXY,
+        priority=2,
+        timeout=15.0
+    ),
+    UpdateSource(
+        name="gh.idayer.com",
+        url_template="https://gh.idayer.com/https://api.github.com/repos/{owner}/{repo}/releases/latest",
+        source_type=SourceType.GITHUB_PROXY,
+        priority=3,
+        timeout=15.0
+    ),
+]
+
+# 下载源池 - 用于下载安装包（故障转移策略：按优先级依次尝试）
+DOWNLOAD_SOURCES: List[UpdateSource] = [
+    UpdateSource(
+        name="GitHub Releases",
+        url_template="{direct_url}",
+        source_type=SourceType.GITHUB_API,
+        priority=1,
+        timeout=60.0
+    ),
+    UpdateSource(
+        name="ghproxy.cc",
+        url_template="https://ghproxy.cc/{direct_url}",
+        source_type=SourceType.GITHUB_PROXY,
+        priority=2,
+        timeout=120.0
+    ),
+]

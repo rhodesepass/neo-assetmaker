@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget
 )
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QKeySequence
 
 from config.epconfig import (
     EPConfig, ScreenType, TransitionType, OverlayType,
@@ -32,6 +33,8 @@ class ConfigPanel(QWidget):
     config_changed = pyqtSignal()  # 配置变更信号
     video_file_selected = pyqtSignal(str)  # 视频文件选择信号
     intro_video_selected = pyqtSignal(str)  # 入场视频文件选择信号
+    loop_image_selected = pyqtSignal(str)  # 循环图片选择信号
+    loop_mode_changed = pyqtSignal(bool)  # 循环模式切换信号 (True=图片, False=视频)
     validate_requested = pyqtSignal()  # 验证配置请求信号
     export_requested = pyqtSignal()  # 导出素材请求信号
     capture_frame_requested = pyqtSignal()  # 截取视频帧请求信号
@@ -450,10 +453,12 @@ class ConfigPanel(QWidget):
         actions_layout = QVBoxLayout(group_actions)
 
         self.btn_validate = QPushButton("验证配置")
+        self.btn_validate.setShortcut(QKeySequence("Ctrl+T"))
         self.btn_validate.setToolTip("验证配置是否有效 (Ctrl+T)")
         actions_layout.addWidget(self.btn_validate)
 
         self.btn_export = QPushButton("导出素材")
+        self.btn_export.setShortcut(QKeySequence("Ctrl+E"))
         self.btn_export.setToolTip("导出素材文件 (Ctrl+E)")
         actions_layout.addWidget(self.btn_export)
 
@@ -763,9 +768,11 @@ class ConfigPanel(QWidget):
             )
         if path:
             self.edit_loop_file.setText(path)
-            # 发送视频选择信号用于预览（仅视频模式）
-            if not self.radio_loop_image.isChecked():
-                self.video_file_selected.emit(path)
+            # 发送选择信号用于预览
+            if self.radio_loop_image.isChecked():
+                self.loop_image_selected.emit(path)  # 图片模式
+            else:
+                self.video_file_selected.emit(path)  # 视频模式
 
     def _on_loop_mode_changed(self):
         """循环模式变更"""
@@ -774,6 +781,13 @@ class ConfigPanel(QWidget):
             self.edit_loop_file.setPlaceholderText("loop.png")
         else:
             self.edit_loop_file.setPlaceholderText("loop.mp4")
+
+        # 清空文件路径
+        self.edit_loop_file.clear()
+
+        # 发出模式切换信号
+        self.loop_mode_changed.emit(is_image)
+
         self._on_config_changed()
 
     def _browse_intro(self):

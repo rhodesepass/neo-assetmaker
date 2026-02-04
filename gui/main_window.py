@@ -152,21 +152,6 @@ class MainWindow(QMainWindow):
         # 工具菜单
         tools_menu = menubar.addMenu("工具(&T)")
 
-        self.action_validate = QAction("验证配置(&V)", self)
-        self.action_validate.setShortcut(QKeySequence("Ctrl+T"))
-        tools_menu.addAction(self.action_validate)
-
-        self.action_export = QAction("导出素材(&E)...", self)
-        self.action_export.setShortcut(QKeySequence("Ctrl+E"))
-        tools_menu.addAction(self.action_export)
-
-        tools_menu.addSeparator()
-
-        self.action_batch_convert = QAction("批量转换老素材(&B)...", self)
-        tools_menu.addAction(self.action_batch_convert)
-
-        tools_menu.addSeparator()
-
         self.action_flasher = QAction("固件烧录(&R)...", self)
         tools_menu.addAction(self.action_flasher)
 
@@ -193,9 +178,6 @@ class MainWindow(QMainWindow):
         self.action_save.triggered.connect(self._on_save_project)
         self.action_save_as.triggered.connect(self._on_save_as)
         self.action_exit.triggered.connect(self.close)
-        self.action_validate.triggered.connect(self._on_validate)
-        self.action_export.triggered.connect(self._on_export)
-        self.action_batch_convert.triggered.connect(self._on_batch_convert)
         self.action_flasher.triggered.connect(self._on_flasher)
         self.action_shortcuts.triggered.connect(self._on_shortcuts)
         self.action_check_update.triggered.connect(self._on_check_update)
@@ -205,6 +187,8 @@ class MainWindow(QMainWindow):
         self.config_panel.config_changed.connect(self._on_config_changed)
         self.config_panel.video_file_selected.connect(self._on_video_file_selected)
         self.config_panel.intro_video_selected.connect(self._on_intro_video_selected)
+        self.config_panel.loop_image_selected.connect(self._load_loop_image)
+        self.config_panel.loop_mode_changed.connect(self._on_loop_mode_changed)
         self.config_panel.validate_requested.connect(self._on_validate)
         self.config_panel.export_requested.connect(self._on_export)
         self.config_panel.capture_frame_requested.connect(self._on_capture_frame)
@@ -417,11 +401,11 @@ class MainWindow(QMainWindow):
             msg = f"{validator.get_summary()}\n\n"
             if errors:
                 msg += "错误:\n"
-                for r in errors[:5]:
+                for r in errors:
                     msg += f"  - {r}\n"
             if warnings:
                 msg += "\n警告:\n"
-                for r in warnings[:5]:
+                for r in warnings:
                     msg += f"  - {r}\n"
 
             QMessageBox.warning(self, "验证结果", msg)
@@ -440,7 +424,7 @@ class MainWindow(QMainWindow):
         if validator.has_errors():
             errors = validator.get_errors()
             msg = "配置验证失败，无法导出:\n\n"
-            for r in errors[:5]:
+            for r in errors:
                 msg += f"  - {r}\n"
             QMessageBox.critical(self, "验证失败", msg)
             return
@@ -478,6 +462,12 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"处理自定义图片失败: {e}")
             QMessageBox.warning(self, "警告", f"处理自定义图片失败:\n{e}\n\n将继续导出其他内容。")
+
+        # 处理 ImageOverlay 路径
+        try:
+            self._process_image_overlay()
+        except Exception as e:
+            logger.error(f"处理 ImageOverlay 失败: {e}")
 
         # 创建导出服务和进度对话框
         from core.export_service import ExportService
@@ -517,8 +507,6 @@ class MainWindow(QMainWindow):
     def _on_simulator(self):
         """打开模拟器预览"""
         import subprocess
-        import tempfile
-        import json
 
         if not self._config:
             QMessageBox.information(self, "提示", "请先创建或打开项目")
@@ -558,10 +546,17 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            # 导出配置到临时文件
-            config_path = os.path.join(tempfile.gettempdir(), "arknights_sim_config.json")
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(self._config.to_dict(), f, ensure_ascii=False, indent=2)
+            # 使用项目目录中的 epconfig.json
+            config_path = os.path.join(self._base_dir, "epconfig.json")
+
+            # 确保配置已保存（避免内存中的修改与文件不一致）
+            if not os.path.exists(config_path):
+                QMessageBox.warning(
+                    self, "警告",
+                    "请先保存项目配置\n\n"
+                    "文件 → 保存项目"
+                )
+                return
 
             # 获取 cropbox 参数（使用原始坐标系）
             cropbox = self.video_preview.get_cropbox_for_export()
@@ -582,97 +577,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"启动模拟器失败: {e}")
             QMessageBox.critical(self, "错误", f"启动模拟器失败:\n{e}")
-
-    def _on_batch_convert(self):
-        """批量转换老素材"""
-        from core.legacy_converter import LegacyConverter
-
-        # 选择源目录
-        src_dir = QFileDialog.getExistingDirectory(
-            self, "选择老素材所在目录", ""
-        )
-        if not src_dir:
-            return
-
-        # 选择目标目录
-        dst_dir = QFileDialog.getExistingDirectory(
-            self, "选择转换后的保存目录", ""
-        )
-        if not dst_dir:
-            return
-
-        # 选择overlay处理模式
-        overlay_mode, auto_ocr, ok = self._ask_overlay_mode()
-        if not ok:
-            return
-
-        # 确认转换
-        if overlay_mode == "auto":
-            mode_desc = "自动检测（OCR识别干员）"
-        elif overlay_mode == "arknights":
-            mode_desc = "arknights模板" + ("（OCR识别）" if auto_ocr else "（默认值）")
-        else:
-            mode_desc = "保留原有overlay图片"
-
-        result = QMessageBox.question(
-            self, "确认转换",
-            f"将从以下目录转换老素材:\n\n"
-            f"源目录: {src_dir}\n"
-            f"目标目录: {dst_dir}\n"
-            f"Overlay模式: {mode_desc}\n\n"
-            f"注意: 视频将重新编码（旋转180度校正），可能需要较长时间。\n"
-            f"如果启用OCR识别，首次运行需要下载模型（约100MB）。\n\n"
-            f"是否继续?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if result != QMessageBox.StandardButton.Yes:
-            return
-
-        # 执行转换
-        logger.info(f"开始批量转换: {src_dir} -> {dst_dir}, overlay_mode={overlay_mode}, auto_ocr={auto_ocr}")
-
-        try:
-            from gui.dialogs.batch_convert_dialog import BatchConvertDialog
-
-            converter = LegacyConverter()
-
-            # 设置OCR确认回调
-            confirm_callback = self._on_ocr_confirm if auto_ocr else None
-
-            # 使用进度对话框
-            dialog = BatchConvertDialog(self)
-            dialog.start(
-                converter, src_dir, dst_dir,
-                overlay_mode, auto_ocr,
-                confirm_callback=confirm_callback
-            )
-            dialog.exec()
-
-            results = dialog.get_results()
-
-            # 显示结果摘要
-            if results:
-                success_count = sum(1 for r in results if r.success)
-                summary = f"转换完成: {success_count}/{len(results)} 成功"
-                self.status_bar.showMessage(summary)
-            else:
-                QMessageBox.warning(
-                    self, "转换结果",
-                    f"未找到可转换的老素材文件夹\n\n"
-                    f"老素材格式应包含:\n"
-                    f"  - loop.mp4 (必需)\n"
-                    f"  - epconfig.txt (可选)\n"
-                    f"  - logo.argb (可选)\n"
-                    f"  - overlay.argb (可选)\n"
-                    f"  - intro.mp4 (可选)"
-                )
-                self.status_bar.showMessage("未找到老素材")
-
-        except Exception as e:
-            logger.error(f"批量转换失败: {e}")
-            QMessageBox.critical(self, "错误", f"转换失败:\n{e}")
-            self.status_bar.showMessage("转换失败")
 
     def _on_flasher(self):
         """启动固件烧录工具"""
@@ -738,67 +642,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"启动烧录工具失败: {e}")
                 QMessageBox.critical(self, "错误", f"启动烧录工具失败:\n{e}")
-
-    def _ask_overlay_mode(self):
-        """询问用户overlay处理模式"""
-        from PyQt6.QtWidgets import QInputDialog
-
-        items = [
-            "auto - 自动检测（OCR识别干员，非标准模板用图片）[推荐]",
-            "arknights - 使用arknights模板（OCR识别干员名称）",
-            "arknights_default - 使用arknights模板（默认干员名称）",
-            "image - 保留并转换老overlay图片"
-        ]
-        item, ok = QInputDialog.getItem(
-            self,
-            "选择Overlay模式",
-            "如何处理老素材的overlay.argb文件？\n\n"
-            "推荐选择 auto 模式，将自动识别干员信息。\n"
-            "首次使用OCR功能需要下载模型（约100MB）。",
-            items,
-            0,  # 默认选择auto
-            False  # 不可编辑
-        )
-        if ok:
-            if "auto" in item:
-                return "auto", True, True
-            elif "arknights_default" in item:
-                return "arknights", False, True
-            elif "arknights" in item:
-                return "arknights", True, True
-            else:
-                return "image", False, True
-        return "auto", True, False
-
-    def _on_ocr_confirm(self, ocr_text: str, candidates: list):
-        """
-        OCR模糊匹配确认回调
-
-        Args:
-            ocr_text: OCR识别的文本
-            candidates: 候选干员列表 [(OperatorInfo, score), ...]
-
-        Returns:
-            用户选择的干员，或None
-        """
-        from gui.dialogs.operator_confirm_dialog import OperatorConfirmDialog
-        from core.operator_lookup import get_operator_lookup
-
-        try:
-            lookup = get_operator_lookup()
-            dialog = OperatorConfirmDialog(
-                ocr_text, candidates,
-                operator_lookup=lookup,
-                parent=self
-            )
-
-            if dialog.exec() == dialog.Accepted:
-                return dialog.get_selected_operator()
-            return None
-
-        except Exception as e:
-            logger.error(f"OCR确认对话框出错: {e}")
-            return None
 
     def _on_about(self):
         """关于"""
@@ -1084,6 +927,18 @@ class MainWindow(QMainWindow):
         # 更新信息标签
         self.video_preview.info_label.setText(f"图片模式: {w}x{h}")
 
+    def _on_loop_mode_changed(self, is_image: bool):
+        """循环模式切换"""
+        # 清空预览
+        self.video_preview.clear()
+        self._loop_image_path = None
+
+        # 清空时间轴
+        self.timeline.set_total_frames(0)
+        self._loop_in_out = (0, 0)
+
+        logger.info(f"循环模式切换为: {'图片' if is_image else '视频'}")
+
     def _on_video_loaded(self, total_frames: int, fps: float):
         """视频加载完成"""
         self.timeline.set_total_frames(total_frames)
@@ -1233,6 +1088,25 @@ class MainWindow(QMainWindow):
                             rotation=0
                         )
 
+        # 收集 ImageOverlay 图片
+        from config.epconfig import OverlayType
+        if self._config.overlay.type == OverlayType.IMAGE:
+            if self._config.overlay.image_options and self._config.overlay.image_options.image:
+                img_path = self._config.overlay.image_options.image
+                if not os.path.isabs(img_path):
+                    img_path = os.path.join(self._base_dir, img_path)
+                if os.path.exists(img_path):
+                    overlay_img = ImageProcessor.load_image(img_path)
+                    if overlay_img is not None:
+                        # 获取目标分辨率
+                        spec = get_resolution_spec(self._config.screen.value)
+                        target_size = (spec['width'], spec['height'])
+
+                        # 缩放到目标分辨率
+                        import cv2
+                        overlay_img = cv2.resize(overlay_img, target_size)
+                        data['overlay_mat'] = overlay_img
+
         return data
 
     def _process_arknights_custom_images(self, output_dir: str):
@@ -1303,6 +1177,21 @@ class MainWindow(QMainWindow):
                         # 更新配置中的路径为相对路径
                         ark_opts.logo = dst_filename
                         logger.info(f"已导出Logo: {dst_path}")
+
+    def _process_image_overlay(self):
+        """处理 ImageOverlay 的路径标准化"""
+        from config.epconfig import OverlayType
+
+        if not self._config:
+            return
+
+        if self._config.overlay.type != OverlayType.IMAGE:
+            return
+
+        if self._config.overlay.image_options and self._config.overlay.image_options.image:
+            # 更新为标准化路径
+            self._config.overlay.image_options.image = "overlay.argb"
+            logger.info("已更新 ImageOverlay 路径为: overlay.argb")
 
     def _on_export_completed(self, success: bool, message: str):
         """导出完成回调"""

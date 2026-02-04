@@ -175,7 +175,6 @@ arknights_pass_maker/
 │   ├── video_processor.py # 视频处理
 │   ├── image_processor.py # 图片处理
 │   ├── export_service.py  # 导出服务
-│   ├── legacy_converter.py # 老素材转换器
 │   ├── operator_lookup.py # 干员信息查询 (v1.0.1)
 │   ├── ocr_service.py     # OCR识别服务 (v1.0.1)
 │   └── overlay_renderer.py # 叠加层渲染器
@@ -184,7 +183,6 @@ arknights_pass_maker/
 │   ├── dialogs/           # 对话框
 │   │   ├── export_progress_dialog.py  # 导出进度
 │   │   ├── operator_confirm_dialog.py # 干员确认 (v1.0.1)
-│   │   ├── batch_convert_dialog.py    # 批量转换对话框
 │   │   ├── welcome_dialog.py          # 欢迎对话框
 │   │   └── shortcuts_dialog.py        # 快捷键帮助
 │   └── widgets/           # UI组件
@@ -237,6 +235,32 @@ arknights_pass_maker/
 本项目仅供学习和研究使用。
 
 ## 更新日志
+
+### v1.5.7
+
+**功能优化**
+- 更新检测支持多源并发请求（竞速策略）
+  - 同时请求 GitHub API + ghproxy.cc + gh.idayer.com
+  - 使用 `concurrent.futures.ThreadPoolExecutor` + `as_completed()` 实现
+  - 取最快返回的结果，改善国内网络环境下的更新体验
+- 下载更新支持多源故障转移
+  - 按优先级依次尝试直连和代理源
+  - 自动切换到可用的下载源
+
+**功能变更**
+- 移除老素材批量转换功能
+
+**代码清理**
+- 移除未使用的固件配置提取器工具 (`tools/firmware_config_extractor.py`)
+
+**Bug 修复**
+- 修复 JSON 预览中 overlay 路径未标准化的问题（与导出结果不一致）
+- 修复验证警告无法查看详细内容的问题（添加 ToolTip 显示完整错误/警告列表）
+- 修复循环视频图片模式无法预览的问题（添加 loop_image_selected 信号）
+- 修复切换循环模式时预览未清空的问题（添加 loop_mode_changed 信号）
+- 修复 Python 预览定时器精度问题（使用 round() 替代 int()）
+- 修复 ImageOverlay 默认显示时间过短导致一闪而过的问题（duration 默认值改为 0，表示无限显示）
+- 修复 Rust 模拟器视频播放速度不正确的问题（添加帧同步机制，尊重视频原始 FPS）
 
 ### v1.5.5
 
