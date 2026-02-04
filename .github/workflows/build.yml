@@ -72,7 +72,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --group dev
+          uv sync --group dev --no-install-project
           uv run python -c "import PyQt6; print(f'PyQt6 installed at: {PyQt6.__file__}')"
 
       - name: Cache FFmpeg
