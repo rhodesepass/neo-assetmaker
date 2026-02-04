@@ -231,7 +231,7 @@ def run_cxfreeze(skip_flasher=False):
 
     packages = [
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
-        "cv2", "Pillow", "numpy", "jsonschema", "thefuzz", "Levenshtein",
+        "cv2", "PIL", "numpy", "jsonschema", "thefuzz",
         "easyocr", "torch", "logging", "json", "uuid", "dataclasses",
     ]
 
