@@ -780,6 +780,10 @@ class ConfigPanel(QWidget):
         Args:
             button: 被点击的按钮（来自 QButtonGroup.buttonClicked 信号，可选）
         """
+        # 防止在配置加载期间触发
+        if self._updating:
+            return
+
         is_image = self.radio_loop_image.isChecked()
         if is_image:
             self.edit_loop_file.setPlaceholderText("loop.png")

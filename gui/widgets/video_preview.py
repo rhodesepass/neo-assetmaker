@@ -618,3 +618,17 @@ class VideoPreviewWidget(QWidget):
         if self.cap is not None:
             self.cap.release()
         super().closeEvent(event)
+
+    def clear(self):
+        """清空预览状态"""
+        self.pause()
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        self.video_path = ""
+        self.total_frames = 0
+        self.current_frame_index = 0
+        self.current_frame = None
+        self.video_label.clear()
+        self.video_label.setText("未加载视频")
+        self.info_label.setText("帧: 0/0 | 裁剪: (0, 0, 0, 0)")

@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
         self._project_path: str = ""
         self._base_dir: str = ""
         self._is_modified: bool = False
+        self._initializing: bool = True  # 初始化期间防护标志
 
         # 为每个视频存储独立的入点/出点
         self._loop_in_out: tuple[int, int] = (0, 0)   # 循环视频的(入点, 出点)
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2000, self._check_update_on_startup)
 
         logger.info("主窗口初始化完成")
+        self._initializing = False  # 初始化完成
 
     def _setup_icon(self):
         """设置窗口图标"""
@@ -933,6 +935,10 @@ class MainWindow(QMainWindow):
 
     def _on_loop_mode_changed(self, is_image: bool):
         """循环模式切换"""
+        # 防止在初始化期间触发
+        if self._initializing:
+            return
+
         # 清空预览
         self.video_preview.clear()
         self._loop_image_path = None

@@ -38,11 +38,19 @@ class TimelineSlider(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
 
+    @property
+    def _safe_frame_divisor(self) -> int:
+        """获取安全的帧数除数（避免除以零）"""
+        return max(1, self._total_frames - 1)
+
     def set_total_frames(self, count: int):
         """设置总帧数"""
         self._total_frames = max(1, count)
-        if self._out_point > self._total_frames:
-            self._out_point = self._total_frames
+        # 确保所有帧索引在有效范围内
+        max_frame = max(0, self._total_frames - 1)
+        self._in_point = min(self._in_point, max_frame)
+        self._out_point = min(self._out_point, max_frame)
+        self._current_frame = min(self._current_frame, max_frame)
         self.update()
 
     def set_current_frame(self, index: int):
@@ -77,7 +85,7 @@ class TimelineSlider(QWidget):
         track_width = self.width() - 2 * self._margin
         if self._total_frames <= 1:
             return self._margin
-        return int(self._margin + (frame / (self._total_frames - 1)) * track_width)
+        return int(self._margin + (frame / self._safe_frame_divisor) * track_width)
 
     def _x_to_frame(self, x: int) -> int:
         """X坐标转帧号"""
@@ -85,7 +93,7 @@ class TimelineSlider(QWidget):
         if track_width <= 0:
             return 0
         ratio = max(0, min(1, (x - self._margin) / track_width))
-        return int(ratio * (self._total_frames - 1))
+        return int(ratio * self._safe_frame_divisor)
 
     def paintEvent(self, event: QPaintEvent):
         """绘制"""

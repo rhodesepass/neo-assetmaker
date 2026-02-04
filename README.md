@@ -16,7 +16,7 @@ Arknights Pass Material Maker - 用于制作明日方舟电子通行证2.0素材
 ## 系统要求
 
 - Python 3.10+
-- Windows / macOS / Linux
+- Windows
 
 ## 安装说明
 
@@ -220,6 +220,19 @@ arknights_pass_maker/
 本项目仅供学习和研究使用。
 
 ## 更新日志
+
+### v1.5.8
+
+**Bug 修复**
+- 修复更新日志对话框文字看不清的问题（深色主题下白色文字，添加显式 color 样式）
+- 修复点击"图片"循环模式时程序闪退的问题（添加 `_updating` 和 `_initializing` 防护）
+- 修复 Timeline 边界条件处理不当的问题（添加 `_safe_frame_divisor` 属性）
+- 修复 Rust 模拟器启动时显示命令窗口的问题（添加 `CREATE_NO_WINDOW` 标志）
+- 修复 FFmpeg 处理时显示命令窗口的问题（添加 `CREATE_NO_WINDOW` 标志）
+- 修复 GitHub Actions changelog 提取全量日志的问题（awk 改为 sed，添加精确匹配）
+
+**其他**
+- 关于对话框添加作者"初微弦音"
 
 ### v1.5.7
 
