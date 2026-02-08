@@ -3,6 +3,7 @@
 融合 OpenCV 读取和 FFmpeg 编码
 """
 import subprocess
+import sys
 import os
 import logging
 from dataclasses import dataclass

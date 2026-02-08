@@ -221,6 +221,11 @@ arknights_pass_maker/
 
 ## 更新日志
 
+### v1.5.9
+
+**Bug 修复**
+- 修复"导出 loop 失败: name 'sys' is not defined""
+
 ### v1.5.8
 
 **Bug 修复**

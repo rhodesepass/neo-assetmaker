@@ -2,6 +2,7 @@
 导出服务 - 素材导出和打包
 """
 import os
+import sys
 import struct
 import shutil
 import subprocess
