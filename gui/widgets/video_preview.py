@@ -123,10 +123,9 @@ class VideoPreviewWidget(QWidget):
         self.target_width = width
         self.target_height = height
         self.target_aspect_ratio = width / height
-        if self.cap is not None:
+        if self.current_frame is not None:
             self._init_cropbox()
-            if self.current_frame is not None:
-                self._display_frame(self.current_frame)
+            self._display_frame(self.current_frame)
 
     def load_video(self, path: str) -> bool:
         """加载视频"""
@@ -169,6 +168,55 @@ class VideoPreviewWidget(QWidget):
         self._read_and_display_frame()
         self.video_loaded.emit(self.total_frames, self.video_fps)
         return True
+
+    def load_static_image_from_file(self, image_path: str) -> bool:
+        """从文件路径加载静态图片"""
+        if not HAS_CV2:
+            logger.error("OpenCV 未安装")
+            return False
+
+        import os
+        if not os.path.exists(image_path):
+            logger.error(f"图片文件不存在: {image_path}")
+            return False
+
+        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            logger.error(f"无法读取图片: {image_path}")
+            return False
+
+        # BGRA → BGR（如果有 alpha 通道）
+        if len(img.shape) == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        self._load_static_frame(img)
+        logger.info(f"已加载静态图片: {image_path} ({img.shape[1]}x{img.shape[0]})")
+        return True
+
+    def load_static_image_from_array(self, frame: np.ndarray) -> bool:
+        """从 numpy 数组加载静态图片"""
+        if frame is None:
+            return False
+        self._load_static_frame(frame.copy())
+        logger.info(f"已加载静态图片帧: {frame.shape[1]}x{frame.shape[0]}")
+        return True
+
+    def _load_static_frame(self, frame: np.ndarray):
+        """内部方法：设置静态图片到预览"""
+        # 释放之前的视频（如果有）
+        self.pause()
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+
+        self.video_width = frame.shape[1]
+        self.video_height = frame.shape[0]
+        self.current_frame = frame
+        self.total_frames = 1
+        self.current_frame_index = 0
+
+        self._init_cropbox()
+        self._display_frame(frame)
 
     def _init_cropbox(self):
         """初始化裁剪框（在旋转后坐标系中）"""
@@ -520,7 +568,7 @@ class VideoPreviewWidget(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent):
         """鼠标按下"""
-        if event.button() == Qt.MouseButton.LeftButton and self.cap is not None:
+        if event.button() == Qt.MouseButton.LeftButton and self.current_frame is not None:
             rx, ry = self._display_to_rotated_coords(event.pos())
             self.drag_mode = self._get_drag_mode(rx, ry)
             if self.drag_mode != self.DRAG_NONE:
@@ -559,7 +607,7 @@ class VideoPreviewWidget(QWidget):
             if self.current_frame is not None:
                 self._display_frame(self.current_frame)
 
-        elif self.cap is not None:
+        elif self.current_frame is not None:
             rx, ry = self._display_to_rotated_coords(event.pos())
             mode = self._get_drag_mode(rx, ry)
             cursors = {
@@ -582,19 +630,21 @@ class VideoPreviewWidget(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent):
         """键盘事件"""
-        if self.cap is None:
+        if self.current_frame is None:
             super().keyPressEvent(event)
             return
 
         key = event.key()
         step = 10
 
-        if key == Qt.Key.Key_Space:
+        # 播放/帧跳转操作需要视频
+        if key == Qt.Key.Key_Space and self.cap is not None:
             self.toggle_play()
-        elif key == Qt.Key.Key_Left:
+        elif key == Qt.Key.Key_Left and self.cap is not None:
             self.prev_frame()
-        elif key == Qt.Key.Key_Right:
+        elif key == Qt.Key.Key_Right and self.cap is not None:
             self.next_frame()
+        # WASD 裁剪框移动（视频和静态图片都支持）
         elif key == Qt.Key.Key_W:
             self.cropbox[1] -= step
         elif key == Qt.Key.Key_S:

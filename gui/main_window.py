@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QMenuBar, QMenu, QStatusBar,
-    QFileDialog, QMessageBox, QLabel, QTabWidget
+    QFileDialog, QMessageBox, QLabel, QTabWidget, QPushButton
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
@@ -102,14 +102,30 @@ class MainWindow(QMainWindow):
         preview_layout.setContentsMargins(5, 5, 5, 5)
         preview_layout.setSpacing(5)
 
-        # 标签页：入场视频 / 过渡图片 / 循环视频
+        # 标签页：入场视频 / 截取帧编辑 / 过渡图片 / 循环视频
         self.preview_tabs = QTabWidget()
         self.video_preview = VideoPreviewWidget()  # 循环视频预览
         self.intro_preview = VideoPreviewWidget()  # 入场视频预览
         self.transition_preview = TransitionPreviewWidget()  # 过渡图片预览
-        self.preview_tabs.addTab(self.intro_preview, "入场视频")
-        self.preview_tabs.addTab(self.transition_preview, "过渡图片")
-        self.preview_tabs.addTab(self.video_preview, "循环视频")
+
+        # 截取帧编辑标签页
+        frame_capture_widget = QWidget()
+        frame_capture_layout = QVBoxLayout(frame_capture_widget)
+        frame_capture_layout.setContentsMargins(0, 0, 0, 0)
+        frame_capture_layout.setSpacing(5)
+        self.frame_capture_preview = VideoPreviewWidget()
+        frame_capture_layout.addWidget(self.frame_capture_preview, stretch=1)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.btn_save_icon = QPushButton("保存为图标")
+        self.btn_save_icon.setStyleSheet("padding: 6px 16px;")
+        btn_layout.addWidget(self.btn_save_icon)
+        frame_capture_layout.addLayout(btn_layout)
+
+        self.preview_tabs.addTab(self.intro_preview, "入场视频")         # Tab 0
+        self.preview_tabs.addTab(frame_capture_widget, "截取帧编辑")     # Tab 1
+        self.preview_tabs.addTab(self.transition_preview, "过渡图片")    # Tab 2
+        self.preview_tabs.addTab(self.video_preview, "循环视频")         # Tab 3
         preview_layout.addWidget(self.preview_tabs, stretch=1)
 
         self.timeline = TimelineWidget()
@@ -205,6 +221,12 @@ class MainWindow(QMainWindow):
         self.config_panel.export_requested.connect(self._on_export)
         self.config_panel.capture_frame_requested.connect(self._on_capture_frame)
         self.config_panel.transition_image_changed.connect(self._on_transition_image_changed)
+
+        # 截取帧编辑 - 保存图标按钮
+        self.btn_save_icon.clicked.connect(self._on_save_captured_icon)
+
+        # 过渡图片裁切变化
+        self.transition_preview.transition_crop_changed.connect(self._on_transition_crop_changed)
 
         # 标签页切换
         self.preview_tabs.currentChanged.connect(self._on_preview_tab_changed)
@@ -818,7 +840,7 @@ class MainWindow(QMainWindow):
         if path and os.path.exists(path):
             self.video_preview.load_video(path)
             # 切换到循环视频标签页
-            self.preview_tabs.setCurrentIndex(2)
+            self.preview_tabs.setCurrentIndex(3)
         else:
             logger.warning(f"视频文件不存在: {path}")
 
@@ -898,10 +920,14 @@ class MainWindow(QMainWindow):
             self.timeline.show()
             logger.debug("切换到入场视频预览")
         elif index == 1:
+            # 截取帧编辑（静态，不需要时间轴）
+            self.timeline.hide()
+            logger.debug("切换到截取帧编辑")
+        elif index == 2:
             # 过渡图片（静态，不需要时间轴）
             self.timeline.hide()
             logger.debug("切换到过渡图片预览")
-        elif index == 2:
+        elif index == 3:
             # 循环视频
             self._intro_in_out = (current_in, current_out)
             self._connect_timeline_to_preview(self.video_preview)
@@ -942,10 +968,10 @@ class MainWindow(QMainWindow):
         index = self.preview_tabs.currentIndex()
         if index == 0:
             current_frame = self.intro_preview.current_frame_index
-        elif index == 2:
+        elif index == 3:
             current_frame = self.video_preview.current_frame_index
         else:
-            return  # 过渡图片标签页无入点操作
+            return  # 截取帧/过渡图片标签页无入点操作
 
         self.timeline.set_in_point(current_frame)
         logger.debug(f"设置入点: {current_frame}")
@@ -955,10 +981,10 @@ class MainWindow(QMainWindow):
         index = self.preview_tabs.currentIndex()
         if index == 0:
             current_frame = self.intro_preview.current_frame_index
-        elif index == 2:
+        elif index == 3:
             current_frame = self.video_preview.current_frame_index
         else:
-            return  # 过渡图片标签页无出点操作
+            return  # 截取帧/过渡图片标签页无出点操作
 
         self.timeline.set_out_point(current_frame)
         logger.debug(f"设置出点: {current_frame}")
@@ -1029,6 +1055,59 @@ class MainWindow(QMainWindow):
     def _on_transition_image_changed(self, trans_type: str, abs_path: str):
         """过渡图片变更"""
         self.transition_preview.load_image(trans_type, abs_path)
+        # 切换到过渡图片标签页
+        self.preview_tabs.setCurrentIndex(2)
+
+    def _on_transition_crop_changed(self, trans_type: str):
+        """过渡图片 cropbox 变化 → 裁切原始图片并保存"""
+        if not self._base_dir:
+            return
+
+        import cv2
+        import glob
+
+        # 查找原始图片
+        pattern = os.path.join(self._base_dir, f"trans_{trans_type}_src.*")
+        matches = glob.glob(pattern)
+        if not matches:
+            return
+
+        src_path = matches[0]
+        original = cv2.imread(src_path, cv2.IMREAD_UNCHANGED)
+        if original is None:
+            return
+
+        # 获取 cropbox 坐标
+        x, y, w, h = self.transition_preview.get_cropbox(trans_type)
+
+        # 边界检查
+        img_h, img_w = original.shape[:2]
+        x = max(0, min(x, img_w - 1))
+        y = max(0, min(y, img_h - 1))
+        w = min(w, img_w - x)
+        h = min(h, img_h - y)
+
+        if w <= 0 or h <= 0:
+            return
+
+        # 裁切
+        cropped = original[y:y+h, x:x+w]
+
+        # 缩放到目标分辨率
+        target_w, target_h = self._get_target_resolution()
+        resized = cv2.resize(cropped, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+        # 保存为模拟器读取的文件
+        out_path = os.path.join(self._base_dir, f"trans_{trans_type}_image.png")
+        cv2.imwrite(out_path, resized)
+
+    def _get_target_resolution(self):
+        """获取当前选择的目标分辨率"""
+        if self._config:
+            spec = get_resolution_spec(self._config.screen.value)
+            if spec:
+                return spec['width'], spec['height']
+        return 360, 640
 
     def _on_video_loaded(self, total_frames: int, fps: float):
         """视频加载完成"""
@@ -1049,21 +1128,34 @@ class MainWindow(QMainWindow):
         self.timeline.set_playing(is_playing)
 
     def _on_capture_frame(self):
-        """截取当前视频帧作为图标"""
+        """截取当前视频帧 → 加载到截取帧编辑标签页"""
         if not self._base_dir:
             QMessageBox.warning(self, "警告", "请先创建或打开项目")
             return
 
-        # 获取当前帧
-        frame = self.video_preview.current_frame
+        # 尝试从当前活跃的视频预览获取帧
+        current_tab = self.preview_tabs.currentIndex()
+        if current_tab == 3:
+            source_preview = self.video_preview
+        else:
+            source_preview = self.intro_preview
+
+        frame = source_preview.current_frame
+        if frame is None:
+            # 尝试另一个预览
+            other = self.video_preview if source_preview is self.intro_preview else self.intro_preview
+            frame = other.current_frame
+            if other.current_frame is not None:
+                source_preview = other
         if frame is None:
             QMessageBox.warning(self, "警告", "请先加载视频")
             return
 
         import cv2
 
-        # 1. 应用旋转变换
-        rotation = self.video_preview.get_rotation()
+        # 应用旋转变换（不裁切，交给用户在截取帧编辑标签页中操作）
+        frame = frame.copy()
+        rotation = source_preview.get_rotation()
         if rotation == 90:
             frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         elif rotation == 180:
@@ -1071,27 +1163,44 @@ class MainWindow(QMainWindow):
         elif rotation == 270:
             frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-        # 2. cropbox 已经是旋转后坐标系，直接应用裁剪
-        x, y, w, h = self.video_preview.get_cropbox()
+        # 加载到截取帧编辑预览
+        self.frame_capture_preview.load_static_image_from_array(frame)
+        # 切换到截取帧编辑标签页
+        self.preview_tabs.setCurrentIndex(1)
+        self.status_bar.showMessage("已截取视频帧，请调整裁切框后点击\"保存为图标\"")
 
-        # 确保裁剪框在有效范围内
-        rotated_h, rotated_w = frame.shape[:2]
-        x = max(0, min(x, rotated_w - 1))
-        y = max(0, min(y, rotated_h - 1))
-        w = min(w, rotated_w - x)
-        h = min(h, rotated_h - y)
+    def _on_save_captured_icon(self):
+        """从截取帧编辑的 cropbox 保存图标"""
+        if not self._base_dir:
+            QMessageBox.warning(self, "警告", "请先创建或打开项目")
+            return
 
-        if w > 0 and h > 0:
-            frame = frame[y:y+h, x:x+w]
+        frame = self.frame_capture_preview.current_frame
+        if frame is None:
+            QMessageBox.warning(self, "警告", "请先截取视频帧")
+            return
 
-        # 3. 保存为图标文件
+        import cv2
+
+        x, y, w, h = self.frame_capture_preview.get_cropbox()
+
+        # 边界检查
+        frame_h, frame_w = frame.shape[:2]
+        x = max(0, min(x, frame_w - 1))
+        y = max(0, min(y, frame_h - 1))
+        w = min(w, frame_w - x)
+        h = min(h, frame_h - y)
+
+        if w <= 0 or h <= 0:
+            QMessageBox.warning(self, "错误", "裁切区域无效")
+            return
+
+        cropped = frame[y:y+h, x:x+w]
+
         icon_path = os.path.join(self._base_dir, "icon.png")
-        success = cv2.imwrite(icon_path, frame)
-
-        if success:
-            # 更新配置
+        if cv2.imwrite(icon_path, cropped):
             self.config_panel.edit_icon.setText("icon.png")
-            self.status_bar.showMessage("已截取视频帧作为图标")
+            self.status_bar.showMessage("已保存图标")
         else:
             QMessageBox.warning(self, "错误", "保存图标失败")
 

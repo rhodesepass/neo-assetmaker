@@ -1,26 +1,24 @@
 """
-过渡图片预览组件 - 左右并排显示进入过渡和循环过渡图片
+过渡图片预览组件 - 左右并排显示进入过渡和循环过渡图片，支持交互式裁切
 """
 import logging
-from typing import Optional
 
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QSizePolicy
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout
+from PyQt6.QtCore import Qt, pyqtSignal
+
+from gui.widgets.video_preview import VideoPreviewWidget
 
 logger = logging.getLogger(__name__)
 
 
 class TransitionPreviewWidget(QWidget):
-    """过渡图片预览组件，左右并排显示进入过渡和循环过渡图片"""
+    """过渡图片预览组件，左右并排显示进入过渡和循环过渡图片，支持裁切框交互"""
+
+    # cropbox 变化信号，发射 trans_type ("in" 或 "loop")
+    transition_crop_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        # 存储原始 QPixmap（用于 resizeEvent 时重新缩放）
-        self._pixmap_in: Optional[QPixmap] = None
-        self._pixmap_loop: Optional[QPixmap] = None
-
         self._setup_ui()
 
     def _setup_ui(self):
@@ -35,16 +33,16 @@ class TransitionPreviewWidget(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(5)
 
-        self.label_in_title = QLabel("进入过渡")
-        self.label_in_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_in_title.setStyleSheet("color: #ccc; font-size: 13px; font-weight: bold;")
-        left_layout.addWidget(self.label_in_title)
+        label_in_title = QLabel("进入过渡")
+        label_in_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label_in_title.setStyleSheet("color: #ccc; font-size: 13px; font-weight: bold;")
+        left_layout.addWidget(label_in_title)
 
-        self.label_in_image = QLabel("未选择图片")
-        self.label_in_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_in_image.setStyleSheet("background-color: #1a1a1a; border: 1px solid #333;")
-        self.label_in_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        left_layout.addWidget(self.label_in_image, stretch=1)
+        self.preview_in = VideoPreviewWidget()
+        self.preview_in.cropbox_changed.connect(
+            lambda *_: self.transition_crop_changed.emit("in")
+        )
+        left_layout.addWidget(self.preview_in, stretch=1)
 
         main_layout.addWidget(left_widget, stretch=1)
 
@@ -54,16 +52,16 @@ class TransitionPreviewWidget(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(5)
 
-        self.label_loop_title = QLabel("循环过渡")
-        self.label_loop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_loop_title.setStyleSheet("color: #ccc; font-size: 13px; font-weight: bold;")
-        right_layout.addWidget(self.label_loop_title)
+        label_loop_title = QLabel("循环过渡")
+        label_loop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label_loop_title.setStyleSheet("color: #ccc; font-size: 13px; font-weight: bold;")
+        right_layout.addWidget(label_loop_title)
 
-        self.label_loop_image = QLabel("未选择图片")
-        self.label_loop_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_loop_image.setStyleSheet("background-color: #1a1a1a; border: 1px solid #333;")
-        self.label_loop_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        right_layout.addWidget(self.label_loop_image, stretch=1)
+        self.preview_loop = VideoPreviewWidget()
+        self.preview_loop.cropbox_changed.connect(
+            lambda *_: self.transition_crop_changed.emit("loop")
+        )
+        right_layout.addWidget(self.preview_loop, stretch=1)
 
         main_layout.addWidget(right_widget, stretch=1)
 
@@ -74,19 +72,11 @@ class TransitionPreviewWidget(QWidget):
             trans_type: "in" 或 "loop"
             image_path: 图片文件的绝对路径
         """
-        pixmap = QPixmap(image_path)
-        if pixmap.isNull():
-            logger.warning(f"无法加载过渡图片: {image_path}")
-            return
-
-        if trans_type == "in":
-            self._pixmap_in = pixmap
-            self._update_label(self.label_in_image, pixmap)
-            logger.info(f"已加载进入过渡图片: {image_path}")
+        preview = self.preview_in if trans_type == "in" else self.preview_loop
+        if preview.load_static_image_from_file(image_path):
+            logger.info(f"已加载{trans_type}过渡图片: {image_path}")
         else:
-            self._pixmap_loop = pixmap
-            self._update_label(self.label_loop_image, pixmap)
-            logger.info(f"已加载循环过渡图片: {image_path}")
+            logger.warning(f"无法加载过渡图片: {image_path}")
 
     def clear_image(self, trans_type: str):
         """清除过渡图片
@@ -94,29 +84,22 @@ class TransitionPreviewWidget(QWidget):
         Args:
             trans_type: "in" 或 "loop"
         """
-        if trans_type == "in":
-            self._pixmap_in = None
-            self.label_in_image.clear()
-            self.label_in_image.setText("未选择图片")
-        else:
-            self._pixmap_loop = None
-            self.label_loop_image.clear()
-            self.label_loop_image.setText("未选择图片")
+        preview = self.preview_in if trans_type == "in" else self.preview_loop
+        preview.clear()
 
-    def _update_label(self, label: QLabel, pixmap: QPixmap):
-        """将 pixmap 等比缩放后设置到 label"""
-        label_size = label.size()
-        scaled = pixmap.scaled(
-            label_size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
-        label.setPixmap(scaled)
+    def get_cropbox(self, trans_type: str):
+        """获取指定过渡图片的裁切框坐标
 
-    def resizeEvent(self, event):
-        """窗口大小变化时重新缩放图片"""
-        super().resizeEvent(event)
-        if self._pixmap_in is not None:
-            self._update_label(self.label_in_image, self._pixmap_in)
-        if self._pixmap_loop is not None:
-            self._update_label(self.label_loop_image, self._pixmap_loop)
+        Args:
+            trans_type: "in" 或 "loop"
+
+        Returns:
+            (x, y, w, h) 元组
+        """
+        preview = self.preview_in if trans_type == "in" else self.preview_loop
+        return preview.get_cropbox()
+
+    def set_target_resolution(self, width: int, height: int):
+        """设置两个预览的目标裁切分辨率"""
+        self.preview_in.set_target_resolution(width, height)
+        self.preview_loop.set_target_resolution(width, height)

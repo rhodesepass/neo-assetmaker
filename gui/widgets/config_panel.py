@@ -579,7 +579,9 @@ class ConfigPanel(QWidget):
                     self.edit_trans_in_color.setText(config.transition_in.options.background_color)
                     self.edit_trans_in_image.setText(config.transition_in.options.image or "")
                     if config.transition_in.options.image and self._base_dir:
-                        abs_path = os.path.join(self._base_dir, config.transition_in.options.image)
+                        # 优先加载原始图片（_src 文件）用于裁切编辑
+                        src_path = self._find_transition_src(self._base_dir, "in")
+                        abs_path = src_path or os.path.join(self._base_dir, config.transition_in.options.image)
                         if os.path.exists(abs_path):
                             self.transition_image_changed.emit("in", abs_path)
 
@@ -593,7 +595,9 @@ class ConfigPanel(QWidget):
                     self.edit_trans_loop_color.setText(config.transition_loop.options.background_color)
                     self.edit_trans_loop_image.setText(config.transition_loop.options.image or "")
                     if config.transition_loop.options.image and self._base_dir:
-                        abs_path = os.path.join(self._base_dir, config.transition_loop.options.image)
+                        # 优先加载原始图片（_src 文件）用于裁切编辑
+                        src_path = self._find_transition_src(self._base_dir, "loop")
+                        abs_path = src_path or os.path.join(self._base_dir, config.transition_loop.options.image)
                         if os.path.exists(abs_path):
                             self.transition_image_changed.emit("loop", abs_path)
 
@@ -915,6 +919,20 @@ class ConfigPanel(QWidget):
             logging.getLogger(__name__).warning(f"复制文件失败: {e}")
             return src_path
 
+    @staticmethod
+    def _find_transition_src(base_dir: str, trans_type: str):
+        """查找过渡图片的原始源文件（_src 文件）
+
+        Returns:
+            绝对路径或 None
+        """
+        import glob
+        pattern = os.path.join(base_dir, f"trans_{trans_type}_src.*")
+        matches = glob.glob(pattern)
+        if matches:
+            return matches[0]
+        return None
+
     def _browse_transition_image(self, trans_type: str):
         """浏览过渡图片"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -929,27 +947,31 @@ class ConfigPanel(QWidget):
             # 显示等待光标
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
-                # 加载图片
+                # 加载原始图片（不缩放）
                 img = ImageProcessor.load_image(file_path)
                 if img is None:
                     return
 
-                # 缩放到 360x640
-                img = ImageProcessor.resize_image(img, 360, 640, keep_aspect=True)
-
-                # 保存到项目目录
-                base_name = f"trans_{trans_type}_image"
+                # 保存原始图片到项目目录（用于裁切编辑）
                 _, ext = os.path.splitext(file_path)
-                dest_path = os.path.join(self._base_dir, f"{base_name}{ext}")
+                src_filename = f"trans_{trans_type}_src{ext}"
+                src_path = os.path.join(self._base_dir, src_filename)
+                ImageProcessor.save_image(img, src_path)
 
-                if ImageProcessor.save_image(img, dest_path):
-                    rel_path = os.path.basename(dest_path)
-                    if trans_type == "in":
-                        self.edit_trans_in_image.setText(rel_path)
-                    else:
-                        self.edit_trans_loop_image.setText(rel_path)
-                    self._on_config_changed()
-                    self.transition_image_changed.emit(trans_type, dest_path)
+                # 同时保存一份初始版本作为模拟器使用的文件
+                dest_filename = f"trans_{trans_type}_image.png"
+                dest_path = os.path.join(self._base_dir, dest_filename)
+                ImageProcessor.save_image(img, dest_path)
+
+                # 更新 UI 字段为模拟器使用的文件名
+                if trans_type == "in":
+                    self.edit_trans_in_image.setText(dest_filename)
+                else:
+                    self.edit_trans_loop_image.setText(dest_filename)
+                self._on_config_changed()
+
+                # 发射信号，传递原始图片路径供预览加载
+                self.transition_image_changed.emit(trans_type, src_path)
             finally:
                 QApplication.restoreOverrideCursor()
 
