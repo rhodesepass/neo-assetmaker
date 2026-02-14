@@ -11,7 +11,7 @@ use tracing::{info, warn};
 
 use crate::config::{EPConfig, FirmwareConfig, TransitionType, TransitionOptions, OverlayType, ArknightsOverlayOptions, ImageOverlayOptions};
 use crate::app::state::EinkState;
-use crate::render::{TransitionRenderer, OverlayRenderer, ImageLoader, generate_vertical_barcode_gradient};
+use crate::render::{TransitionRenderer, OverlayRenderer, ImageLoader, generate_vertical_barcode_gradient, render_text_rotated_90, render_top_right_bar_text_rotated};
 use crate::animation::AnimationController;
 use crate::video::VideoPlayer;
 use crate::ipc::{start_ipc_server, IpcMessage, IpcReceiver, IpcSender, ControlCommand};
@@ -104,6 +104,15 @@ pub struct SimulatorApp {
 
     /// Left side colorful gradient bar (modular asset)
     btm_left_bar_texture: Option<egui::TextureHandle>,
+
+    /// Pre-rendered rotated text texture for top_left_rhodes custom text
+    top_left_rhodes_text_texture: Option<egui::TextureHandle>,
+    /// Pre-rendered rotated text texture for top_right_bar custom text
+    top_right_bar_text_texture: Option<egui::TextureHandle>,
+    /// Cached text value to detect changes
+    cached_rhodes_text: String,
+    /// Cached text value to detect changes
+    cached_top_right_bar_text: String,
 
     /// Whether textures have been loaded for current config
     textures_loaded: bool,
@@ -210,6 +219,10 @@ impl SimulatorApp {
             top_left_rhodes_texture: None,
             top_right_bar_texture: None,
             btm_left_bar_texture: None,
+            top_left_rhodes_text_texture: None,
+            top_right_bar_text_texture: None,
+            cached_rhodes_text: String::new(),
+            cached_top_right_bar_text: String::new(),
             textures_loaded: false,
         };
 
@@ -259,6 +272,10 @@ impl SimulatorApp {
         self.top_left_rhodes_texture = None;
         self.top_right_bar_texture = None;
         self.btm_left_bar_texture = None;
+        self.top_left_rhodes_text_texture = None;
+        self.top_right_bar_text_texture = None;
+        self.cached_rhodes_text.clear();
+        self.cached_top_right_bar_text.clear();
         self.textures_loaded = false;
 
         info!("Configuration loaded");
@@ -1197,7 +1214,7 @@ impl SimulatorApp {
     }
 
     /// Render complete overlay UI using egui Painter
-    fn render_overlay_ui(&self, painter: &egui::Painter, image_rect: Rect) {
+    fn render_overlay_ui(&mut self, painter: &egui::Painter, image_rect: Rect) {
         let anim = &self.state.animation;
         let options = match self.get_arknights_options() {
             Some(opts) => opts,
@@ -1222,7 +1239,7 @@ impl SimulatorApp {
         // ============================================
         // 1. Render modular static decorations
         // ============================================
-        self.render_modular_decorations(painter, image_rect, scale_x, scale_y, y_offset, entry_alpha);
+        self.render_modular_decorations(painter, image_rect, scale_x, scale_y, y_offset, entry_alpha, &options);
 
         // ============================================
         // 2. Render dynamic elements
@@ -1255,27 +1272,60 @@ impl SimulatorApp {
     /// - top_right_bar: (360-width, 0) - right-aligned
     /// - btm_left_bar: (0, 640-height) - bottom-aligned
     fn render_modular_decorations(
-        &self,
+        &mut self,
         painter: &egui::Painter,
         image_rect: Rect,
         scale_x: f32,
         scale_y: f32,
         y_offset: f32,
         entry_alpha: u8,
+        options: &ArknightsOverlayOptions,
     ) {
         let tint = Color32::from_rgba_unmultiplied(255, 255, 255, entry_alpha);
         let uv_full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         let fw_height = 640.0; // Firmware screen height
 
-        // 1. top_left_rhodes (0, 0) - left upper corner origin
-        if let Some(ref tex) = self.top_left_rhodes_texture {
-            let tex_w = tex.size()[0] as f32;
-            let tex_h = tex.size()[1] as f32;
-            let rect = Rect::from_min_size(
-                Pos2::new(image_rect.min.x, image_rect.min.y + y_offset),
-                egui::vec2(tex_w * scale_x, tex_h * scale_y),
-            );
-            painter.image(tex.id(), rect, uv_full, tint);
+        // 1. top_left_rhodes - custom text or default image
+        if !options.top_left_rhodes.is_empty() {
+            // Custom text mode: render rotated text replacing default Rhodes logo
+            // Per firmware opinfo.c:687-693: rect=(0, 5, 67, OPNAME_Y-5=410)
+            if self.cached_rhodes_text != options.top_left_rhodes {
+                let img = render_text_rotated_90(
+                    &options.top_left_rhodes,
+                    48.0, // Font size (scaled down from firmware's 72px for display)
+                    Color32::WHITE,
+                    false,
+                );
+                self.top_left_rhodes_text_texture = Some(
+                    painter.ctx().load_texture("rhodes_text", img, egui::TextureOptions::LINEAR)
+                );
+                self.cached_rhodes_text = options.top_left_rhodes.clone();
+            }
+            if let Some(ref tex) = self.top_left_rhodes_text_texture {
+                let tex_w = tex.size()[0] as f32;
+                let tex_h = tex.size()[1] as f32;
+                // Position at (0, 5), constrain to area 67x410
+                let max_w = 67.0;
+                let max_h = 410.0;
+                let display_w = tex_w.min(max_w);
+                let display_h = tex_h.min(max_h);
+                let rect = Rect::from_min_size(
+                    Pos2::new(image_rect.min.x, image_rect.min.y + 5.0 * scale_y + y_offset),
+                    egui::vec2(display_w * scale_x, display_h * scale_y),
+                );
+                painter.image(tex.id(), rect, uv_full, tint);
+            }
+        } else {
+            // Default: use top_left_rhodes.png image
+            if let Some(ref tex) = self.top_left_rhodes_texture {
+                let tex_w = tex.size()[0] as f32;
+                let tex_h = tex.size()[1] as f32;
+                let rect = Rect::from_min_size(
+                    Pos2::new(image_rect.min.x, image_rect.min.y + y_offset),
+                    egui::vec2(tex_w * scale_x, tex_h * scale_y),
+                );
+                painter.image(tex.id(), rect, uv_full, tint);
+            }
         }
 
         // 2. top_left_rect - L-shape black decoration, positioned right after top_left_rhodes
@@ -1284,10 +1334,18 @@ impl SimulatorApp {
             let tex_h = tex.size()[1] as f32;
 
             // Use actual rhodes texture width for positioning
-            let rhodes_width = self.top_left_rhodes_texture
-                .as_ref()
-                .map(|t| t.size()[0] as f32)
-                .unwrap_or(60.0);
+            let rhodes_width = if !options.top_left_rhodes.is_empty() {
+                // When using custom text, use the text texture width
+                self.top_left_rhodes_text_texture
+                    .as_ref()
+                    .map(|t| (t.size()[0] as f32).min(67.0))
+                    .unwrap_or(60.0)
+            } else {
+                self.top_left_rhodes_texture
+                    .as_ref()
+                    .map(|t| t.size()[0] as f32)
+                    .unwrap_or(60.0)
+            };
 
             let rect = Rect::from_min_size(
                 Pos2::new(
@@ -1303,14 +1361,51 @@ impl SimulatorApp {
         if let Some(ref tex) = self.top_right_bar_texture {
             let tex_w = tex.size()[0] as f32;
             let tex_h = tex.size()[1] as f32;
+            let bar_x = image_rect.max.x - tex_w * scale_x;
             let rect = Rect::from_min_size(
-                Pos2::new(
-                    image_rect.max.x - tex_w * scale_x,
-                    image_rect.min.y + y_offset,
-                ),
+                Pos2::new(bar_x, image_rect.min.y + y_offset),
                 egui::vec2(tex_w * scale_x, tex_h * scale_y),
             );
             painter.image(tex.id(), rect, uv_full, tint);
+
+            // Custom top_right_bar_text: overlay on top of bar image
+            if !options.top_right_bar_text.is_empty() {
+                // Per firmware opinfo.c:643-683:
+                // 1. Black rect to cover embedded text at (bar_x+42, 314, 10, 102)
+                let cover_x = bar_x + 42.0 * scale_x;
+                let cover_y = image_rect.min.y + 314.0 * scale_y + y_offset;
+                let cover_rect = Rect::from_min_size(
+                    Pos2::new(cover_x, cover_y),
+                    egui::vec2(10.0 * scale_x, 102.0 * scale_y),
+                );
+                let black_tint = Color32::from_rgba_unmultiplied(0, 0, 0, entry_alpha);
+                painter.rect_filled(cover_rect, 0.0, black_tint);
+
+                // 2. Render custom text (split at space: bold + regular)
+                if self.cached_top_right_bar_text != options.top_right_bar_text {
+                    let img = render_top_right_bar_text_rotated(
+                        &options.top_right_bar_text,
+                        10.0,
+                        Color32::WHITE,
+                    );
+                    self.top_right_bar_text_texture = Some(
+                        painter.ctx().load_texture("top_right_bar_text", img, egui::TextureOptions::LINEAR)
+                    );
+                    self.cached_top_right_bar_text = options.top_right_bar_text.clone();
+                }
+                if let Some(ref text_tex) = self.top_right_bar_text_texture {
+                    let text_w = text_tex.size()[0] as f32;
+                    let text_h = text_tex.size()[1] as f32;
+                    // Constrain to the covered area
+                    let display_w = text_w.min(10.0);
+                    let display_h = text_h.min(102.0);
+                    let text_rect = Rect::from_min_size(
+                        Pos2::new(cover_x, cover_y),
+                        egui::vec2(display_w * scale_x, display_h * scale_y),
+                    );
+                    painter.image(text_tex.id(), text_rect, uv_full, tint);
+                }
+            }
         }
 
         // 4. btm_left_bar (0, 640-height) - bottom-aligned
@@ -2193,16 +2288,17 @@ impl eframe::App for SimulatorApp {
 
             // Render overlay UI on top of the image when in Loop state
             if self.state.play_state == PlayState::Loop {
-                if let Some(ref config) = self.epconfig {
-                    if let Some(ref overlay) = config.overlay {
-                        if let Some(image_rect) = image_response.inner {
-                            let painter = ui.painter_at(image_rect);
-                            match overlay.overlay_type {
-                                OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
-                                OverlayType::Image => self.render_image_overlay(&painter, image_rect),
-                                OverlayType::None => {}
-                            }
-                        }
+                let overlay_type = self.epconfig
+                    .as_ref()
+                    .and_then(|c| c.overlay.as_ref())
+                    .map(|o| o.overlay_type)
+                    .unwrap_or(OverlayType::None);
+                if let Some(image_rect) = image_response.inner {
+                    let painter = ui.painter_at(image_rect);
+                    match overlay_type {
+                        OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
+                        OverlayType::Image => self.render_image_overlay(&painter, image_rect),
+                        OverlayType::None => {}
                     }
                 }
             }

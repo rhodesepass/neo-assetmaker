@@ -4,6 +4,8 @@
 import os
 import sys
 import logging
+import tempfile
+import shutil
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QMenuBar, QMenu, QStatusBar,
-    QFileDialog, QMessageBox, QLabel, QTabWidget
+    QFileDialog, QMessageBox, QLabel, QTabWidget, QPushButton
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
@@ -20,6 +22,7 @@ from config.epconfig import EPConfig
 from config.constants import APP_NAME, APP_VERSION, get_resolution_spec
 from gui.widgets.config_panel import ConfigPanel
 from gui.widgets.video_preview import VideoPreviewWidget
+from gui.widgets.transition_preview import TransitionPreviewWidget
 from gui.widgets.timeline import TimelineWidget
 from gui.widgets.json_preview import JsonPreviewWidget
 
@@ -34,11 +37,13 @@ class MainWindow(QMainWindow):
         self._project_path: str = ""
         self._base_dir: str = ""
         self._is_modified: bool = False
+        self._temp_dir: Optional[str] = None  # 临时项目目录路径，None 表示非临时项目
         self._initializing: bool = True  # 初始化期间防护标志
 
         # 为每个视频存储独立的入点/出点
         self._loop_in_out: tuple[int, int] = (0, 0)   # 循环视频的(入点, 出点)
         self._intro_in_out: tuple[int, int] = (0, 0)  # 入场视频的(入点, 出点)
+        self._timeline_preview: Optional['VideoPreviewWidget'] = None  # 时间轴当前连接的预览器
 
         self._setup_ui()
         self._setup_menu()
@@ -48,6 +53,10 @@ class MainWindow(QMainWindow):
 
         self._update_title()
         self._check_first_run()
+
+        # 自动创建临时项目，用户可立即开始编辑
+        if self._config is None:
+            self._init_temp_project()
 
         # 启动时延迟检查更新（2秒后）
         QTimer.singleShot(2000, self._check_update_on_startup)
@@ -94,12 +103,30 @@ class MainWindow(QMainWindow):
         preview_layout.setContentsMargins(5, 5, 5, 5)
         preview_layout.setSpacing(5)
 
-        # 标签页：循环视频 / 入场视频
+        # 标签页：入场视频 / 截取帧编辑 / 过渡图片 / 循环视频
         self.preview_tabs = QTabWidget()
         self.video_preview = VideoPreviewWidget()  # 循环视频预览
         self.intro_preview = VideoPreviewWidget()  # 入场视频预览
-        self.preview_tabs.addTab(self.intro_preview, "入场视频")
-        self.preview_tabs.addTab(self.video_preview, "循环视频")
+        self.transition_preview = TransitionPreviewWidget()  # 过渡图片预览
+
+        # 截取帧编辑标签页
+        frame_capture_widget = QWidget()
+        frame_capture_layout = QVBoxLayout(frame_capture_widget)
+        frame_capture_layout.setContentsMargins(0, 0, 0, 0)
+        frame_capture_layout.setSpacing(5)
+        self.frame_capture_preview = VideoPreviewWidget()
+        frame_capture_layout.addWidget(self.frame_capture_preview, stretch=1)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.btn_save_icon = QPushButton("保存为图标")
+        self.btn_save_icon.setStyleSheet("padding: 6px 16px;")
+        btn_layout.addWidget(self.btn_save_icon)
+        frame_capture_layout.addLayout(btn_layout)
+
+        self.preview_tabs.addTab(self.intro_preview, "入场视频")         # Tab 0
+        self.preview_tabs.addTab(frame_capture_widget, "截取帧编辑")     # Tab 1
+        self.preview_tabs.addTab(self.transition_preview, "过渡图片")    # Tab 2
+        self.preview_tabs.addTab(self.video_preview, "循环视频")         # Tab 3
         preview_layout.addWidget(self.preview_tabs, stretch=1)
 
         self.timeline = TimelineWidget()
@@ -194,6 +221,13 @@ class MainWindow(QMainWindow):
         self.config_panel.validate_requested.connect(self._on_validate)
         self.config_panel.export_requested.connect(self._on_export)
         self.config_panel.capture_frame_requested.connect(self._on_capture_frame)
+        self.config_panel.transition_image_changed.connect(self._on_transition_image_changed)
+
+        # 截取帧编辑 - 保存图标按钮
+        self.btn_save_icon.clicked.connect(self._on_save_captured_icon)
+
+        # 过渡图片裁切变化
+        self.transition_preview.transition_crop_changed.connect(self._on_transition_crop_changed)
 
         # 标签页切换
         self.preview_tabs.currentChanged.connect(self._on_preview_tab_changed)
@@ -238,6 +272,52 @@ class MainWindow(QMainWindow):
             if dialog.should_not_show_again():
                 settings.setValue("first_run_completed", True)
 
+    def _init_temp_project(self):
+        """创建临时项目，用户可立即开始编辑"""
+        temp_dir = tempfile.mkdtemp(prefix="neo_assetmaker_")
+        self._temp_dir = temp_dir
+
+        self._config = EPConfig()
+        self._base_dir = temp_dir
+        self._project_path = ""  # 留空，首次保存时触发"另存为"
+        self._is_modified = False
+
+        self.config_panel.set_config(self._config, self._base_dir)
+        self.json_preview.set_config(self._config, self._base_dir)
+        self.video_preview.set_epconfig(self._config)
+        self._update_title()
+        self.status_bar.showMessage("已创建临时项目，可以开始编辑")
+        logger.info(f"已初始化临时项目: {temp_dir}")
+
+    def _cleanup_temp_dir(self):
+        """清理临时项目目录"""
+        if self._temp_dir and os.path.exists(self._temp_dir):
+            try:
+                shutil.rmtree(self._temp_dir)
+                logger.info(f"已清理临时目录: {self._temp_dir}")
+            except Exception as e:
+                logger.warning(f"清理临时目录失败: {e}")
+        self._temp_dir = None
+
+    def _migrate_temp_to_permanent(self, dest_dir: str):
+        """将临时项目中的工作文件迁移到永久目录"""
+        if not self._temp_dir or not os.path.exists(self._temp_dir):
+            return
+
+        try:
+            for filename in os.listdir(self._temp_dir):
+                src = os.path.join(self._temp_dir, filename)
+                dst = os.path.join(dest_dir, filename)
+                if os.path.isfile(src) and not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+                    logger.debug(f"已迁移文件: {filename}")
+
+            self._cleanup_temp_dir()
+            logger.info(f"已将临时项目迁移到: {dest_dir}")
+        except Exception as e:
+            logger.warning(f"迁移临时项目失败: {e}")
+            # 迁移失败时保留临时目录作为备份
+
     def _on_shortcuts(self):
         """显示快捷键帮助"""
         from gui.dialogs.shortcuts_dialog import ShortcutsDialog
@@ -255,6 +335,8 @@ class MainWindow(QMainWindow):
         title = f"{APP_NAME} v{APP_VERSION}"
         if self._project_path:
             title = f"{os.path.basename(self._project_path)} - {title}"
+        elif self._temp_dir:
+            title = f"临时项目 - {title}"
         if self._is_modified:
             title = f"* {title}"
         self.setWindowTitle(title)
@@ -271,11 +353,25 @@ class MainWindow(QMainWindow):
         if not dir_path:
             return
 
+        # 清理临时项目
+        self._cleanup_temp_dir()
+
         # 创建新配置
         self._config = EPConfig()
         self._base_dir = dir_path
         self._project_path = os.path.join(dir_path, "epconfig.json")
         self._is_modified = True
+
+        # 清空所有预览组件（防止旧项目内容残留）
+        self.video_preview.clear()
+        self.intro_preview.clear()
+        self.frame_capture_preview.clear()
+        self.transition_preview.clear_image("in")
+        self.transition_preview.clear_image("loop")
+        self._loop_image_path = None
+        self.timeline.set_total_frames(0)
+        self._loop_in_out = (0, 0)
+        self._intro_in_out = (0, 0)
 
         # 更新UI
         self.config_panel.set_config(self._config, self._base_dir)
@@ -296,11 +392,25 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
+        # 清理临时项目
+        self._cleanup_temp_dir()
+
         try:
             self._config = EPConfig.load_from_file(path)
             self._project_path = path
             self._base_dir = os.path.dirname(path)
             self._is_modified = False
+
+            # 清空所有预览组件（防止旧项目内容残留）
+            self.video_preview.clear()
+            self.intro_preview.clear()
+            self.frame_capture_preview.clear()
+            self.transition_preview.clear_image("in")
+            self.transition_preview.clear_image("loop")
+            self._loop_image_path = None
+            self.timeline.set_total_frames(0)
+            self._loop_in_out = (0, 0)
+            self._intro_in_out = (0, 0)
 
             # 更新UI
             self.config_panel.set_config(self._config, self._base_dir)
@@ -374,10 +484,21 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            new_base_dir = os.path.dirname(path)
+
+            # 从临时项目迁移到永久目录
+            if self._temp_dir and self._base_dir == self._temp_dir:
+                self._migrate_temp_to_permanent(new_base_dir)
+
             self._config.save_to_file(path)
             self._project_path = path
-            self._base_dir = os.path.dirname(path)
+            self._base_dir = new_base_dir
             self._is_modified = False
+
+            # 更新面板的 base_dir
+            self.config_panel.set_config(self._config, self._base_dir)
+            self.json_preview.set_config(self._config, self._base_dir)
+
             self._update_title()
             self.status_bar.showMessage(f"已保存: {path}")
         except Exception as e:
@@ -467,7 +588,7 @@ class MainWindow(QMainWindow):
 
         # 处理 ImageOverlay 路径
         try:
-            self._process_image_overlay()
+            self._process_image_overlay(dir_path)
         except Exception as e:
             logger.error(f"处理 ImageOverlay 失败: {e}")
 
@@ -742,7 +863,7 @@ class MainWindow(QMainWindow):
         if path and os.path.exists(path):
             self.video_preview.load_video(path)
             # 切换到循环视频标签页
-            self.preview_tabs.setCurrentIndex(1)
+            self.preview_tabs.setCurrentIndex(3)
         else:
             logger.warning(f"视频文件不存在: {path}")
 
@@ -799,6 +920,9 @@ class MainWindow(QMainWindow):
         )
         self.timeline.rotation_clicked.connect(preview.rotate_clockwise)
 
+        # 记录当前连接的预览器
+        self._timeline_preview = preview
+
         # 更新时间轴显示
         if preview.total_frames > 0:
             self.timeline.set_total_frames(preview.total_frames)
@@ -809,28 +933,35 @@ class MainWindow(QMainWindow):
 
     def _on_preview_tab_changed(self, index: int):
         """预览标签页切换"""
-        # 保存当前标签页的入点/出点
+        # 保存当前 in/out 到正确的位置（基于当前连接的预览器）
         current_in = self.timeline.get_in_point()
         current_out = self.timeline.get_out_point()
-
-        # 根据切换前的状态保存（index 是切换后的目标）
-        if index == 0:
-            # 即将切换到入场视频，保存循环视频的入点/出点
+        if self._timeline_preview is self.intro_preview:
+            self._intro_in_out = (current_in, current_out)
+        elif self._timeline_preview is self.video_preview:
             self._loop_in_out = (current_in, current_out)
-            # 连接入场视频预览
+
+        if index == 0:
+            # 入场视频
             self._connect_timeline_to_preview(self.intro_preview)
-            # 恢复入场视频的入点/出点
             self.timeline.set_in_point(self._intro_in_out[0])
             self.timeline.set_out_point(self._intro_in_out[1])
+            self.timeline.show()
             logger.debug("切换到入场视频预览")
-        else:
-            # 即将切换到循环视频，保存入场视频的入点/出点
-            self._intro_in_out = (current_in, current_out)
-            # 连接循环视频预览
+        elif index == 1:
+            # 截取帧编辑 - 保持时间轴可见以便导航视频选帧
+            self.timeline.show()
+            logger.debug("切换到截取帧编辑")
+        elif index == 2:
+            # 过渡图片（静态，不需要时间轴）
+            self.timeline.hide()
+            logger.debug("切换到过渡图片预览")
+        elif index == 3:
+            # 循环视频
             self._connect_timeline_to_preview(self.video_preview)
-            # 恢复循环视频的入点/出点
             self.timeline.set_in_point(self._loop_in_out[0])
             self.timeline.set_out_point(self._loop_in_out[1])
+            self.timeline.show()
             logger.debug("切换到循环视频预览")
 
     def _on_intro_video_loaded(self, total_frames: int, fps: float):
@@ -847,12 +978,12 @@ class MainWindow(QMainWindow):
 
     def _on_intro_frame_changed(self, frame: int):
         """入场视频帧变更"""
-        if self.preview_tabs.currentIndex() == 0:
+        if self.preview_tabs.currentIndex() in (0, 1):
             self.timeline.set_current_frame(frame)
 
     def _on_intro_playback_changed(self, is_playing: bool):
         """入场视频播放状态变更"""
-        if self.preview_tabs.currentIndex() == 0:
+        if self.preview_tabs.currentIndex() in (0, 1):
             self.timeline.set_playing(is_playing)
 
     def _on_intro_rotation_changed(self, rotation: int):
@@ -862,26 +993,26 @@ class MainWindow(QMainWindow):
 
     def _on_set_in_point(self):
         """设置入点为当前帧"""
-        # 获取当前激活的预览器
-        if self.preview_tabs.currentIndex() == 0:
-            # 入场视频
+        index = self.preview_tabs.currentIndex()
+        if index == 0:
             current_frame = self.intro_preview.current_frame_index
-        else:
-            # 循环视频
+        elif index == 3:
             current_frame = self.video_preview.current_frame_index
+        else:
+            return  # 截取帧/过渡图片标签页无入点操作
 
         self.timeline.set_in_point(current_frame)
         logger.debug(f"设置入点: {current_frame}")
 
     def _on_set_out_point(self):
         """设置出点为当前帧"""
-        # 获取当前激活的预览器
-        if self.preview_tabs.currentIndex() == 0:
-            # 入场视频
+        index = self.preview_tabs.currentIndex()
+        if index == 0:
             current_frame = self.intro_preview.current_frame_index
-        else:
-            # 循环视频
+        elif index == 3:
             current_frame = self.video_preview.current_frame_index
+        else:
+            return  # 截取帧/过渡图片标签页无出点操作
 
         self.timeline.set_out_point(current_frame)
         logger.debug(f"设置出点: {current_frame}")
@@ -949,6 +1080,66 @@ class MainWindow(QMainWindow):
 
         logger.info(f"循环模式切换为: {'图片' if is_image else '视频'}")
 
+    def _on_transition_image_changed(self, trans_type: str, abs_path: str):
+        """过渡图片变更"""
+        self.transition_preview.load_image(trans_type, abs_path)
+        # 切换到过渡图片标签页
+        self.preview_tabs.setCurrentIndex(2)
+
+    def _on_transition_crop_changed(self, trans_type: str):
+        """过渡图片 cropbox 变化 → 裁切原始图片并保存"""
+        if not self._base_dir:
+            return
+
+        import cv2
+        import glob
+
+        # 查找原始图片
+        pattern = os.path.join(self._base_dir, f"trans_{trans_type}_src.*")
+        matches = glob.glob(pattern)
+        if not matches:
+            return
+
+        src_path = matches[0]
+        original = cv2.imread(src_path, cv2.IMREAD_UNCHANGED)
+        if original is None:
+            return
+
+        # 获取 cropbox 坐标
+        x, y, w, h = self.transition_preview.get_cropbox(trans_type)
+
+        # 边界检查
+        img_h, img_w = original.shape[:2]
+        x = max(0, min(x, img_w - 1))
+        y = max(0, min(y, img_h - 1))
+        w = min(w, img_w - x)
+        h = min(h, img_h - y)
+
+        if w <= 0 or h <= 0:
+            return
+
+        # 裁切
+        cropped = original[y:y+h, x:x+w]
+
+        # 缩放到目标分辨率
+        target_w, target_h = self._get_target_resolution()
+        resized = cv2.resize(cropped, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+        # 保存为模拟器读取的文件
+        out_path = os.path.join(self._base_dir, f"trans_{trans_type}_image.png")
+        success, encoded = cv2.imencode('.png', resized)
+        if success:
+            with open(out_path, 'wb') as f:
+                f.write(encoded.tobytes())
+
+    def _get_target_resolution(self):
+        """获取当前选择的目标分辨率"""
+        if self._config:
+            spec = get_resolution_spec(self._config.screen.value)
+            if spec:
+                return spec['width'], spec['height']
+        return 360, 640
+
     def _on_video_loaded(self, total_frames: int, fps: float):
         """视频加载完成"""
         self.timeline.set_total_frames(total_frames)
@@ -968,21 +1159,34 @@ class MainWindow(QMainWindow):
         self.timeline.set_playing(is_playing)
 
     def _on_capture_frame(self):
-        """截取当前视频帧作为图标"""
+        """截取当前视频帧 → 加载到截取帧编辑标签页"""
         if not self._base_dir:
             QMessageBox.warning(self, "警告", "请先创建或打开项目")
             return
 
-        # 获取当前帧
-        frame = self.video_preview.current_frame
+        # 尝试从当前活跃的视频预览获取帧
+        current_tab = self.preview_tabs.currentIndex()
+        if current_tab == 3:
+            source_preview = self.video_preview
+        else:
+            source_preview = self.intro_preview
+
+        frame = source_preview.current_frame
+        if frame is None:
+            # 尝试另一个预览
+            other = self.video_preview if source_preview is self.intro_preview else self.intro_preview
+            frame = other.current_frame
+            if other.current_frame is not None:
+                source_preview = other
         if frame is None:
             QMessageBox.warning(self, "警告", "请先加载视频")
             return
 
         import cv2
 
-        # 1. 应用旋转变换
-        rotation = self.video_preview.get_rotation()
+        # 应用旋转变换（不裁切，交给用户在截取帧编辑标签页中操作）
+        frame = frame.copy()
+        rotation = source_preview.get_rotation()
         if rotation == 90:
             frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         elif rotation == 180:
@@ -990,27 +1194,47 @@ class MainWindow(QMainWindow):
         elif rotation == 270:
             frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-        # 2. cropbox 已经是旋转后坐标系，直接应用裁剪
-        x, y, w, h = self.video_preview.get_cropbox()
+        # 加载到截取帧编辑预览
+        self.frame_capture_preview.load_static_image_from_array(frame)
+        # 切换到截取帧编辑标签页
+        self.preview_tabs.setCurrentIndex(1)
+        self.status_bar.showMessage("已截取视频帧，请调整裁切框后点击\"保存为图标\"")
 
-        # 确保裁剪框在有效范围内
-        rotated_h, rotated_w = frame.shape[:2]
-        x = max(0, min(x, rotated_w - 1))
-        y = max(0, min(y, rotated_h - 1))
-        w = min(w, rotated_w - x)
-        h = min(h, rotated_h - y)
+    def _on_save_captured_icon(self):
+        """从截取帧编辑的 cropbox 保存图标"""
+        if not self._base_dir:
+            QMessageBox.warning(self, "警告", "请先创建或打开项目")
+            return
 
-        if w > 0 and h > 0:
-            frame = frame[y:y+h, x:x+w]
+        frame = self.frame_capture_preview.current_frame
+        if frame is None:
+            QMessageBox.warning(self, "警告", "请先截取视频帧")
+            return
 
-        # 3. 保存为图标文件
+        import cv2
+
+        x, y, w, h = self.frame_capture_preview.get_cropbox()
+
+        # 边界检查
+        frame_h, frame_w = frame.shape[:2]
+        x = max(0, min(x, frame_w - 1))
+        y = max(0, min(y, frame_h - 1))
+        w = min(w, frame_w - x)
+        h = min(h, frame_h - y)
+
+        if w <= 0 or h <= 0:
+            QMessageBox.warning(self, "错误", "裁切区域无效")
+            return
+
+        cropped = frame[y:y+h, x:x+w]
+
         icon_path = os.path.join(self._base_dir, "icon.png")
-        success = cv2.imwrite(icon_path, frame)
-
+        success, encoded = cv2.imencode('.png', cropped)
         if success:
-            # 更新配置
+            with open(icon_path, 'wb') as f:
+                f.write(encoded.tobytes())
             self.config_panel.edit_icon.setText("icon.png")
-            self.status_bar.showMessage("已截取视频帧作为图标")
+            self.status_bar.showMessage("已保存图标")
         else:
             QMessageBox.warning(self, "错误", "保存图标失败")
 
@@ -1162,8 +1386,6 @@ class MainWindow(QMainWindow):
                     if success:
                         with open(dst_path, 'wb') as f:
                             f.write(encoded.tobytes())
-                        # 更新配置中的路径为相对路径
-                        ark_opts.operator_class_icon = dst_filename
                         logger.info(f"已导出职业图标: {dst_path}")
 
         # 处理Logo (75x35)
@@ -1184,13 +1406,13 @@ class MainWindow(QMainWindow):
                     if success:
                         with open(dst_path, 'wb') as f:
                             f.write(encoded.tobytes())
-                        # 更新配置中的路径为相对路径
-                        ark_opts.logo = dst_filename
                         logger.info(f"已导出Logo: {dst_path}")
 
-    def _process_image_overlay(self):
-        """处理 ImageOverlay 的路径标准化"""
+    def _process_image_overlay(self, output_dir: str):
+        """处理 ImageOverlay 的图片导出和路径标准化"""
         from config.epconfig import OverlayType
+        from core.image_processor import ImageProcessor
+        import cv2
 
         if not self._config:
             return
@@ -1199,9 +1421,20 @@ class MainWindow(QMainWindow):
             return
 
         if self._config.overlay.image_options and self._config.overlay.image_options.image:
-            # 更新为标准化路径
-            self._config.overlay.image_options.image = "overlay.argb"
-            logger.info("已更新 ImageOverlay 路径为: overlay.argb")
+            src_path = self._config.overlay.image_options.image
+            if not os.path.isabs(src_path):
+                src_path = os.path.join(self._base_dir, src_path)
+
+            if os.path.exists(src_path):
+                img = ImageProcessor.load_image(src_path)
+                if img is not None:
+                    dst_filename = "overlay.png"
+                    dst_path = os.path.join(output_dir, dst_filename)
+                    success, encoded = cv2.imencode('.png', img)
+                    if success:
+                        with open(dst_path, 'wb') as f:
+                            f.write(encoded.tobytes())
+                        logger.info(f"已导出叠加图片: {dst_path}")
 
     def _on_export_completed(self, success: bool, message: str):
         """导出完成回调"""
@@ -1240,6 +1473,7 @@ class MainWindow(QMainWindow):
         """关闭事件"""
         if self._check_save():
             self._save_settings()
+            self._cleanup_temp_dir()
             event.accept()
         else:
             event.ignore()

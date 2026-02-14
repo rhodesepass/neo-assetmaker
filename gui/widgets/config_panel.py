@@ -38,6 +38,7 @@ class ConfigPanel(QWidget):
     validate_requested = pyqtSignal()  # 验证配置请求信号
     export_requested = pyqtSignal()  # 导出素材请求信号
     capture_frame_requested = pyqtSignal()  # 截取视频帧请求信号
+    transition_image_changed = pyqtSignal(str, str)  # 过渡图片变更信号 (trans_type, abs_path)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -351,6 +352,16 @@ class ConfigPanel(QWidget):
         self.edit_ark_name.setToolTip("干员名称，显示在UI顶部")
         ark_layout.addRow("干员名称:", self.edit_ark_name)
 
+        self.edit_ark_top_left_rhodes = QLineEdit()
+        self.edit_ark_top_left_rhodes.setPlaceholderText("可选，非空时替代默认Rhodes Logo")
+        self.edit_ark_top_left_rhodes.setToolTip("左上角自定义文字（旋转90°竖排显示），留空使用默认图片")
+        ark_layout.addRow("左上角文字:", self.edit_ark_top_left_rhodes)
+
+        self.edit_ark_top_right_bar_text = QLineEdit()
+        self.edit_ark_top_right_bar_text.setPlaceholderText("可选，非空时覆盖右上栏文字")
+        self.edit_ark_top_right_bar_text.setToolTip("右上角栏自定义文字（旋转90°竖排显示）")
+        ark_layout.addRow("右上栏文字:", self.edit_ark_top_right_bar_text)
+
         self.edit_ark_code = QLineEdit("ARKNIGHTS - UNK0")
         self.edit_ark_code.setToolTip("干员代号，显示在名称下方")
         ark_layout.addRow("干员代号:", self.edit_ark_code)
@@ -428,7 +439,7 @@ class ConfigPanel(QWidget):
 
         self.spin_img_duration = QSpinBox()
         self.spin_img_duration.setRange(0, 5000000)
-        self.spin_img_duration.setValue(100000)
+        self.spin_img_duration.setValue(0)
         self.spin_img_duration.setToolTip("图片叠加持续时间(微秒)")
         img_layout.addRow("持续时间(微秒):", self.spin_img_duration)
 
@@ -505,6 +516,8 @@ class ConfigPanel(QWidget):
         self.combo_overlay_type.currentIndexChanged.connect(self._on_overlay_type_changed)
         self.spin_ark_appear.valueChanged.connect(self._on_config_changed)
         self.edit_ark_name.textChanged.connect(self._on_config_changed)
+        self.edit_ark_top_left_rhodes.textChanged.connect(self._on_config_changed)
+        self.edit_ark_top_right_bar_text.textChanged.connect(self._on_config_changed)
         self.edit_ark_code.textChanged.connect(self._on_config_changed)
         self.edit_ark_barcode.textChanged.connect(self._on_config_changed)
         self.edit_ark_aux.textChanged.connect(self._on_config_changed)
@@ -565,6 +578,12 @@ class ConfigPanel(QWidget):
                     self.spin_trans_in_duration.setValue(config.transition_in.options.duration)
                     self.edit_trans_in_color.setText(config.transition_in.options.background_color)
                     self.edit_trans_in_image.setText(config.transition_in.options.image or "")
+                    if config.transition_in.options.image and self._base_dir:
+                        # 优先加载原始图片（_src 文件）用于裁切编辑
+                        src_path = self._find_transition_src(self._base_dir, "in")
+                        abs_path = src_path or os.path.join(self._base_dir, config.transition_in.options.image)
+                        if os.path.exists(abs_path):
+                            self.transition_image_changed.emit("in", abs_path)
 
             # 过渡效果 - 循环
             if config.transition_loop.type != TransitionType.NONE:
@@ -575,6 +594,12 @@ class ConfigPanel(QWidget):
                     self.spin_trans_loop_duration.setValue(config.transition_loop.options.duration)
                     self.edit_trans_loop_color.setText(config.transition_loop.options.background_color)
                     self.edit_trans_loop_image.setText(config.transition_loop.options.image or "")
+                    if config.transition_loop.options.image and self._base_dir:
+                        # 优先加载原始图片（_src 文件）用于裁切编辑
+                        src_path = self._find_transition_src(self._base_dir, "loop")
+                        abs_path = src_path or os.path.join(self._base_dir, config.transition_loop.options.image)
+                        if os.path.exists(abs_path):
+                            self.transition_image_changed.emit("loop", abs_path)
 
             # 叠加UI
             index = self.combo_overlay_type.findData(config.overlay.type.value)
@@ -585,6 +610,8 @@ class ConfigPanel(QWidget):
                 opts = config.overlay.arknights_options
                 self.spin_ark_appear.setValue(opts.appear_time)
                 self.edit_ark_name.setText(opts.operator_name)
+                self.edit_ark_top_left_rhodes.setText(opts.top_left_rhodes or "")
+                self.edit_ark_top_right_bar_text.setText(opts.top_right_bar_text or "")
                 self.edit_ark_code.setText(opts.operator_code)
                 self.edit_ark_barcode.setText(opts.barcode_text)
                 self.edit_ark_aux.setPlainText(opts.aux_text)
@@ -666,6 +693,8 @@ class ConfigPanel(QWidget):
                 arknights_options=ArknightsOverlayOptions(
                     appear_time=self.spin_ark_appear.value(),
                     operator_name=self.edit_ark_name.text(),
+                    top_left_rhodes=self.edit_ark_top_left_rhodes.text(),
+                    top_right_bar_text=self.edit_ark_top_right_bar_text.text(),
                     operator_code=self.edit_ark_code.text(),
                     barcode_text=self.edit_ark_barcode.text(),
                     aux_text=self.edit_ark_aux.toPlainText(),
@@ -890,6 +919,20 @@ class ConfigPanel(QWidget):
             logging.getLogger(__name__).warning(f"复制文件失败: {e}")
             return src_path
 
+    @staticmethod
+    def _find_transition_src(base_dir: str, trans_type: str):
+        """查找过渡图片的原始源文件（_src 文件）
+
+        Returns:
+            绝对路径或 None
+        """
+        import glob
+        pattern = os.path.join(base_dir, f"trans_{trans_type}_src.*")
+        matches = glob.glob(pattern)
+        if matches:
+            return matches[0]
+        return None
+
     def _browse_transition_image(self, trans_type: str):
         """浏览过渡图片"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -904,26 +947,31 @@ class ConfigPanel(QWidget):
             # 显示等待光标
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
-                # 加载图片
+                # 加载原始图片（不缩放）
                 img = ImageProcessor.load_image(file_path)
                 if img is None:
                     return
 
-                # 缩放到 360x640
-                img = ImageProcessor.resize_image(img, 360, 640, keep_aspect=True)
-
-                # 保存到项目目录
-                base_name = f"trans_{trans_type}_image"
+                # 保存原始图片到项目目录（用于裁切编辑）
                 _, ext = os.path.splitext(file_path)
-                dest_path = os.path.join(self._base_dir, f"{base_name}{ext}")
+                src_filename = f"trans_{trans_type}_src{ext}"
+                src_path = os.path.join(self._base_dir, src_filename)
+                ImageProcessor.save_image(img, src_path)
 
-                if ImageProcessor.save_image(img, dest_path):
-                    rel_path = os.path.basename(dest_path)
-                    if trans_type == "in":
-                        self.edit_trans_in_image.setText(rel_path)
-                    else:
-                        self.edit_trans_loop_image.setText(rel_path)
-                    self._on_config_changed()
+                # 同时保存一份初始版本作为模拟器使用的文件
+                dest_filename = f"trans_{trans_type}_image.png"
+                dest_path = os.path.join(self._base_dir, dest_filename)
+                ImageProcessor.save_image(img, dest_path)
+
+                # 更新 UI 字段为模拟器使用的文件名
+                if trans_type == "in":
+                    self.edit_trans_in_image.setText(dest_filename)
+                else:
+                    self.edit_trans_loop_image.setText(dest_filename)
+                self._on_config_changed()
+
+                # 发射信号，传递原始图片路径供预览加载
+                self.transition_image_changed.emit(trans_type, src_path)
             finally:
                 QApplication.restoreOverrideCursor()
 

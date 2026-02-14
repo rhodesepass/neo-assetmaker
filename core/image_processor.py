@@ -92,7 +92,11 @@ class ImageProcessor:
         """
         try:
             if HAS_CV2:
-                cv2.imwrite(path, img)
+                ext = os.path.splitext(path)[1] or '.png'
+                success, encoded = cv2.imencode(ext, img)
+                if success:
+                    with open(path, 'wb') as f:
+                        f.write(encoded.tobytes())
             elif HAS_PIL:
                 # BGR(A) -> RGB(A)
                 if img.shape[-1] == 4:

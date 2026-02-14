@@ -156,38 +156,7 @@ class JsonPreviewWidget(QWidget):
             self.text_edit.setText("")
             return
 
-        # 获取配置字典并标准化路径（与导出结果保持一致）
-        config_dict = self._config.to_dict()
-
-        # 标准化 loop.file 路径
-        if "loop" in config_dict and config_dict["loop"].get("file"):
-            config_dict["loop"]["file"] = "loop.mp4"
-
-        # 标准化 icon 路径
-        if config_dict.get("icon"):
-            config_dict["icon"] = "icon.png"
-
-        # 标准化 intro.file 路径
-        if "intro" in config_dict and config_dict["intro"].get("file"):
-            config_dict["intro"]["file"] = "intro.mp4"
-
-        # 标准化 overlay.options 中的路径
-        if "overlay" in config_dict and config_dict["overlay"].get("options"):
-            opts = config_dict["overlay"]["options"]
-            overlay_type = config_dict["overlay"].get("type")
-
-            # ArknightsOverlay 路径
-            if overlay_type == "arknights":
-                if opts.get("logo"):
-                    opts["logo"] = "ark_logo.png"
-                if opts.get("operator_class_icon"):
-                    opts["operator_class_icon"] = "class_icon.png"
-
-            # ImageOverlay 路径
-            elif overlay_type == "image":
-                if opts.get("image"):
-                    opts["image"] = "overlay.argb"
-
+        config_dict = self._config.to_dict(normalize_paths=True)
         json_str = json.dumps(config_dict, ensure_ascii=False, indent=4)
         self.text_edit.setText(json_str)
 

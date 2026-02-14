@@ -1,6 +1,7 @@
 """
 导出服务 - 素材导出和打包
 """
+import json
 import os
 import sys
 import struct
@@ -190,7 +191,10 @@ class ExportWorker(QThread):
         elif task.export_type == ExportType.ICON:
             self.progress_updated.emit(base_progress, f"正在导出 {task.output_path}...")
             if HAS_CV2:
-                cv2.imwrite(output_path, task.data)
+                success, encoded = cv2.imencode('.png', task.data)
+                if success:
+                    with open(output_path, 'wb') as f:
+                        f.write(encoded.tobytes())
 
         elif task.export_type in (ExportType.LOOP_VIDEO, ExportType.INTRO_VIDEO):
             self.progress_updated.emit(base_progress, f"正在导出 {task.output_path}...")
@@ -576,16 +580,9 @@ class ExportWorker(QThread):
 
         config_path = os.path.join(self._output_dir, "epconfig.json")
         try:
-            exported_types = {task.export_type for task in self._tasks}
-
-            if ExportType.LOOP_VIDEO in exported_types:
-                self._epconfig.loop.file = "loop.mp4"
-            if ExportType.ICON in exported_types:
-                self._epconfig.icon = "icon.png"
-            if ExportType.INTRO_VIDEO in exported_types:
-                self._epconfig.intro.file = "intro.mp4"
-
-            self._epconfig.save_to_file(config_path)
+            config_dict = self._epconfig.to_dict(normalize_paths=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config_dict, f, ensure_ascii=False, indent=4)
             logger.info(f"已生成配置: {config_path}")
         except Exception as e:
             logger.error(f"生成epconfig.json失败: {e}")

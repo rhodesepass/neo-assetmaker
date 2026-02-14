@@ -160,7 +160,6 @@ arknights_pass_maker/
 │   ├── video_processor.py # 视频处理
 │   ├── image_processor.py # 图片处理
 │   ├── export_service.py  # 导出服务
-│   ├── operator_lookup.py # 干员信息查询
 │   ├── update_service.py  # 更新检查服务
 │   └── overlay_renderer.py # 叠加层渲染器
 ├── gui/                   # 图形界面
@@ -171,10 +170,11 @@ arknights_pass_maker/
 │   │   ├── shortcuts_dialog.py        # 快捷键帮助
 │   │   └── update_dialog.py           # 更新对话框
 │   └── widgets/           # UI组件
-│       ├── config_panel.py    # 配置面板
-│       ├── video_preview.py   # 视频预览
-│       ├── timeline.py        # 时间轴
-│       └── json_preview.py    # JSON预览
+│       ├── config_panel.py        # 配置面板
+│       ├── video_preview.py       # 视频预览
+│       ├── transition_preview.py  # 过渡图片预览
+│       ├── timeline.py            # 时间轴
+│       └── json_preview.py        # JSON预览
 ├── utils/                 # 工具函数
 │   ├── logger.py          # 日志系统
 │   ├── file_utils.py      # 文件操作
@@ -221,10 +221,30 @@ arknights_pass_maker/
 
 ## 更新日志
 
-### v1.5.9
+### v1.6.0
+
+**新功能**
+- 新增过渡图片预览功能
+  - 中间预览区新增「过渡图片」标签页（位于入场视频和循环视频之间）
+  - 左右并排显示进入过渡和循环过渡图片，等比缩放不变形
+  - 选择过渡图片后自动在预览区显示，窗口缩放时自动适应
+  - 打开项目时自动加载已有的过渡图片
+  - 切换到过渡图片标签页时自动隐藏时间轴
+- 新增明日方舟叠加UI自定义文字支持
+  - `top_left_rhodes`：左上角自定义文字，非空时替代默认 Rhodes Island logo 图片（旋转90°竖排显示）
+  - `top_right_bar_text`：右上角栏自定义文字，非空时覆盖右上栏图片内嵌文字（旋转90°竖排显示，空格前粗体/空格后常规）
+  - 编辑器新增「左上角文字」和「右上栏文字」输入框
+  - Rust 模拟器使用 fontdue 预渲染旋转文字纹理，支持 faux bold 效果
+  - Python 预览渲染器使用 Pillow 实现旋转文字叠加
+- 模拟器新增嵌入字体文件（DejaVuSans-Bold），用于自定义文字渲染
 
 **Bug 修复**
-- 修复"导出 loop 失败: name 'sys' is not defined""
+- 修复构建失败问题：移除已删除的 `core.operator_lookup` 模块在 cx_Freeze includes 中的残留引用
+
+### v1.5.9
+**Bug 修复**
+
+- 修复"导出 loop 失败: name 'sys' is not defined"的问题（导出服务模块添加 sys 导入）
 
 ### v1.5.8
 

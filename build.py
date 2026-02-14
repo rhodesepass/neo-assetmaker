@@ -239,7 +239,7 @@ def run_cxfreeze(skip_flasher=False):
         "config", "config.constants", "config.epconfig",
         "core", "core.validator", "core.video_processor", "core.image_processor",
         "core.export_service", "core.overlay_renderer",
-        "core.operator_lookup", "core.update_service",
+        "core.update_service",
         "gui", "gui.main_window", "gui.dialogs",
         "gui.dialogs.export_progress_dialog", "gui.dialogs.welcome_dialog",
         "gui.dialogs.shortcuts_dialog", "gui.dialogs.update_dialog",

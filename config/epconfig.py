@@ -63,7 +63,7 @@ class TransitionOptions:
     image: str = ""
     background_color: str = "#000000"
 
-    def to_dict(self) -> dict:
+    def to_dict(self, normalize_paths: bool = False) -> dict:
         result = {
             "duration": self.duration,
             "background_color": self.background_color
@@ -87,12 +87,12 @@ class Transition:
     type: TransitionType = TransitionType.NONE
     options: Optional[TransitionOptions] = None
 
-    def to_dict(self) -> Optional[dict]:
+    def to_dict(self, normalize_paths: bool = False) -> Optional[dict]:
         if self.type == TransitionType.NONE:
             return None
         result = {"type": self.type.value}
         if self.options:
-            result["options"] = self.options.to_dict()
+            result["options"] = self.options.to_dict(normalize_paths=normalize_paths)
         return result
 
     @classmethod
@@ -112,8 +112,12 @@ class LoopConfig:
     file: str = ""
     is_image: bool = False  # True=图片模式，False=视频模式
 
-    def to_dict(self) -> dict:
-        result = {"file": self.file}
+    def to_dict(self, normalize_paths: bool = False) -> dict:
+        result = {}
+        if normalize_paths and self.file:
+            result["file"] = "loop.mp4"
+        else:
+            result["file"] = self.file
         if self.is_image:
             result["is_image"] = True
         return result
@@ -133,12 +137,12 @@ class IntroConfig:
     file: str = ""
     duration: int = 5000000  # 微秒 (5秒)
 
-    def to_dict(self) -> Optional[dict]:
+    def to_dict(self, normalize_paths: bool = False) -> Optional[dict]:
         if not self.enabled:
             return None
         return {
             "enabled": True,
-            "file": self.file,
+            "file": "intro.mp4" if (normalize_paths and self.file) else self.file,
             "duration": self.duration
         }
 
@@ -158,6 +162,8 @@ class ArknightsOverlayOptions:
     """明日方舟叠加UI选项"""
     appear_time: int = 100000  # 微秒
     operator_name: str = "OPERATOR"
+    top_left_rhodes: str = ""  # 左上角自定义文字，非空时替代默认Rhodes Logo
+    top_right_bar_text: str = ""  # 右上角栏自定义文字
     operator_code: str = "ARKNIGHTS - UNK0"
     barcode_text: str = "OPERATOR - ARKNIGHTS"
     aux_text: str = "Operator of Rhodes Island\nUndefined/Rhodes Island\n Hypergryph"
@@ -166,20 +172,24 @@ class ArknightsOverlayOptions:
     logo: str = ""
     operator_class_icon: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self, normalize_paths: bool = False) -> dict:
         result = {
             "appear_time": self.appear_time,
             "operator_name": self.operator_name,
-            "operator_code": self.operator_code,
-            "barcode_text": self.barcode_text,
-            "aux_text": self.aux_text,
-            "staff_text": self.staff_text,
-            "color": self.color
         }
+        if self.top_left_rhodes:
+            result["top_left_rhodes"] = self.top_left_rhodes
+        if self.top_right_bar_text:
+            result["top_right_bar_text"] = self.top_right_bar_text
+        result["operator_code"] = self.operator_code
+        result["barcode_text"] = self.barcode_text
+        result["aux_text"] = self.aux_text
+        result["staff_text"] = self.staff_text
+        result["color"] = self.color
         if self.logo:
-            result["logo"] = self.logo
+            result["logo"] = "ark_logo.png" if normalize_paths else self.logo
         if self.operator_class_icon:
-            result["operator_class_icon"] = self.operator_class_icon
+            result["operator_class_icon"] = "class_icon.png" if normalize_paths else self.operator_class_icon
         return result
 
     @classmethod
@@ -187,6 +197,8 @@ class ArknightsOverlayOptions:
         return cls(
             appear_time=data.get("appear_time", 100000),
             operator_name=data.get("operator_name", "OPERATOR"),
+            top_left_rhodes=data.get("top_left_rhodes", ""),
+            top_right_bar_text=data.get("top_right_bar_text", ""),
             operator_code=data.get("operator_code", "ARKNIGHTS - UNK0"),
             barcode_text=data.get("barcode_text", "OPERATOR - ARKNIGHTS"),
             aux_text=data.get("aux_text", "Operator of Rhodes Island\nUndefined/Rhodes Island\n Hypergryph"),
@@ -204,13 +216,13 @@ class ImageOverlayOptions:
     duration: int = 0  # 微秒 (0 表示无限显示)
     image: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self, normalize_paths: bool = False) -> dict:
         result = {
             "appear_time": self.appear_time,
             "duration": self.duration
         }
         if self.image:
-            result["image"] = self.image
+            result["image"] = "overlay.png" if normalize_paths else self.image
         return result
 
     @classmethod
@@ -229,14 +241,14 @@ class Overlay:
     arknights_options: Optional[ArknightsOverlayOptions] = None
     image_options: Optional[ImageOverlayOptions] = None
 
-    def to_dict(self) -> Optional[dict]:
+    def to_dict(self, normalize_paths: bool = False) -> Optional[dict]:
         if self.type == OverlayType.NONE:
             return None
         result = {"type": self.type.value}
         if self.type == OverlayType.ARKNIGHTS and self.arknights_options:
-            result["options"] = self.arknights_options.to_dict()
+            result["options"] = self.arknights_options.to_dict(normalize_paths=normalize_paths)
         elif self.type == OverlayType.IMAGE and self.image_options:
-            result["options"] = self.image_options.to_dict()
+            result["options"] = self.image_options.to_dict(normalize_paths=normalize_paths)
         return result
 
     @classmethod
@@ -272,13 +284,18 @@ class EPConfig:
     transition_loop: Transition = field(default_factory=Transition)
     overlay: Overlay = field(default_factory=Overlay)
 
-    def to_dict(self) -> dict:
-        """转换为可序列化的字典"""
+    def to_dict(self, normalize_paths: bool = False) -> dict:
+        """转换为可序列化的字典
+
+        Args:
+            normalize_paths: 为 True 时将文件路径替换为标准化的导出文件名
+                           （如 loop.mp4, icon.png, overlay.png 等）
+        """
         result = {
             "version": self.version,
             "uuid": self.uuid,
             "screen": self.screen.value,
-            "loop": self.loop.to_dict()
+            "loop": self.loop.to_dict(normalize_paths=normalize_paths)
         }
 
         if self.name:
@@ -286,32 +303,32 @@ class EPConfig:
         if self.description:
             result["description"] = self.description
         if self.icon:
-            result["icon"] = self.icon
+            result["icon"] = "icon.png" if normalize_paths else self.icon
 
         # intro
-        intro_dict = self.intro.to_dict()
+        intro_dict = self.intro.to_dict(normalize_paths=normalize_paths)
         if intro_dict:
             result["intro"] = intro_dict
 
         # transitions
-        trans_in_dict = self.transition_in.to_dict()
+        trans_in_dict = self.transition_in.to_dict(normalize_paths=normalize_paths)
         if trans_in_dict:
             result["transition_in"] = trans_in_dict
 
-        trans_loop_dict = self.transition_loop.to_dict()
+        trans_loop_dict = self.transition_loop.to_dict(normalize_paths=normalize_paths)
         if trans_loop_dict:
             result["transition_loop"] = trans_loop_dict
 
         # overlay
-        overlay_dict = self.overlay.to_dict()
+        overlay_dict = self.overlay.to_dict(normalize_paths=normalize_paths)
         if overlay_dict:
             result["overlay"] = overlay_dict
 
         return result
 
-    def to_json(self, indent: int = 4) -> str:
+    def to_json(self, indent: int = 4, normalize_paths: bool = False) -> str:
         """转换为JSON字符串"""
-        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+        return json.dumps(self.to_dict(normalize_paths=normalize_paths), ensure_ascii=False, indent=indent)
 
     @classmethod
     def from_dict(cls, data: dict) -> "EPConfig":

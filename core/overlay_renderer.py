@@ -12,6 +12,12 @@ try:
 except ImportError:
     HAS_CV2 = False
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
 from config.epconfig import ArknightsOverlayOptions
 
 logger = logging.getLogger(__name__)
@@ -86,6 +92,30 @@ class OverlayRenderer:
             (int(w * 0.05), int(h * 0.10)),
             self._font, code_font_scale, color, code_thickness, cv2.LINE_AA
         )
+
+        # === 左上角自定义文字 (top_left_rhodes) ===
+        if options.top_left_rhodes:
+            # 旋转90°显示在左侧区域 (0, 5) ~ (67, opname_y)
+            rhodes_w = int(w * 67 / 360)
+            rhodes_h = int(h * 410 / 640)
+            self._draw_rotated_text(
+                result, options.top_left_rhodes,
+                0, int(h * 5 / 640), rhodes_w, rhodes_h,
+                font_scale=h / 10, color_rgb=(255, 255, 255)
+            )
+
+        # === 右上角栏自定义文字 (top_right_bar_text) ===
+        if options.top_right_bar_text:
+            # 旋转90°显示在右上角栏区域
+            bar_x = int(w * (360 - 80) / 360) + int(w * 42 / 360)
+            bar_y = int(h * 314 / 640)
+            bar_w = int(w * 10 / 360)
+            bar_h = int(h * 102 / 640)
+            self._draw_rotated_text(
+                result, options.top_right_bar_text,
+                bar_x, bar_y, bar_w, bar_h,
+                font_scale=h / 80, color_rgb=(255, 255, 255)
+            )
 
         # === 左侧装饰线 ===
         line_x = int(w * 0.02)
@@ -169,6 +199,55 @@ class OverlayRenderer:
         cv2.line(result, (w - 1, h - corner_size), (w - 1, h - 1), color, corner_thickness)
 
         return result
+
+    def _draw_rotated_text(
+        self,
+        frame: np.ndarray,
+        text: str,
+        x: int, y: int, width: int, height: int,
+        font_scale: float,
+        color_rgb: Tuple[int, int, int]
+    ):
+        """将文字旋转90°（顺时针）渲染到帧上
+
+        使用 Pillow 绘制水平文字后旋转90°，再叠加到 OpenCV 帧上。
+        模拟固件 fbdraw_text_rot90 的效果。
+        """
+        if not HAS_PIL or width <= 0 or height <= 0:
+            return
+
+        # 旋转90°后: 原始水平文字的宽度对应旋转后的高度
+        # 所以先绘制水平文字，尺寸为 (height, width)
+        text_img = Image.new('RGBA', (height, width), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(text_img)
+
+        # 使用默认字体，按比例缩放
+        font_size = max(8, int(font_scale))
+        try:
+            font = ImageFont.truetype("arial", font_size)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+
+        draw.text((2, 0), text, fill=(*color_rgb, 255), font=font)
+
+        # 顺时针旋转90° (PIL的rotate是逆时针，所以用270°或-90°)
+        rotated = text_img.rotate(-90, expand=True)
+
+        # 裁剪到目标尺寸
+        rotated = rotated.crop((0, 0, min(rotated.width, width), min(rotated.height, height)))
+
+        # 转为 numpy array 并叠加到帧上
+        rot_array = np.array(rotated)
+        if rot_array.shape[2] == 4:
+            alpha = rot_array[:, :, 3] / 255.0
+            # RGBA -> BGR for OpenCV
+            for c in range(3):
+                bgr_c = 2 - c  # RGB -> BGR
+                region = frame[y:y + rot_array.shape[0], x:x + rot_array.shape[1], bgr_c]
+                if region.shape == alpha.shape:
+                    frame[y:y + rot_array.shape[0], x:x + rot_array.shape[1], bgr_c] = (
+                        region * (1 - alpha) + rot_array[:, :, c] * alpha
+                    ).astype(np.uint8)
 
     def _draw_transparent_rect(
         self,

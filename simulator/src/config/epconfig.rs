@@ -137,6 +137,14 @@ pub struct ArknightsOverlayOptions {
     #[serde(default = "default_operator_name")]
     pub operator_name: String,
 
+    /// Custom text for top-left area (replaces Rhodes logo when non-empty)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub top_left_rhodes: String,
+
+    /// Custom text for top-right bar (replaces embedded text when non-empty)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub top_right_bar_text: String,
+
     /// Operator code
     #[serde(default = "default_operator_code")]
     pub operator_code: String,
@@ -199,6 +207,8 @@ impl Default for ArknightsOverlayOptions {
         Self {
             appear_time: default_appear_time(),
             operator_name: default_operator_name(),
+            top_left_rhodes: String::new(),
+            top_right_bar_text: String::new(),
             operator_code: default_operator_code(),
             barcode_text: default_barcode_text(),
             aux_text: default_aux_text(),
