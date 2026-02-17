@@ -36,3 +36,9 @@ ffmpeg.exe
 
 # Test data
 test/
+
+# User settings
+config/user_settings.json
+
+# Temporary update directory
+temp_update/
