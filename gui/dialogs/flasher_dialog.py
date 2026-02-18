@@ -476,7 +476,14 @@ class FlasherDialog(QDialog):
         """开始烧录"""
         # 检查epass_flasher目录
         if not os.path.exists(self.flasher_dir):
-            QMessageBox.critical(self, "错误", "epass_flasher目录不存在，请确保项目完整")
+            QMessageBox.warning(
+                self, 
+                "提示", 
+                "epass_flasher目录不存在，固件烧录功能暂不可用。\n\n"
+                "如果您需要使用固件烧录功能，请确保项目完整并包含epass_flasher子模块。\n"
+                "您可以手动克隆该子模块：\n"
+                "git clone https://github.com/rhodesepass/epass_flasher.git epass_flasher"
+            )
             return
         
         # 获取设备信息
@@ -568,7 +575,15 @@ class FlasherDialog(QDialog):
         try:
             # 检查epass_flasher目录
             if not os.path.exists(self.flasher_dir):
-                raise Exception("epass_flasher目录不存在，请确保项目完整")
+                QMessageBox.warning(
+                    self, 
+                    "提示", 
+                    "epass_flasher目录不存在，固件烧录功能暂不可用。\n\n"
+                    "如果您需要使用固件烧录功能，请确保项目完整并包含epass_flasher子模块。\n"
+                    "您可以手动克隆该子模块：\n"
+                    "git clone https://github.com/rhodesepass/epass_flasher.git epass_flasher"
+                )
+                return
             
             # 获取设备信息
             rev_index = self.rev_combo.currentIndex()
@@ -646,7 +661,15 @@ class FlasherDialog(QDialog):
             
             # 检查epass_flasher目录
             if not os.path.exists(self.flasher_dir):
-                raise Exception("epass_flasher目录不存在，请确保项目完整")
+                QMessageBox.warning(
+                    self, 
+                    "提示", 
+                    "epass_flasher目录不存在，固件烧录功能暂不可用。\n\n"
+                    "如果您需要使用固件烧录功能，请确保项目完整并包含epass_flasher子模块。\n"
+                    "您可以手动克隆该子模块：\n"
+                    "git clone https://github.com/rhodesepass/epass_flasher.git epass_flasher"
+                )
+                return
             
             # 检查驱动安装文件
             drv_bat = os.path.join(self.bin_path, "drv_install.bat")
