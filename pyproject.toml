@@ -1,12 +1,13 @@
 [project]
 name = "neo-assetmaker"
-version = "2.1.0"
+version = "2.3.0"
 description = "明日方舟通行证素材制作器"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.5.0",
     "PyQt6-WebEngine>=6.5.0",
+    "QFluentWidgets>=1.0.0",
     "opencv-python>=4.8.0",
     "Pillow>=10.0.0",
     "numpy>=1.24.0",

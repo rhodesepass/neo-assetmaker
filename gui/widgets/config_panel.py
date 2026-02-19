@@ -6,14 +6,51 @@ import shutil
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QTabWidget, QScrollArea,
-    QGroupBox, QFormLayout, QLineEdit, QTextEdit,
-    QComboBox, QSpinBox, QCheckBox, QPushButton,
-    QHBoxLayout, QLabel, QFileDialog, QColorDialog,
-    QStackedWidget
+    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
+    QGroupBox, QFormLayout, QTextEdit,
+    QFileDialog, QColorDialog,
+    QStackedWidget, QFrame
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QKeySequence
+
+# Fluent Widgets导入
+from qfluentwidgets import (
+    PushButton, PrimaryPushButton, ToolButton,
+    TabWidget, LineEdit, ComboBox, SpinBox, CheckBox,
+    SubtitleLabel, StrongBodyLabel, BodyLabel,
+    CardWidget, ScrollArea, TextEdit
+)
+
+# 创建自定义GroupBox类，应用Fluent样式
+class FluentGroupBox(CardWidget):
+    def __init__(self, title="", parent=None):
+        super().__init__(parent)
+        # 设置卡片样式
+        
+        # 主布局
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(15, 15, 15, 15)
+        self.main_layout.setSpacing(10)
+        
+        # 添加标题
+        if title:
+            self.title_label = StrongBodyLabel(title)
+            self.main_layout.addWidget(self.title_label)
+            # 添加分隔线
+            line = QFrame()
+            line.setFrameShape(QFrame.Shape.HLine)
+            line.setFrameShadow(QFrame.Shadow.Sunken)
+            line.setStyleSheet("margin: 5px 0;")
+            self.main_layout.addWidget(line)
+        
+    def addLayout(self, layout):
+        """添加布局"""
+        self.main_layout.addLayout(layout)
+    
+    def addWidget(self, widget):
+        """添加控件"""
+        self.main_layout.addWidget(widget)
 
 from config.epconfig import (
     EPConfig, ScreenType, TransitionType, OverlayType,
@@ -56,8 +93,10 @@ class ConfigPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(0)
 
-        # 选项卡
-        self.tab_widget = QTabWidget()
+        # 选项卡 - 使用Fluent TabWidget
+        self.tab_widget = TabWidget()
+        self.tab_widget.setTabsClosable(False)  # 禁用关闭按钮
+        self.tab_widget.setMovable(False)  # 禁用标签移动
         layout.addWidget(self.tab_widget)
 
         # 基本信息选项卡
@@ -79,13 +118,11 @@ class ConfigPanel(QWidget):
         self.setMinimumWidth(380)
         self.setMaximumWidth(500)
 
-    def _create_scroll_area(self, widget: QWidget) -> QScrollArea:
+    def _create_scroll_area(self, widget: QWidget) -> ScrollArea:
         """创建滚动区域"""
-        scroll = QScrollArea()
+        scroll = ScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(widget)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         # 设置内部widget的边距
         widget.layout().setContentsMargins(8, 8, 8, 8)
         return scroll
@@ -94,70 +131,77 @@ class ConfigPanel(QWidget):
         """创建基本信息选项卡"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
-        # UUID
-        group_uuid = QGroupBox("UUID")
-        uuid_layout = QHBoxLayout(group_uuid)
-        self.edit_uuid = QLineEdit()
+        # UUID - 使用Fluent GroupBox
+        group_uuid = FluentGroupBox("UUID")
+        uuid_layout = QHBoxLayout()
+        self.edit_uuid = LineEdit()
         self.edit_uuid.setReadOnly(True)
         self.edit_uuid.setToolTip("素材的唯一标识符")
         uuid_layout.addWidget(self.edit_uuid)
-        self.btn_new_uuid = QPushButton("生成新UUID")
+        self.btn_new_uuid = PushButton("生成新UUID")
         self.btn_new_uuid.setToolTip("生成新的唯一标识符")
         uuid_layout.addWidget(self.btn_new_uuid)
+        group_uuid.addLayout(uuid_layout)
         layout.addWidget(group_uuid)
 
-        # 基本信息
-        group_info = QGroupBox("基本信息")
-        info_layout = QFormLayout(group_info)
+        # 基本信息 - 使用Fluent GroupBox
+        group_info = FluentGroupBox("基本信息")
+        info_layout = QFormLayout()
 
-        self.edit_name = QLineEdit()
+        self.edit_name = LineEdit()
         self.edit_name.setPlaceholderText("素材名称")
         self.edit_name.setToolTip("素材显示名称")
         info_layout.addRow("名称:", self.edit_name)
 
-        self.edit_description = QTextEdit()
+        self.edit_description = TextEdit()
         self.edit_description.setMaximumHeight(80)
         self.edit_description.setPlaceholderText("素材描述")
         self.edit_description.setToolTip("素材详细描述")
         info_layout.addRow("描述:", self.edit_description)
 
-        self.combo_screen = QComboBox()
+        self.combo_screen = ComboBox()
         for screen in RESOLUTION_SPECS:
             desc = RESOLUTION_SPECS[screen].get("description", screen)
             self.combo_screen.addItem(desc, screen)
         self.combo_screen.setToolTip("选择目标分辨率")
         info_layout.addRow("分辨率:", self.combo_screen)
 
+        group_info.addLayout(info_layout)
         layout.addWidget(group_info)
 
-        # 图标
-        group_icon = QGroupBox("图标")
-        icon_layout = QHBoxLayout(group_icon)
-        self.edit_icon = QLineEdit()
+        # 图标 - 使用Fluent GroupBox
+        group_icon = FluentGroupBox("图标")
+        icon_layout = QHBoxLayout()
+        self.edit_icon = LineEdit()
         self.edit_icon.setPlaceholderText("图标文件路径")
         self.edit_icon.setToolTip("素材图标文件路径")
         icon_layout.addWidget(self.edit_icon)
-        self.btn_browse_icon = QPushButton("浏览...")
+        self.btn_browse_icon = PushButton("浏览...")
         self.btn_browse_icon.setToolTip("选择图标文件")
         icon_layout.addWidget(self.btn_browse_icon)
-        self.btn_capture_frame = QPushButton("截取视频帧")
+        self.btn_capture_frame = PushButton("截取视频帧")
         self.btn_capture_frame.setToolTip("从当前视频帧截取作为图标")
         icon_layout.addWidget(self.btn_capture_frame)
+        group_icon.addLayout(icon_layout)
         layout.addWidget(group_icon)
 
         layout.addStretch()
-        return self._create_scroll_area(widget)
+        return widget
 
     def _create_video_tab(self) -> QWidget:
         """创建视频配置选项卡"""
-        from PyQt6.QtWidgets import QRadioButton, QButtonGroup
+        from PyQt6.QtWidgets import QRadioButton, QButtonGroup, QLabel
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
-        # 循环视频
-        group_loop = QGroupBox("循环视频 (必选)")
-        loop_main_layout = QVBoxLayout(group_loop)
+        # 循环视频 - 使用Fluent GroupBox
+        group_loop = FluentGroupBox("循环视频 (必选)")
+        loop_main_layout = QVBoxLayout()
 
         # 模式选择
         mode_layout = QHBoxLayout()
@@ -177,36 +221,36 @@ class ConfigPanel(QWidget):
 
         # 文件选择
         file_layout = QHBoxLayout()
-        self.edit_loop_file = QLineEdit()
+        self.edit_loop_file = LineEdit()
         self.edit_loop_file.setPlaceholderText("loop.mp4")
         self.edit_loop_file.setToolTip("循环视频/图片文件路径")
         file_layout.addWidget(self.edit_loop_file)
-        self.btn_browse_loop = QPushButton("浏览...")
+        self.btn_browse_loop = PushButton("浏览...")
         self.btn_browse_loop.setToolTip("选择循环视频/图片文件")
         file_layout.addWidget(self.btn_browse_loop)
         loop_main_layout.addLayout(file_layout)
-
+        group_loop.addLayout(loop_main_layout)
         layout.addWidget(group_loop)
 
-        # 入场视频
-        group_intro = QGroupBox("入场视频 (可选)")
-        intro_layout = QFormLayout(group_intro)
+        # 入场视频 - 使用Fluent GroupBox
+        group_intro = FluentGroupBox("入场视频 (可选)")
+        intro_layout = QFormLayout()
 
-        self.check_intro_enabled = QCheckBox("启用入场动画")
+        self.check_intro_enabled = CheckBox("启用入场动画")
         self.check_intro_enabled.setToolTip("是否启用入场动画效果")
         intro_layout.addRow(self.check_intro_enabled)
 
         intro_file_layout = QHBoxLayout()
-        self.edit_intro_file = QLineEdit()
+        self.edit_intro_file = LineEdit()
         self.edit_intro_file.setPlaceholderText("intro.mp4")
         self.edit_intro_file.setToolTip("入场动画视频文件路径")
         intro_file_layout.addWidget(self.edit_intro_file)
-        self.btn_browse_intro = QPushButton("浏览...")
+        self.btn_browse_intro = PushButton("浏览...")
         self.btn_browse_intro.setToolTip("选择入场动画视频文件")
         intro_file_layout.addWidget(self.btn_browse_intro)
         intro_layout.addRow("文件:", intro_file_layout)
 
-        self.spin_intro_duration = QSpinBox()
+        self.spin_intro_duration = SpinBox()
         self.spin_intro_duration.setRange(0, 30000000)
         self.spin_intro_duration.setSingleStep(100000)
         self.spin_intro_duration.setSuffix(" 微秒")
@@ -216,28 +260,30 @@ class ConfigPanel(QWidget):
 
         self.label_intro_seconds = QLabel("= 5.0 秒")
         intro_layout.addRow("", self.label_intro_seconds)
-
+        group_intro.addLayout(intro_layout)
         layout.addWidget(group_intro)
 
         layout.addStretch()
-        return self._create_scroll_area(widget)
+        return widget
 
     def _create_transition_tab(self) -> QWidget:
         """创建过渡效果选项卡"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
-        # 进入过渡
-        group_in = QGroupBox("进入过渡 (transition_in)")
-        in_layout = QFormLayout(group_in)
+        # 进入过渡 - 使用Fluent GroupBox
+        group_in = FluentGroupBox("进入过渡 (transition_in)")
+        in_layout = QFormLayout()
 
-        self.combo_trans_in_type = QComboBox()
+        self.combo_trans_in_type = ComboBox()
         for t in TRANSITION_TYPES:
             self.combo_trans_in_type.addItem(t, t)
         self.combo_trans_in_type.setToolTip("进入过渡效果类型")
         in_layout.addRow("类型:", self.combo_trans_in_type)
 
-        self.spin_trans_in_duration = QSpinBox()
+        self.spin_trans_in_duration = SpinBox()
         self.spin_trans_in_duration.setRange(0, 5000000)
         self.spin_trans_in_duration.setSingleStep(50000)
         self.spin_trans_in_duration.setValue(500000)
@@ -245,39 +291,40 @@ class ConfigPanel(QWidget):
         in_layout.addRow("时长(微秒):", self.spin_trans_in_duration)
 
         color_layout_in = QHBoxLayout()
-        self.edit_trans_in_color = QLineEdit("#000000")
+        self.edit_trans_in_color = LineEdit()
+        self.edit_trans_in_color.setText("#000000")
         self.edit_trans_in_color.setToolTip("进入过渡背景颜色")
         color_layout_in.addWidget(self.edit_trans_in_color)
-        self.btn_trans_in_color = QPushButton("选择颜色")
+        self.btn_trans_in_color = PushButton("选择颜色")
         self.btn_trans_in_color.setToolTip("选择进入过渡背景颜色")
         color_layout_in.addWidget(self.btn_trans_in_color)
         in_layout.addRow("背景色:", color_layout_in)
 
         # 进入过渡图片
         image_layout_in = QHBoxLayout()
-        self.edit_trans_in_image = QLineEdit()
+        self.edit_trans_in_image = LineEdit()
         self.edit_trans_in_image.setPlaceholderText("可选，用于过渡效果的图片")
         self.edit_trans_in_image.setToolTip("进入过渡使用的图片")
         image_layout_in.addWidget(self.edit_trans_in_image)
-        self.btn_trans_in_image = QPushButton("浏览...")
+        self.btn_trans_in_image = PushButton("浏览...")
         self.btn_trans_in_image.setToolTip("选择进入过渡图片")
         self.btn_trans_in_image.clicked.connect(lambda: self._browse_transition_image("in"))
         image_layout_in.addWidget(self.btn_trans_in_image)
         in_layout.addRow("过渡图片:", image_layout_in)
-
+        group_in.addLayout(in_layout)
         layout.addWidget(group_in)
 
-        # 循环过渡
-        group_loop = QGroupBox("循环过渡 (transition_loop)")
-        loop_layout = QFormLayout(group_loop)
+        # 循环过渡 - 使用Fluent GroupBox
+        group_loop = FluentGroupBox("循环过渡 (transition_loop)")
+        loop_layout = QFormLayout()
 
-        self.combo_trans_loop_type = QComboBox()
+        self.combo_trans_loop_type = ComboBox()
         for t in TRANSITION_TYPES:
             self.combo_trans_loop_type.addItem(t, t)
         self.combo_trans_loop_type.setToolTip("循环过渡效果类型")
         loop_layout.addRow("类型:", self.combo_trans_loop_type)
 
-        self.spin_trans_loop_duration = QSpinBox()
+        self.spin_trans_loop_duration = SpinBox()
         self.spin_trans_loop_duration.setRange(0, 5000000)
         self.spin_trans_loop_duration.setSingleStep(50000)
         self.spin_trans_loop_duration.setValue(500000)
@@ -285,46 +332,49 @@ class ConfigPanel(QWidget):
         loop_layout.addRow("时长(微秒):", self.spin_trans_loop_duration)
 
         color_layout_loop = QHBoxLayout()
-        self.edit_trans_loop_color = QLineEdit("#000000")
+        self.edit_trans_loop_color = LineEdit()
+        self.edit_trans_loop_color.setText("#000000")
         self.edit_trans_loop_color.setToolTip("循环过渡背景颜色")
         color_layout_loop.addWidget(self.edit_trans_loop_color)
-        self.btn_trans_loop_color = QPushButton("选择颜色")
+        self.btn_trans_loop_color = PushButton("选择颜色")
         self.btn_trans_loop_color.setToolTip("选择循环过渡背景颜色")
         color_layout_loop.addWidget(self.btn_trans_loop_color)
         loop_layout.addRow("背景色:", color_layout_loop)
 
         # 循环过渡图片
         image_layout_loop = QHBoxLayout()
-        self.edit_trans_loop_image = QLineEdit()
+        self.edit_trans_loop_image = LineEdit()
         self.edit_trans_loop_image.setPlaceholderText("可选，用于过渡效果的图片")
         self.edit_trans_loop_image.setToolTip("循环过渡使用的图片")
         image_layout_loop.addWidget(self.edit_trans_loop_image)
-        self.btn_trans_loop_image = QPushButton("浏览...")
+        self.btn_trans_loop_image = PushButton("浏览...")
         self.btn_trans_loop_image.setToolTip("选择循环过渡图片")
         self.btn_trans_loop_image.clicked.connect(lambda: self._browse_transition_image("loop"))
         image_layout_loop.addWidget(self.btn_trans_loop_image)
         loop_layout.addRow("过渡图片:", image_layout_loop)
-
+        group_loop.addLayout(loop_layout)
         layout.addWidget(group_loop)
 
         layout.addStretch()
-        return self._create_scroll_area(widget)
+        return widget
 
     def _create_overlay_tab(self) -> QWidget:
         """创建叠加UI选项卡"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
-        # 叠加类型
-        group_type = QGroupBox("叠加类型")
-        type_layout = QFormLayout(group_type)
+        # 叠加类型 - 使用Fluent GroupBox
+        group_type = FluentGroupBox("叠加类型")
+        type_layout = QFormLayout()
 
-        self.combo_overlay_type = QComboBox()
+        self.combo_overlay_type = ComboBox()
         for t in OVERLAY_TYPES:
             self.combo_overlay_type.addItem(t, t)
         self.combo_overlay_type.setToolTip("叠加UI类型: none/arknights/image")
         type_layout.addRow("类型:", self.combo_overlay_type)
-
+        group_type.addLayout(type_layout)
         layout.addWidget(group_type)
 
         # 使用QStackedWidget避免布局抖动
@@ -339,34 +389,37 @@ class ConfigPanel(QWidget):
         ark_main_layout = QVBoxLayout(arknights_widget)
         ark_main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.group_arknights = QGroupBox("明日方舟模板选项")
-        ark_layout = QFormLayout(self.group_arknights)
+        self.group_arknights = FluentGroupBox("明日方舟模板选项")
+        ark_layout = QFormLayout()
 
-        self.spin_ark_appear = QSpinBox()
+        self.spin_ark_appear = SpinBox()
         self.spin_ark_appear.setRange(0, 5000000)
         self.spin_ark_appear.setValue(100000)
         self.spin_ark_appear.setToolTip("叠加UI出现时间(微秒)")
         ark_layout.addRow("出现时间(微秒):", self.spin_ark_appear)
 
-        self.edit_ark_name = QLineEdit("OPERATOR")
+        self.edit_ark_name = LineEdit()
+        self.edit_ark_name.setText("OPERATOR")
         self.edit_ark_name.setToolTip("干员名称，显示在UI顶部")
         ark_layout.addRow("干员名称:", self.edit_ark_name)
 
-        self.edit_ark_top_left_rhodes = QLineEdit()
+        self.edit_ark_top_left_rhodes = LineEdit()
         self.edit_ark_top_left_rhodes.setPlaceholderText("可选，非空时替代默认Rhodes Logo")
         self.edit_ark_top_left_rhodes.setToolTip("左上角自定义文字（旋转90°竖排显示），留空使用默认图片")
         ark_layout.addRow("左上角文字:", self.edit_ark_top_left_rhodes)
 
-        self.edit_ark_top_right_bar_text = QLineEdit()
+        self.edit_ark_top_right_bar_text = LineEdit()
         self.edit_ark_top_right_bar_text.setPlaceholderText("可选，非空时覆盖右上栏文字")
         self.edit_ark_top_right_bar_text.setToolTip("右上角栏自定义文字（旋转90°竖排显示）")
         ark_layout.addRow("右上栏文字:", self.edit_ark_top_right_bar_text)
 
-        self.edit_ark_code = QLineEdit("ARKNIGHTS - UNK0")
+        self.edit_ark_code = LineEdit()
+        self.edit_ark_code.setText("ARKNIGHTS - UNK0")
         self.edit_ark_code.setToolTip("干员代号，显示在名称下方")
         ark_layout.addRow("干员代号:", self.edit_ark_code)
 
-        self.edit_ark_barcode = QLineEdit("OPERATOR - ARKNIGHTS")
+        self.edit_ark_barcode = LineEdit()
+        self.edit_ark_barcode.setText("OPERATOR - ARKNIGHTS")
         self.edit_ark_barcode.setToolTip("条码下方的文本")
         ark_layout.addRow("条码文本:", self.edit_ark_barcode)
 
@@ -376,48 +429,51 @@ class ConfigPanel(QWidget):
         self.edit_ark_aux.setToolTip("辅助描述文本")
         ark_layout.addRow("辅助文本:", self.edit_ark_aux)
 
-        self.edit_ark_staff = QLineEdit("STAFF")
+        self.edit_ark_staff = LineEdit()
+        self.edit_ark_staff.setText("STAFF")
         self.edit_ark_staff.setToolTip("STAFF标签文本")
         ark_layout.addRow("STAFF文本:", self.edit_ark_staff)
 
         color_layout = QHBoxLayout()
-        self.edit_ark_color = QLineEdit("#000000")
+        self.edit_ark_color = LineEdit()
+        self.edit_ark_color.setText("#000000")
         self.edit_ark_color.setToolTip("主题颜色，影响装饰线条")
         color_layout.addWidget(self.edit_ark_color)
-        self.btn_ark_color = QPushButton("选择颜色")
+        self.btn_ark_color = PushButton("选择颜色")
         self.btn_ark_color.setToolTip("选择主题颜色")
         color_layout.addWidget(self.btn_ark_color)
         ark_layout.addRow("主题颜色:", color_layout)
 
         # 职业图标
         class_icon_layout = QHBoxLayout()
-        self.edit_ark_class_icon = QLineEdit()
+        self.edit_ark_class_icon = LineEdit()
         self.edit_ark_class_icon.setPlaceholderText("可选，50x50")
         self.edit_ark_class_icon.setReadOnly(True)
         self.edit_ark_class_icon.setToolTip("职业图标，建议尺寸50x50像素")
         class_icon_layout.addWidget(self.edit_ark_class_icon)
-        self.btn_ark_class_icon = QPushButton("选择...")
+        self.btn_ark_class_icon = PushButton("选择...")
         self.btn_ark_class_icon.setToolTip("选择职业图标文件")
         class_icon_layout.addWidget(self.btn_ark_class_icon)
-        self.btn_clear_class_icon = QPushButton("清除")
+        self.btn_clear_class_icon = PushButton("清除")
         self.btn_clear_class_icon.setToolTip("清除职业图标")
         class_icon_layout.addWidget(self.btn_clear_class_icon)
         ark_layout.addRow("职业图标:", class_icon_layout)
 
         # Logo
         logo_layout = QHBoxLayout()
-        self.edit_ark_logo = QLineEdit()
+        self.edit_ark_logo = LineEdit()
         self.edit_ark_logo.setPlaceholderText("可选，75x35")
         self.edit_ark_logo.setReadOnly(True)
         self.edit_ark_logo.setToolTip("自定义Logo，建议尺寸75x35像素")
         logo_layout.addWidget(self.edit_ark_logo)
-        self.btn_ark_logo = QPushButton("选择...")
+        self.btn_ark_logo = PushButton("选择...")
         self.btn_ark_logo.setToolTip("选择Logo文件")
         logo_layout.addWidget(self.btn_ark_logo)
-        self.btn_clear_logo = QPushButton("清除")
+        self.btn_clear_logo = PushButton("清除")
         self.btn_clear_logo.setToolTip("清除Logo")
         logo_layout.addWidget(self.btn_clear_logo)
         ark_layout.addRow("Logo:", logo_layout)
+        self.group_arknights.addLayout(ark_layout)
 
         ark_main_layout.addWidget(self.group_arknights)
         ark_main_layout.addStretch()
@@ -428,30 +484,31 @@ class ConfigPanel(QWidget):
         img_main_layout = QVBoxLayout(image_widget)
         img_main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.group_image_overlay = QGroupBox("图片叠加选项")
-        img_layout = QFormLayout(self.group_image_overlay)
+        self.group_image_overlay = FluentGroupBox("图片叠加选项")
+        img_layout = QFormLayout()
 
-        self.spin_img_appear = QSpinBox()
+        self.spin_img_appear = SpinBox()
         self.spin_img_appear.setRange(0, 5000000)
         self.spin_img_appear.setValue(100000)
         self.spin_img_appear.setToolTip("图片叠加出现时间(微秒)")
         img_layout.addRow("出现时间(微秒):", self.spin_img_appear)
 
-        self.spin_img_duration = QSpinBox()
+        self.spin_img_duration = SpinBox()
         self.spin_img_duration.setRange(0, 5000000)
         self.spin_img_duration.setValue(0)
         self.spin_img_duration.setToolTip("图片叠加持续时间(微秒)")
         img_layout.addRow("持续时间(微秒):", self.spin_img_duration)
 
         image_layout = QHBoxLayout()
-        self.edit_img_overlay = QLineEdit()
+        self.edit_img_overlay = LineEdit()
         self.edit_img_overlay.setPlaceholderText("overlay.png")
         self.edit_img_overlay.setToolTip("叠加图片文件路径")
         image_layout.addWidget(self.edit_img_overlay)
-        self.btn_img_overlay = QPushButton("浏览...")
+        self.btn_img_overlay = PushButton("浏览...")
         self.btn_img_overlay.setToolTip("选择叠加图片文件")
         image_layout.addWidget(self.btn_img_overlay)
         img_layout.addRow("叠加图片:", image_layout)
+        self.group_image_overlay.addLayout(img_layout)
 
         img_main_layout.addWidget(self.group_image_overlay)
         img_main_layout.addStretch()
@@ -459,24 +516,24 @@ class ConfigPanel(QWidget):
 
         layout.addWidget(self.overlay_stack)
 
-        # 操作按钮
-        group_actions = QGroupBox("操作")
-        actions_layout = QVBoxLayout(group_actions)
+        # 操作按钮 - 使用Fluent GroupBox
+        group_actions = FluentGroupBox("操作")
+        actions_layout = QVBoxLayout()
 
-        self.btn_validate = QPushButton("验证配置")
+        self.btn_validate = PrimaryPushButton("验证配置")
         self.btn_validate.setShortcut(QKeySequence("Ctrl+T"))
         self.btn_validate.setToolTip("验证配置是否有效 (Ctrl+T)")
         actions_layout.addWidget(self.btn_validate)
 
-        self.btn_export = QPushButton("导出素材")
+        self.btn_export = PrimaryPushButton("导出素材")
         self.btn_export.setShortcut(QKeySequence("Ctrl+E"))
         self.btn_export.setToolTip("导出素材文件 (Ctrl+E)")
         actions_layout.addWidget(self.btn_export)
-
+        group_actions.addLayout(actions_layout)
         layout.addWidget(group_actions)
 
         layout.addStretch()
-        return self._create_scroll_area(widget)
+        return widget
 
     def _connect_signals(self):
         """连接信号"""
@@ -837,7 +894,7 @@ class ConfigPanel(QWidget):
             self.edit_intro_file.setText(path)
             self.intro_video_selected.emit(path)
 
-    def _pick_color(self, edit: QLineEdit):
+    def _pick_color(self, edit: LineEdit):
         """选择颜色"""
         from PyQt6.QtGui import QColor as QC
         current = QC(edit.text())

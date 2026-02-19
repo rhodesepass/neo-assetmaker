@@ -9,10 +9,14 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QProgressBar, QPushButton, QTextBrowser, QFrame,
+    QProgressBar, QTextBrowser, QFrame,
     QMessageBox, QStackedWidget, QWidget
 )
 from PyQt6.QtCore import Qt
+from qfluentwidgets import (
+    PushButton, PrimaryPushButton, SubtitleLabel, StrongBodyLabel, BodyLabel,
+    ProgressBar
+)
 
 from core.update_service import UpdateService, ReleaseInfo
 from config.constants import APP_VERSION
@@ -69,7 +73,7 @@ class UpdateDialog(QDialog):
         self.btn_layout = QHBoxLayout()
         self.btn_layout.addStretch()
 
-        self.btn_close = QPushButton("关闭")
+        self.btn_close = PushButton("关闭")
         self.btn_close.clicked.connect(self.reject)
         self.btn_layout.addWidget(self.btn_close)
 
@@ -81,18 +85,16 @@ class UpdateDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.label_checking = QLabel("正在检查更新...")
-        self.label_checking.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.label_checking = SubtitleLabel("正在检查更新...")
         self.label_checking.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_checking)
 
-        self.progress_checking = QProgressBar()
+        self.progress_checking = ProgressBar()
         self.progress_checking.setRange(0, 0)  # Indeterminate
         self.progress_checking.setMaximumWidth(300)
         layout.addWidget(self.progress_checking, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.label_checking_detail = QLabel("连接到 GitHub...")
-        self.label_checking_detail.setStyleSheet("color: #666;")
+        self.label_checking_detail = BodyLabel("连接到 GitHub...")
         self.label_checking_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_checking_detail)
 
@@ -106,17 +108,15 @@ class UpdateDialog(QDialog):
         # Header
         header_layout = QHBoxLayout()
 
-        self.label_new_version = QLabel("发现新版本!")
-        self.label_new_version.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #4CAF50;"
-        )
+        self.label_new_version = SubtitleLabel("发现新版本!")
+        self.label_new_version.setStyleSheet("color: #4CAF50;")
         header_layout.addWidget(self.label_new_version)
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
         # Version info
-        self.label_version_info = QLabel()
-        self.label_version_info.setStyleSheet("font-size: 13px; color: #333;")
+        self.label_version_info = BodyLabel()
+        self.label_version_info.setStyleSheet("font-size: 13px;")
         layout.addWidget(self.label_version_info)
 
         # Separator
@@ -126,8 +126,7 @@ class UpdateDialog(QDialog):
         layout.addWidget(line)
 
         # Changelog label
-        changelog_label = QLabel("更新内容:")
-        changelog_label.setStyleSheet("font-weight: bold;")
+        changelog_label = StrongBodyLabel("更新内容:")
         layout.addWidget(changelog_label)
 
         # Changelog content (markdown rendered as HTML)
@@ -144,20 +143,15 @@ class UpdateDialog(QDialog):
         )
         layout.addWidget(self.text_changelog, stretch=1)
 
-        # Download button
+        # Download button - Use Fluent widgets
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self.btn_download = QPushButton("下载更新")
-        self.btn_download.setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; "
-            "padding: 8px 20px; font-size: 14px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #45a049; }"
-        )
+        self.btn_download = PrimaryPushButton("下载更新")
         self.btn_download.clicked.connect(self._start_download)
         btn_layout.addWidget(self.btn_download)
 
-        self.btn_skip = QPushButton("稍后提醒")
+        self.btn_skip = PushButton("稍后提醒")
         self.btn_skip.clicked.connect(self.reject)
         btn_layout.addWidget(self.btn_skip)
 
@@ -171,13 +165,12 @@ class UpdateDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.label_status = QLabel("当前已是最新版本")
-        self.label_status.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.label_status = SubtitleLabel("当前已是最新版本")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_status)
 
-        self.label_current_version = QLabel(f"当前版本: v{APP_VERSION}")
-        self.label_current_version.setStyleSheet("color: #666; font-size: 13px;")
+        self.label_current_version = BodyLabel(f"当前版本: v{APP_VERSION}")
+        self.label_current_version.setStyleSheet("font-size: 13px;")
         self.label_current_version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_current_version)
 
@@ -189,24 +182,21 @@ class UpdateDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.label_downloading = QLabel("正在下载更新...")
-        self.label_downloading.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.label_downloading = SubtitleLabel("正在下载更新...")
         self.label_downloading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_downloading)
 
-        self.progress_download = QProgressBar()
+        self.progress_download = ProgressBar()
         self.progress_download.setRange(0, 100)
-        self.progress_download.setTextVisible(True)
         self.progress_download.setMinimumWidth(350)
         layout.addWidget(self.progress_download, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.label_download_detail = QLabel("")
-        self.label_download_detail.setStyleSheet("color: #666;")
+        self.label_download_detail = BodyLabel("")
         self.label_download_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_download_detail)
 
-        # Cancel button
-        self.btn_cancel_download = QPushButton("取消下载")
+        # Cancel button - Use Fluent PushButton
+        self.btn_cancel_download = PushButton("取消下载")
         self.btn_cancel_download.clicked.connect(self._cancel_download)
         layout.addWidget(self.btn_cancel_download, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -218,10 +208,8 @@ class UpdateDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.label_complete = QLabel("下载完成!")
-        self.label_complete.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #4CAF50;"
-        )
+        self.label_complete = SubtitleLabel("下载完成!")
+        self.label_complete.setStyleSheet("color: #4CAF50;")
         self.label_complete.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_complete)
 
@@ -236,16 +224,11 @@ class UpdateDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self.btn_install = QPushButton("立即安装")
-        self.btn_install.setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; "
-            "padding: 8px 20px; font-size: 14px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #45a049; }"
-        )
+        self.btn_install = PrimaryPushButton("立即安装")
         self.btn_install.clicked.connect(self._run_installer)
         btn_layout.addWidget(self.btn_install)
 
-        self.btn_install_later = QPushButton("稍后安装")
+        self.btn_install_later = PushButton("稍后安装")
         self.btn_install_later.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_install_later)
 

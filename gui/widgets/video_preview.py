@@ -103,7 +103,14 @@ class VideoPreviewWidget(QWidget):
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setMinimumSize(320, 180)
         self.video_label.setStyleSheet(
-            "background-color: #1a1a1a; border: 1px solid #333;"
+            """
+            background-color: #121212;
+            border: 2px solid #333;
+            border-radius: 8px;
+            color: #cccccc;
+            font-size: 14px;
+            font-weight: 500;
+            """
         )
         self.video_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -115,7 +122,17 @@ class VideoPreviewWidget(QWidget):
 
         # 信息标签（控制按钮已移至时间轴组件）
         self.info_label = QLabel("帧: 0/0 | 裁剪: (0, 0, 0, 0)")
-        self.info_label.setStyleSheet("color: #888; font-size: 11px; padding: 2px 5px;")
+        self.info_label.setStyleSheet(
+            """
+            color: #aaaaaa;
+            font-size: 11px;
+            padding: 4px 10px;
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            margin-top: 5px;
+            """
+        )
         layout.addWidget(self.info_label)
 
     def set_target_resolution(self, width: int, height: int):
@@ -165,7 +182,7 @@ class VideoPreviewWidget(QWidget):
 
         if not self.cap.isOpened():
             logger.error(f"无法打开视频: {path}")
-            self.video_label.setText(f"无法打开视频")
+            self.video_label.setText("无法打开视频")
             return False
 
         self.video_path = path

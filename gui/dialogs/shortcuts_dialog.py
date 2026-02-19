@@ -2,12 +2,16 @@
 快捷键帮助对话框
 """
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QWidget, QLabel, QTableWidget, QTableWidgetItem,
-    QPushButton, QHeaderView, QGroupBox
+    QDialog, QVBoxLayout, QHBoxLayout, QWidget,
+    QLabel, QTableWidget, QTableWidgetItem,
+    QHeaderView, QGroupBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from qfluentwidgets import (
+    PushButton, TabWidget, SubtitleLabel, StrongBodyLabel, BodyLabel,
+    CardWidget
+)
 
 
 class ShortcutsDialog(QDialog):
@@ -26,8 +30,8 @@ class ShortcutsDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # 选项卡
-        tab_widget = QTabWidget()
+        # 选项卡 - 使用Fluent TabWidget
+        tab_widget = TabWidget()
         layout.addWidget(tab_widget)
 
         # 视频预览选项卡
@@ -46,10 +50,10 @@ class ShortcutsDialog(QDialog):
         tab_mouse = self._create_mouse_tab()
         tab_widget.addTab(tab_mouse, "鼠标操作")
 
-        # 关闭按钮
+        # 关闭按钮 - 使用Fluent PushButton
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        btn_close = QPushButton("关闭")
+        btn_close = PushButton("关闭")
         btn_close.clicked.connect(self.accept)
         button_layout.addWidget(btn_close)
         layout.addLayout(button_layout)
@@ -98,9 +102,9 @@ class ShortcutsDialog(QDialog):
         table = self._create_shortcut_table(shortcuts)
         layout.addWidget(table)
 
-        # 提示
-        tip = QLabel("提示: 使用WASD可以精确微调裁剪框位置，每次移动10像素")
-        tip.setStyleSheet("color: #666; font-style: italic;")
+        # 提示 - 使用Fluent BodyLabel
+        tip = BodyLabel("提示: 使用WASD可以精确微调裁剪框位置，每次移动10像素")
+        tip.setStyleSheet("font-style: italic;")
         layout.addWidget(tip)
 
         return widget
@@ -157,13 +161,10 @@ class ShortcutsDialog(QDialog):
 
         for op, desc in operations:
             row = QHBoxLayout()
-            op_label = QLabel(op)
-            op_font = QFont()
-            op_font.setBold(True)
-            op_label.setFont(op_font)
+            op_label = StrongBodyLabel(op)
             op_label.setMinimumWidth(120)
             row.addWidget(op_label)
-            row.addWidget(QLabel(desc))
+            row.addWidget(BodyLabel(desc))
             row.addStretch()
             crop_layout.addLayout(row)
 
@@ -180,13 +181,10 @@ class ShortcutsDialog(QDialog):
 
         for op, desc in timeline_ops:
             row = QHBoxLayout()
-            op_label = QLabel(op)
-            op_font = QFont()
-            op_font.setBold(True)
-            op_label.setFont(op_font)
+            op_label = StrongBodyLabel(op)
             op_label.setMinimumWidth(120)
             row.addWidget(op_label)
-            row.addWidget(QLabel(desc))
+            row.addWidget(BodyLabel(desc))
             row.addStretch()
             timeline_layout.addLayout(row)
 

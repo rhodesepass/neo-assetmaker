@@ -2,11 +2,15 @@
 欢迎对话框 - 首次运行时显示
 """
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QCheckBox, QFrame
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from qfluentwidgets import (
+    PushButton, PrimaryPushButton, CheckBox,
+    SubtitleLabel, StrongBodyLabel, BodyLabel,
+    CardWidget, InfoBar, InfoBarPosition
+)
 
 
 class WelcomeDialog(QDialog):
@@ -25,12 +29,8 @@ class WelcomeDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(25, 25, 25, 25)
 
-        # 标题
-        title_label = QLabel("欢迎使用明日方舟通行证素材制作器")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
+        # 标题 - 使用Fluent SubtitleLabel
+        title_label = SubtitleLabel("欢迎使用明日方舟通行证素材制作器")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
 
@@ -40,11 +40,8 @@ class WelcomeDialog(QDialog):
         line.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(line)
 
-        # 操作流程说明
-        intro_label = QLabel("基本操作流程:")
-        intro_font = QFont()
-        intro_font.setBold(True)
-        intro_label.setFont(intro_font)
+        # 操作流程说明 - 使用Fluent StrongBodyLabel
+        intro_label = StrongBodyLabel("基本操作流程:")
         layout.addWidget(intro_label)
 
         steps = [
@@ -60,29 +57,28 @@ class WelcomeDialog(QDialog):
             step_layout = QVBoxLayout()
             step_layout.setSpacing(2)
 
-            title = QLabel(step_title)
-            title_font = QFont()
-            title_font.setBold(True)
-            title.setFont(title_font)
+            title = StrongBodyLabel(step_title)
             step_layout.addWidget(title)
 
-            desc = QLabel(step_desc)
-            desc.setStyleSheet("color: #666; margin-left: 15px;")
+            desc = BodyLabel(step_desc)
+            desc.setStyleSheet("margin-left: 15px;")
             step_layout.addWidget(desc)
 
             layout.addLayout(step_layout)
 
-        # 注意事项
-        note_label = QLabel(
+        # 注意事项 - 使用CardWidget
+        note_card = CardWidget()
+        note_layout = QVBoxLayout(note_card)
+        note_layout.setContentsMargins(15, 15, 15, 15)
+        
+        note_label = BodyLabel(
             "注意: 传入素材时需要进入扩列图信息或其他页面，"
             "否则有概率导致素材传入失败"
         )
-        note_label.setStyleSheet(
-            "color: #d32f2f; background-color: #ffebee; "
-            "padding: 8px; border-radius: 4px;"
-        )
         note_label.setWordWrap(True)
-        layout.addWidget(note_label)
+        note_label.setStyleSheet("color: #d32f2f;")
+        note_layout.addWidget(note_label)
+        layout.addWidget(note_card)
 
         # 分隔线
         line2 = QFrame()
@@ -91,23 +87,23 @@ class WelcomeDialog(QDialog):
         layout.addWidget(line2)
 
         # 快捷键提示
-        shortcut_label = QLabel("提示: 按 F1 键可随时查看快捷键帮助")
+        shortcut_label = BodyLabel("提示: 按 F1 键可随时查看快捷键帮助")
         shortcut_label.setStyleSheet("color: #4285f4;")
         layout.addWidget(shortcut_label)
 
         # 底部按钮
         button_layout = QHBoxLayout()
 
-        self.check_dont_show = QCheckBox("不再显示")
+        self.check_dont_show = CheckBox("不再显示")
         button_layout.addWidget(self.check_dont_show)
 
         button_layout.addStretch()
 
-        self.btn_shortcuts = QPushButton("查看快捷键")
+        self.btn_shortcuts = PushButton("查看快捷键")
         self.btn_shortcuts.clicked.connect(self._show_shortcuts)
         button_layout.addWidget(self.btn_shortcuts)
 
-        self.btn_start = QPushButton("开始使用")
+        self.btn_start = PrimaryPushButton("开始使用")
         self.btn_start.setDefault(True)
         self.btn_start.clicked.connect(self.accept)
         button_layout.addWidget(self.btn_start)

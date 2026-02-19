@@ -27,12 +27,13 @@ class TimelineSlider(QWidget):
         self._track_height = 30
 
         # 颜色
-        self._bg_color = QColor(50, 50, 50)
-        self._track_color = QColor(70, 70, 70)
-        self._selection_color = QColor(66, 133, 244, 100)
-        self._in_color = QColor(76, 175, 80)  # 绿色
-        self._out_color = QColor(244, 67, 54)  # 红色
+        self._bg_color = QColor(35, 35, 35)
+        self._track_color = QColor(45, 45, 45)
+        self._selection_color = QColor(66, 133, 244, 150)
+        self._in_color = QColor(86, 185, 90)  # 亮绿色
+        self._out_color = QColor(254, 77, 64)  # 亮红色
         self._current_color = QColor(255, 255, 255)  # 白色
+        self._current_color_hover = QColor(86, 154, 243)  # 亮蓝色
 
         self.setMinimumHeight(50)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -107,47 +108,59 @@ class TimelineSlider(QWidget):
         # 背景
         painter.fillRect(0, 0, w, h, self._bg_color)
 
-        # 轨道
-        painter.fillRect(
-            QRect(self._margin, track_y, track_width, self._track_height),
-            self._track_color
-        )
+        # 轨道 - 圆角矩形
+        track_rect = QRect(self._margin, track_y, track_width, self._track_height)
+        painter.setBrush(QBrush(self._track_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(track_rect, 4, 4)
 
-        # 选中范围
+        # 选中范围 - 圆角矩形
         if self._total_frames > 1:
             in_x = self._frame_to_x(self._in_point)
             out_x = self._frame_to_x(self._out_point)
-            painter.fillRect(
-                QRect(in_x, track_y, out_x - in_x, self._track_height),
-                self._selection_color
-            )
+            selection_width = out_x - in_x
+            if selection_width > 0:
+                selection_rect = QRect(in_x, track_y, selection_width, self._track_height)
+                painter.setBrush(QBrush(self._selection_color))
+                painter.drawRoundedRect(selection_rect, 4, 4)
 
-        # 入点标记
+        # 入点标记 - 绿色三角形
         in_x = self._frame_to_x(self._in_point)
         painter.setBrush(QBrush(self._in_color))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPolygon([
-            QPoint(in_x - 6, track_y - 6),
-            QPoint(in_x + 6, track_y - 6),
+            QPoint(in_x - 8, track_y - 8),
+            QPoint(in_x + 8, track_y - 8),
             QPoint(in_x, track_y)
         ])
 
-        # 出点标记
+        # 出点标记 - 红色三角形
         out_x = self._frame_to_x(self._out_point)
         painter.setBrush(QBrush(self._out_color))
         bottom_y = track_y + self._track_height
         painter.drawPolygon([
-            QPoint(out_x - 6, bottom_y + 6),
-            QPoint(out_x + 6, bottom_y + 6),
+            QPoint(out_x - 8, bottom_y + 8),
+            QPoint(out_x + 8, bottom_y + 8),
             QPoint(out_x, bottom_y)
         ])
 
-        # 当前位置
+        # 当前位置 - 蓝色指示器
         cur_x = self._frame_to_x(self._current_frame)
+        center_y = track_y + self._track_height // 2
+        
+        # 绘制垂直线条
         painter.setPen(QPen(self._current_color, 2))
-        painter.drawLine(cur_x, track_y - 5, cur_x, track_y + self._track_height + 5)
+        painter.drawLine(cur_x, track_y - 10, cur_x, track_y + self._track_height + 10)
+        
+        # 绘制中心圆点
         painter.setBrush(QBrush(self._current_color))
-        painter.drawEllipse(QPoint(cur_x, track_y + self._track_height // 2), 5, 5)
+        painter.setPen(QPen(self._current_color_hover, 2))
+        painter.drawEllipse(QPoint(cur_x, center_y), 6, 6)
+        
+        # 绘制外圈光晕效果
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._current_color_hover, 1, Qt.PenStyle.SolidLine))
+        painter.drawEllipse(QPoint(cur_x, center_y), 9, 9)
 
     def mousePressEvent(self, event: QMouseEvent):
         """鼠标按下"""
@@ -200,7 +213,7 @@ class TimelineWidget(QWidget):
 
         # 控制按钮
         control_layout = QHBoxLayout()
-        control_layout.setSpacing(3)
+        control_layout.setSpacing(8)
 
         self.btn_goto_start = QPushButton("|<")
         self.btn_goto_start.setFixedWidth(35)
@@ -272,26 +285,43 @@ class TimelineWidget(QWidget):
         self.setMaximumHeight(150)
         self.setStyleSheet("""
             TimelineWidget {
-                background-color: #2d2d2d;
-                border-top: 1px solid #444;
+                background-color: #232323;
+                border: 1px solid #333333;
+                border-radius: 8px;
+                padding: 5px;
             }
             QPushButton {
-                background-color: #444;
-                color: #ddd;
-                border: 1px solid #555;
-                border-radius: 3px;
-                padding: 4px 8px;
+                background-color: #333333;
+                color: #f0f0f0;
+                border: 1px solid #444444;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12px;
+                font-weight: 500;
+                min-width: 35px;
             }
             QPushButton:hover {
-                background-color: #555;
+                background-color: #404040;
+                border-color: #555555;
             }
             QPushButton:checked {
                 background-color: #4285f4;
-                color: #fff;
-                border: 1px solid #3367d6;
+                color: #ffffff;
+                border: 1px solid #5c9ce6;
             }
             QLabel {
-                color: #ccc;
+                color: #d0d0d0;
+                font-size: 12px;
+                padding: 0 8px;
+                font-weight: 400;
+            }
+            QLabel:first-child {
+                background-color: #2a2a2a;
+                padding: 8px 16px;
+                border-radius: 6px;
+                margin-bottom: 8px;
+                font-weight: 600;
+                color: #ffffff;
             }
         """)
 

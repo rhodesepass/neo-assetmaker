@@ -12,7 +12,7 @@ import zipfile
 sys.setrecursionlimit(10000)
 
 PROJECT_NAME = "ArknightsPassMaker"
-VERSION = "2.1.0"
+VERSION = "2.3.0"
 MAIN_SCRIPT = "main.py"
 ICON_FILE = "resources/icons/favicon.ico"
 BUILD_DIR = PROJECT_NAME
@@ -231,6 +231,7 @@ def run_cxfreeze(skip_flasher=False):
 
     packages = [
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
+        "qfluentwidgets",
         "cv2", "PIL", "numpy", "jsonschema", "thefuzz",
         "logging", "json", "uuid", "dataclasses",
     ]
