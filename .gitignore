@@ -1,0 +1,44 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution
+*.egg-info/
+dist/
+build/
+ArknightsPassMaker/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large executables
+ffmpeg.exe
+*.exe
+
+# Test data
+test/
+
+# User settings
+config/user_settings.json
+
+# Temporary update directory
+temp_update/
