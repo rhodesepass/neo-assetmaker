@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QMenuBar, QMenu, QStatusBar,
     QFileDialog, QMessageBox, QLabel, QScrollArea,
     QGroupBox, QCheckBox, QComboBox, QDoubleSpinBox,
-    QSpinBox, QLineEdit
+    QSpinBox, QLineEdit, QTabWidget
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QUrl, QCoreApplication
 import os
@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
         self.header_bar = QWidget()
         self.header_bar.setObjectName("header_bar")
         self.header_bar.setStyleSheet("""
-            QWidget { background-color: #ff6b8b; color: white; }
+            QWidget { background-color: rgba(40, 40, 40, 0.7); color: white; border-bottom-right-radius: 16px; }
             QLabel { font-weight: bold; font-size: 16px; }
         """)
         header_layout = QHBoxLayout(self.header_bar)
@@ -262,10 +262,11 @@ class MainWindow(QMainWindow):
                 margin: 0;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 0, 0, 0.3);
+                color: white;
             }
             QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.3);
+                background-color: rgba(255, 0, 0, 0.4);
             }
         """)
         self.btn_close.clicked.connect(self.close)
@@ -295,11 +296,6 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(0)
         sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # 侧边栏标题
-        sidebar_title = SubtitleLabel("导航")
-        sidebar_title.setStyleSheet("padding: 20px 16px;")
-        sidebar_layout.addWidget(sidebar_title)
-
         # 侧边栏按钮 - 使用Fluent ToolButton和图标
         self.btn_firmware = ToolButton(FluentIcon.ROBOT, self.sidebar)
         self.btn_firmware.setCheckable(True)
@@ -325,7 +321,7 @@ class MainWindow(QMainWindow):
         # 创建按钮容器，居中显示
         buttons_container = QWidget()
         buttons_layout = QVBoxLayout(buttons_container)
-        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setContentsMargins(0, 20, 0, 0)
         buttons_layout.setSpacing(15)
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -345,6 +341,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(
             self.btn_settings,
             alignment=Qt.AlignmentFlag.AlignCenter)
+        sidebar_layout.addSpacing(20)
 
         # 设置侧边栏固定宽度
         self.sidebar.setFixedWidth(80)
@@ -707,12 +704,6 @@ class MainWindow(QMainWindow):
                 # 应用主题设置
                 theme_name = settings.get('theme', '默认')
                 self._apply_theme_change(theme_name)
-
-                # 应用主题图片
-                if theme_name == '自定义图片':
-                    theme_image = settings.get('theme_image', '')
-                    if theme_image:
-                        self._apply_theme_image(theme_image)
 
                 logger.info("已加载用户设置")
         except Exception as e:
@@ -1784,801 +1775,1378 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_flasher_widget'):
             self._flasher_widget.setVisible(False)
 
-        # 检查是否已经创建了设置视图
-        if not hasattr(self, '_settings_widget'):
-            # 创建设置视图
-            self._settings_widget = QWidget()
-            settings_layout = QVBoxLayout(self._settings_widget)
+        # 每次都重新创建设置视图，确保应用新的样式
+        if hasattr(self, '_settings_widget'):
+            # 移除旧的设置视图
+            self.content_layout.removeWidget(self._settings_widget)
+            self._settings_widget.deleteLater()
+        # 创建设置视图
+        self._settings_widget = QWidget()
+        settings_layout = QVBoxLayout(self._settings_widget)
 
-            # 标题
-            title_label = QLabel("设置")
-            setCustomStyleSheet(
-                title_label,
-                "font-size: 18px; font-weight: bold; color: #333; margin: 10px 0;",
-                "font-size: 18px; font-weight: bold; color: #eee; margin: 10px 0;"
-            )
-            settings_layout.addWidget(title_label)
+        # 标题
+        title_label = QLabel("设置")
+        setCustomStyleSheet(
+            title_label,
+            "font-size: 18px; font-weight: bold; color: #333; margin: 10px 0;",
+            "font-size: 18px; font-weight: bold; color: #eee; margin: 10px 0;"
+        )
+        settings_layout.addWidget(title_label)
 
-            # 滚动区域
-            scroll_area = QScrollArea()
-            scroll_area.setStyleSheet("border: none;")
-            scroll_content = QWidget()
-            scroll_layout = QVBoxLayout(scroll_content)
-            scroll_layout.setContentsMargins(20, 10, 20, 20)
-            scroll_layout.setSpacing(15)
+        # 滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setStyleSheet("border: none;")
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(30, 20, 30, 30)
+        scroll_layout.setSpacing(20)
 
-            # 应用设置
-            app_group = QGroupBox("应用设置")
-            setCustomStyleSheet(
-                app_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            app_layout = QVBoxLayout()
-            app_layout.setSpacing(10)
+        # 应用设置卡片
+        app_card = QWidget()
+        app_card_layout = QVBoxLayout(app_card)
+        setCustomStyleSheet(
+            app_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        app_card_layout.setSpacing(16)
+        app_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            # 版本信息
-            version_label = QLabel(f"当前版本: {APP_VERSION}")
-            setCustomStyleSheet(
-                version_label,
-                "padding: 5px; color: #666;",
-                "padding: 5px; color: #aaa;"
-            )
-            app_layout.addWidget(version_label)
+        # 应用设置标题
+        app_title = QLabel("应用设置")
+        setCustomStyleSheet(
+            app_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        app_card_layout.addWidget(app_title)
 
-            # 更新设置
-            update_layout = QHBoxLayout()
-            update_layout.setSpacing(10)
-            update_label = QLabel("自动检查更新:")
-            self.auto_update_check = QCheckBox()
-            self.auto_update_check.setChecked(True)
-            update_layout.addWidget(update_label)
-            update_layout.addWidget(self.auto_update_check)
-            update_layout.addStretch()
-            app_layout.addLayout(update_layout)
+        # 版本信息
+        version_label = QLabel(f"当前版本: {APP_VERSION}")
+        setCustomStyleSheet(
+            version_label,
+            "padding: 5px; color: #666;",
+            "padding: 5px; color: #aaa;"
+        )
+        app_card_layout.addWidget(version_label)
 
-            # 检查更新频率
-            update_freq_layout = QHBoxLayout()
-            update_freq_layout.setSpacing(10)
-            update_freq_label = QLabel("更新检查频率:")
-            self.update_freq_combo = QComboBox()
-            self.update_freq_combo.addItems(["每天", "每周", "每月"])
-            self.update_freq_combo.setCurrentText("每天")
-            setCustomStyleSheet(
-                self.update_freq_combo,
-                """QComboBox {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #ddd;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px;
-                }""",
-                """QComboBox {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #555;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }"""
-            )
-            update_freq_layout.addWidget(update_freq_label)
-            update_freq_layout.addWidget(self.update_freq_combo)
-            update_freq_layout.addStretch()
-            app_layout.addLayout(update_freq_layout)
+        # 更新设置
+        update_layout = QHBoxLayout()
+        update_layout.setSpacing(16)
+        update_label = QLabel("自动检查更新:")
+        update_label.setFixedWidth(120)
+        update_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.auto_update_check = QCheckBox()
+        self.auto_update_check.setChecked(True)
+        setCustomStyleSheet(
+            self.auto_update_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        update_layout.addWidget(update_label)
+        update_layout.addWidget(self.auto_update_check)
+        update_layout.addStretch()
+        app_card_layout.addLayout(update_layout)
 
-            app_group.setLayout(app_layout)
-            scroll_layout.addWidget(app_group)
+        # 检查更新频率
+        update_freq_layout = QHBoxLayout()
+        update_freq_layout.setSpacing(16)
+        update_freq_label = QLabel("更新检查频率:")
+        update_freq_label.setFixedWidth(120)
+        update_freq_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.update_freq_combo = QComboBox()
+        self.update_freq_combo.addItems(["每天", "每周", "每月"])
+        self.update_freq_combo.setCurrentText("每天")
+        setCustomStyleSheet(
+            self.update_freq_combo,
+            """QComboBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #ddd;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }""",
+            """QComboBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+            }"""
+        )
+        update_freq_layout.addWidget(update_freq_label)
+        update_freq_layout.addWidget(self.update_freq_combo)
+        update_freq_layout.addStretch()
+        app_card_layout.addLayout(update_freq_layout)
 
-            # 界面设置
-            ui_group = QGroupBox("界面设置")
-            setCustomStyleSheet(
-                ui_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            ui_layout = QVBoxLayout()
-            ui_layout.setSpacing(10)
+        scroll_layout.addWidget(app_card)
 
-            # 字体大小设置
-            font_layout = QHBoxLayout()
-            font_layout.setSpacing(10)
-            font_label = QLabel("字体大小:")
-            self.font_size_combo = QComboBox()
-            self.font_size_combo.addItems(["小", "中", "大"])
-            self.font_size_combo.setCurrentText("中")
-            setCustomStyleSheet(
-                self.font_size_combo,
-                """QComboBox {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #ddd;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px;
-                }""",
-                """QComboBox {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #555;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }"""
-            )
-            font_layout.addWidget(font_label)
-            font_layout.addWidget(self.font_size_combo)
-            font_layout.addStretch()
-            ui_layout.addLayout(font_layout)
+        # 界面设置卡片
+        ui_card = QWidget()
+        ui_card_layout = QVBoxLayout(ui_card)
+        setCustomStyleSheet(
+            ui_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        ui_card_layout.setSpacing(16)
+        ui_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            # 主题设置
-            theme_layout = QHBoxLayout()
-            theme_layout.setSpacing(10)
-            theme_label = QLabel("主题:")
-            self.theme_combo = QComboBox()
-            self.theme_combo.addItems(["默认", "自定义图片"])
-            self.theme_combo.setCurrentText("默认")
-            setCustomStyleSheet(
-                self.theme_combo,
-                """QComboBox {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #ddd;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px;
-                }""",
-                """QComboBox {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #555;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }"""
-            )
-            theme_layout.addWidget(theme_label)
-            theme_layout.addWidget(self.theme_combo)
-            theme_layout.addStretch()
-            ui_layout.addLayout(theme_layout)
+        # 界面设置标题
+        ui_title = QLabel("界面设置")
+        setCustomStyleSheet(
+            ui_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        ui_card_layout.addWidget(ui_title)
 
-            # 主题颜色自定义
-            from PyQt6.QtWidgets import QColorDialog
-            from PyQt6.QtGui import QColor
+        # 字体大小设置
+        font_layout = QHBoxLayout()
+        font_layout.setSpacing(16)
+        font_label = QLabel("字体大小:")
+        font_label.setFixedWidth(80)
+        font_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.addItems(["小", "中", "大"])
+        self.font_size_combo.setCurrentText("中")
+        setCustomStyleSheet(
+            self.font_size_combo,
+            """QComboBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #ddd;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }""",
+            """QComboBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+            }"""
+        )
+        font_layout.addWidget(font_label)
+        font_layout.addWidget(self.font_size_combo)
+        font_layout.addStretch()
+        ui_card_layout.addLayout(font_layout)
 
-            color_layout = QHBoxLayout()
-            color_layout.setSpacing(10)
-            color_label = QLabel("主题颜色:")
-            self.color_button = PushButton()
-            self.color_button.setFixedSize(40, 30)
-            self.color_button.clicked.connect(
-                lambda: self._open_color_dialog())
-            color_layout.addWidget(color_label)
-            color_layout.addWidget(self.color_button)
-            color_layout.addStretch()
-            ui_layout.addLayout(color_layout)
+        # 主题设置
+        theme_layout = QHBoxLayout()
+        theme_layout.setSpacing(16)
+        theme_label = QLabel("主题:")
+        theme_label.setFixedWidth(80)
+        theme_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["默认", "自定义图片"])
+        self.theme_combo.setCurrentText("默认")
+        setCustomStyleSheet(
+            self.theme_combo,
+            """QComboBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #ddd;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }""",
+            """QComboBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+            }"""
+        )
+        theme_layout.addWidget(theme_label)
+        theme_layout.addWidget(self.theme_combo)
+        theme_layout.addStretch()
+        ui_card_layout.addLayout(theme_layout)
 
-            # 主题图片自定义
-            image_layout = QHBoxLayout()
-            image_layout.setSpacing(10)
-            image_label = QLabel("主题图片:")
-            self.image_button = PushButton("选择图片")
-            self.image_button.clicked.connect(
-                lambda: self._open_image_dialog())
-            self.image_path_label = QLabel("未选择")
-            setCustomStyleSheet(
-                self.image_path_label,
-                "color: #666; font-size: 12px;",
-                "color: #aaa; font-size: 12px;"
-            )
-            image_layout.addWidget(image_label)
-            image_layout.addWidget(self.image_button)
-            image_layout.addWidget(self.image_path_label)
-            image_layout.addStretch()
-            ui_layout.addLayout(image_layout)
+        # 主题颜色自定义
+        from PyQt6.QtWidgets import QColorDialog
+        from PyQt6.QtGui import QColor
 
-            # 界面缩放
-            scale_layout = QHBoxLayout()
-            scale_layout.setSpacing(10)
-            scale_label = QLabel("界面缩放:")
-            self.scale_spin = QDoubleSpinBox()
-            self.scale_spin.setRange(0.8, 1.5)
-            self.scale_spin.setSingleStep(0.1)
-            self.scale_spin.setValue(1.0)
-            self.scale_spin.setSuffix("x")
-            scale_layout.addWidget(scale_label)
-            scale_layout.addWidget(self.scale_spin)
-            scale_layout.addStretch()
-            ui_layout.addLayout(scale_layout)
+        color_layout = QHBoxLayout()
+        color_layout.setSpacing(16)
+        color_label = QLabel("主题颜色:")
+        color_label.setFixedWidth(80)
+        color_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.color_button = PushButton()
+        self.color_button.setFixedSize(40, 30)
+        self.color_button.clicked.connect(
+            lambda: self._open_color_dialog())
+        color_layout.addWidget(color_label)
+        color_layout.addWidget(self.color_button)
+        color_layout.addStretch()
+        ui_card_layout.addLayout(color_layout)
 
-            ui_group.setLayout(ui_layout)
-            scroll_layout.addWidget(ui_group)
+        # 主题图片自定义
+        image_layout = QHBoxLayout()
+        image_layout.setSpacing(16)
+        image_label = QLabel("主题图片:")
+        image_label.setFixedWidth(80)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.image_button = PushButton("选择图片")
+        self.image_button.setFixedWidth(100)
+        self.image_button.clicked.connect(
+            lambda: self._open_image_dialog())
+        self.image_path_label = QLabel("未选择")
+        setCustomStyleSheet(
+            self.image_path_label,
+            "color: #666; font-size: 12px;",
+            "color: #aaa; font-size: 12px;"
+        )
+        image_layout.addWidget(image_label)
+        image_layout.addWidget(self.image_button)
+        image_layout.addWidget(self.image_path_label)
+        image_layout.addStretch()
+        ui_card_layout.addLayout(image_layout)
 
-            # 语言设置
-            lang_group = QGroupBox("语言设置")
-            setCustomStyleSheet(
-                lang_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            lang_layout = QVBoxLayout()
-            lang_layout.setSpacing(10)
+        # 界面缩放
+        scale_layout = QHBoxLayout()
+        scale_layout.setSpacing(16)
+        scale_label = QLabel("界面缩放:")
+        scale_label.setFixedWidth(80)
+        scale_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.scale_spin = QDoubleSpinBox()
+        self.scale_spin.setRange(0.8, 1.5)
+        self.scale_spin.setSingleStep(0.1)
+        self.scale_spin.setValue(1.0)
+        self.scale_spin.setSuffix("x")
+        self.scale_spin.setFixedWidth(100)
+        setCustomStyleSheet(
+            self.scale_spin,
+            """QDoubleSpinBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 8px 12px;
+            }
+            QDoubleSpinBox:hover {
+                border-color: #ff6b8b;
+            }
+            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+            }
+            QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+                background-color: #f0f0f0;
+            }""",
+            """QDoubleSpinBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 8px 12px;
+            }
+            QDoubleSpinBox:hover {
+                border-color: #ff6b8b;
+            }
+            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+                background-color: #444;
+            }
+            QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+                background-color: #555;
+            }"""
+        )
+        scale_layout.addWidget(scale_label)
+        scale_layout.addWidget(self.scale_spin)
+        scale_layout.addStretch()
+        ui_card_layout.addLayout(scale_layout)
 
-            # 语言选择
-            lang_combo_layout = QHBoxLayout()
-            lang_combo_layout.setSpacing(10)
-            lang_combo_label = QLabel("语言:")
-            self.lang_combo = QComboBox()
-            self.lang_combo.addItems(["简体中文", "English"])
-            self.lang_combo.setCurrentText("简体中文")
-            setCustomStyleSheet(
-                self.lang_combo,
-                """QComboBox {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #ddd;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px;
-                }""",
-                """QComboBox {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #555;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }"""
-            )
-            lang_combo_layout.addWidget(lang_combo_label)
-            lang_combo_layout.addWidget(self.lang_combo)
-            lang_combo_layout.addStretch()
-            lang_layout.addLayout(lang_combo_layout)
+        scroll_layout.addWidget(ui_card)
 
-            # 语言提示
-            lang_tip = QLabel("* 语言设置需要重启应用生效")
-            setCustomStyleSheet(
-                lang_tip,
-                "color: #999; font-size: 12px;",
-                "color: #888; font-size: 12px;"
-            )
-            lang_layout.addWidget(lang_tip)
+        # 语言设置卡片
+        lang_card = QWidget()
+        lang_card_layout = QVBoxLayout(lang_card)
+        setCustomStyleSheet(
+            lang_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        lang_card_layout.setSpacing(16)
+        lang_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            lang_group.setLayout(lang_layout)
-            scroll_layout.addWidget(lang_group)
+        # 语言设置标题
+        lang_title = QLabel("语言设置")
+        setCustomStyleSheet(
+            lang_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        lang_card_layout.addWidget(lang_title)
 
-            # 帮助设置
-            help_group = QGroupBox("帮助")
-            setCustomStyleSheet(
-                help_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            help_layout = QVBoxLayout()
-            help_layout.setSpacing(10)
+        # 语言选择
+        lang_combo_layout = QHBoxLayout()
+        lang_combo_layout.setSpacing(16)
+        lang_combo_label = QLabel("语言:")
+        lang_combo_label.setFixedWidth(80)
+        lang_combo_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItems(["简体中文", "English"])
+        self.lang_combo.setCurrentText("简体中文")
+        setCustomStyleSheet(
+            self.lang_combo,
+            """QComboBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #ddd;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }""",
+            """QComboBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+            }"""
+        )
+        lang_combo_layout.addWidget(lang_combo_label)
+        lang_combo_layout.addWidget(self.lang_combo)
+        lang_combo_layout.addStretch()
+        lang_card_layout.addLayout(lang_combo_layout)
 
-            # 快捷键帮助
-            shortcuts_button = PushButton("快捷键帮助")
-            setCustomStyleSheet(
-                shortcuts_button,
-                """QPushButton {
-                    background-color: #f0f0f0;
-                    color: #333;
-                    padding: 8px 16px;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                }""",
-                """QPushButton {
-                    background-color: #404040;
-                    color: #ddd;
-                    padding: 8px 16px;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }"""
-            )
-            shortcuts_button.clicked.connect(self._on_shortcuts)
-            help_layout.addWidget(shortcuts_button)
+        # 语言提示
+        lang_tip = QLabel("* 语言设置需要重启应用生效")
+        setCustomStyleSheet(
+            lang_tip,
+            "color: #999; font-size: 12px;",
+            "color: #888; font-size: 12px;"
+        )
+        lang_card_layout.addWidget(lang_tip)
 
-            # 检查更新
-            update_button = PushButton("检查更新")
-            setCustomStyleSheet(
-                update_button,
-                """QPushButton {
-                    background-color: #f0f0f0;
-                    color: #333;
-                    padding: 8px 16px;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                }""",
-                """QPushButton {
-                    background-color: #404040;
-                    color: #ddd;
-                    padding: 8px 16px;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }"""
-            )
-            update_button.clicked.connect(self._on_check_update)
-            help_layout.addWidget(update_button)
+        scroll_layout.addWidget(lang_card)
 
-            # 关于
-            about_button = PushButton("关于")
-            setCustomStyleSheet(
-                about_button,
-                """QPushButton {
-                    background-color: #f0f0f0;
-                    color: #333;
-                    padding: 8px 16px;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                }""",
-                """QPushButton {
-                    background-color: #404040;
-                    color: #ddd;
-                    padding: 8px 16px;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }"""
-            )
-            about_button.clicked.connect(self._on_about)
-            help_layout.addWidget(about_button)
+        # 帮助设置卡片
+        help_card = QWidget()
+        help_card_layout = QVBoxLayout(help_card)
+        setCustomStyleSheet(
+            help_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        help_card_layout.setSpacing(16)
+        help_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            help_group.setLayout(help_layout)
-            scroll_layout.addWidget(help_group)
+        # 帮助设置标题
+        help_title = QLabel("帮助")
+        setCustomStyleSheet(
+            help_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        help_card_layout.addWidget(help_title)
 
-            # 个性化设置
-            personal_group = QGroupBox("个性化设置")
-            setCustomStyleSheet(
-                personal_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            personal_layout = QVBoxLayout()
-            personal_layout.setSpacing(10)
+        # 快捷键帮助
+        shortcuts_button = PushButton("快捷键帮助")
+        setCustomStyleSheet(
+            shortcuts_button,
+            """QPushButton {
+                background-color: #f0f0f0;
+                color: #333;
+                padding: 8px 16px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }""",
+            """QPushButton {
+                background-color: #404040;
+                color: #ddd;
+                padding: 8px 16px;
+                border: 1px solid #555;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }"""
+        )
+        shortcuts_button.clicked.connect(self._on_shortcuts)
+        help_card_layout.addWidget(shortcuts_button)
 
-            # 启动时自动创建临时项目
-            temp_project_layout = QHBoxLayout()
-            temp_project_layout.setSpacing(10)
-            temp_project_label = QLabel("启动时自动创建临时项目:")
-            self.temp_project_check = QCheckBox()
-            self.temp_project_check.setChecked(True)
-            temp_project_layout.addWidget(temp_project_label)
-            temp_project_layout.addWidget(self.temp_project_check)
-            temp_project_layout.addStretch()
-            personal_layout.addLayout(temp_project_layout)
+        # 检查更新
+        update_button = PushButton("检查更新")
+        setCustomStyleSheet(
+            update_button,
+            """QPushButton {
+                background-color: #f0f0f0;
+                color: #333;
+                padding: 8px 16px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }""",
+            """QPushButton {
+                background-color: #404040;
+                color: #ddd;
+                padding: 8px 16px;
+                border: 1px solid #555;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }"""
+        )
+        update_button.clicked.connect(self._on_check_update)
+        help_card_layout.addWidget(update_button)
 
-            # 显示欢迎对话框
-            welcome_layout = QHBoxLayout()
-            welcome_layout.setSpacing(10)
-            welcome_label = QLabel("显示欢迎对话框:")
-            self.welcome_check = QCheckBox()
-            self.welcome_check.setChecked(True)
-            welcome_layout.addWidget(welcome_label)
-            welcome_layout.addWidget(self.welcome_check)
-            welcome_layout.addStretch()
-            personal_layout.addLayout(welcome_layout)
+        # 关于
+        about_button = PushButton("关于")
+        setCustomStyleSheet(
+            about_button,
+            """QPushButton {
+                background-color: #f0f0f0;
+                color: #333;
+                padding: 8px 16px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }""",
+            """QPushButton {
+                background-color: #404040;
+                color: #ddd;
+                padding: 8px 16px;
+                border: 1px solid #555;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }"""
+        )
+        about_button.clicked.connect(self._on_about)
+        help_card_layout.addWidget(about_button)
 
-            # 显示状态栏
-            status_layout = QHBoxLayout()
-            status_layout.setSpacing(10)
-            status_label = QLabel("显示状态栏:")
-            self.status_check = QCheckBox()
-            self.status_check.setChecked(True)
-            status_layout.addWidget(status_label)
-            status_layout.addWidget(self.status_check)
-            status_layout.addStretch()
-            personal_layout.addLayout(status_layout)
+        scroll_layout.addWidget(help_card)
 
-            # 自动保存
-            autosave_layout = QHBoxLayout()
-            autosave_layout.setSpacing(10)
-            autosave_label = QLabel("自动保存项目:")
-            self.autosave_check = QCheckBox()
-            self.autosave_check.setChecked(False)
-            autosave_layout.addWidget(autosave_label)
-            autosave_layout.addWidget(self.autosave_check)
-            autosave_layout.addStretch()
-            personal_layout.addLayout(autosave_layout)
+        # 个性化设置卡片
+        personal_card = QWidget()
+        personal_card_layout = QVBoxLayout(personal_card)
+        setCustomStyleSheet(
+            personal_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        personal_card_layout.setSpacing(16)
+        personal_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            personal_group.setLayout(personal_layout)
-            scroll_layout.addWidget(personal_group)
+        # 个性化设置标题
+        personal_title = QLabel("个性化设置")
+        setCustomStyleSheet(
+            personal_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        personal_card_layout.addWidget(personal_title)
 
-            # 视频设置
-            video_group = QGroupBox("视频设置")
-            setCustomStyleSheet(
-                video_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            video_layout = QVBoxLayout()
-            video_layout.setSpacing(10)
+        # 启动时自动创建临时项目
+        temp_project_layout = QHBoxLayout()
+        temp_project_layout.setSpacing(16)
+        temp_project_label = QLabel("启动时自动创建临时项目:")
+        temp_project_label.setFixedWidth(180)
+        temp_project_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.temp_project_check = QCheckBox()
+        self.temp_project_check.setChecked(True)
+        setCustomStyleSheet(
+            self.temp_project_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        temp_project_layout.addWidget(temp_project_label)
+        temp_project_layout.addWidget(self.temp_project_check)
+        temp_project_layout.addStretch()
+        personal_card_layout.addLayout(temp_project_layout)
 
-            # 预览质量
-            preview_layout = QHBoxLayout()
-            preview_layout.setSpacing(10)
-            preview_label = QLabel("预览质量:")
-            self.preview_combo = QComboBox()
-            self.preview_combo.addItems(["低", "中", "高"])
-            self.preview_combo.setCurrentText("中")
-            setCustomStyleSheet(
-                self.preview_combo,
-                """QComboBox {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #ddd;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px;
-                }""",
-                """QComboBox {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #555;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }"""
-            )
-            preview_layout.addWidget(preview_label)
-            preview_layout.addWidget(self.preview_combo)
-            preview_layout.addStretch()
-            video_layout.addLayout(preview_layout)
+        # 显示欢迎对话框
+        welcome_layout = QHBoxLayout()
+        welcome_layout.setSpacing(16)
+        welcome_label = QLabel("显示欢迎对话框:")
+        welcome_label.setFixedWidth(180)
+        welcome_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.welcome_check = QCheckBox()
+        self.welcome_check.setChecked(True)
+        setCustomStyleSheet(
+            self.welcome_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        welcome_layout.addWidget(welcome_label)
+        welcome_layout.addWidget(self.welcome_check)
+        welcome_layout.addStretch()
+        personal_card_layout.addLayout(welcome_layout)
 
-            # 硬件加速
-            hwaccel_layout = QHBoxLayout()
-            hwaccel_layout.setSpacing(10)
-            hwaccel_label = QLabel("硬件加速:")
-            self.hwaccel_check = QCheckBox()
-            self.hwaccel_check.setChecked(True)
-            hwaccel_layout.addWidget(hwaccel_label)
-            hwaccel_layout.addWidget(self.hwaccel_check)
-            hwaccel_layout.addStretch()
-            video_layout.addLayout(hwaccel_layout)
+        # 显示状态栏
+        status_layout = QHBoxLayout()
+        status_layout.setSpacing(16)
+        status_label = QLabel("显示状态栏:")
+        status_label.setFixedWidth(180)
+        status_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.status_check = QCheckBox()
+        self.status_check.setChecked(True)
+        setCustomStyleSheet(
+            self.status_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        status_layout.addWidget(status_label)
+        status_layout.addWidget(self.status_check)
+        status_layout.addStretch()
+        personal_card_layout.addLayout(status_layout)
 
-            video_group.setLayout(video_layout)
-            scroll_layout.addWidget(video_group)
+        # 自动保存
+        autosave_layout = QHBoxLayout()
+        autosave_layout.setSpacing(16)
+        autosave_label = QLabel("自动保存项目:")
+        autosave_label.setFixedWidth(180)
+        autosave_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.autosave_check = QCheckBox()
+        self.autosave_check.setChecked(False)
+        setCustomStyleSheet(
+            self.autosave_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        autosave_layout.addWidget(autosave_label)
+        autosave_layout.addWidget(self.autosave_check)
+        autosave_layout.addStretch()
+        personal_card_layout.addLayout(autosave_layout)
 
-            # 导出设置
-            export_group = QGroupBox("导出设置")
-            setCustomStyleSheet(
-                export_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            export_layout = QVBoxLayout()
-            export_layout.setSpacing(10)
+        scroll_layout.addWidget(personal_card)
 
-            # 导出质量
-            export_quality_layout = QHBoxLayout()
-            export_quality_layout.setSpacing(10)
-            export_quality_label = QLabel("导出质量:")
-            self.export_quality_combo = QComboBox()
-            self.export_quality_combo.addItems(["低", "中", "高"])
-            self.export_quality_combo.setCurrentText("高")
-            setCustomStyleSheet(
-                self.export_quality_combo,
-                """QComboBox {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #ddd;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    padding: 4px;
-                }""",
-                """QComboBox {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-width: 120px;
-                }
-                QComboBox:hover {
-                    border-color: #ff6b8b;
-                }
-                QComboBox::drop-down {
-                    border-left: 1px solid #555;
-                    border-top-right-radius: 4px;
-                    border-bottom-right-radius: 4px;
-                }
-                QComboBox QAbstractItemView {
-                    background-color: #333;
-                    color: #ddd;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }"""
-            )
-            export_quality_layout.addWidget(export_quality_label)
-            export_quality_layout.addWidget(self.export_quality_combo)
-            export_quality_layout.addStretch()
-            export_layout.addLayout(export_quality_layout)
+        # 视频设置卡片
+        video_card = QWidget()
+        video_card_layout = QVBoxLayout(video_card)
+        setCustomStyleSheet(
+            video_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        video_card_layout.setSpacing(16)
+        video_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            # 导出线程数
-            export_thread_layout = QHBoxLayout()
-            export_thread_layout.setSpacing(10)
-            export_thread_label = QLabel("导出线程数:")
-            self.export_thread_spin = QSpinBox()
-            self.export_thread_spin.setRange(1, 8)
-            self.export_thread_spin.setValue(4)
-            export_thread_layout.addWidget(export_thread_label)
-            export_thread_layout.addWidget(self.export_thread_spin)
-            export_thread_layout.addStretch()
-            export_layout.addLayout(export_thread_layout)
+        # 视频设置标题
+        video_title = QLabel("视频设置")
+        setCustomStyleSheet(
+            video_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        video_card_layout.addWidget(video_title)
 
-            export_group.setLayout(export_layout)
-            scroll_layout.addWidget(export_group)
+        # 预览质量
+        preview_layout = QHBoxLayout()
+        preview_layout.setSpacing(16)
+        preview_label = QLabel("预览质量:")
+        preview_label.setFixedWidth(80)
+        preview_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.preview_combo = QComboBox()
+        self.preview_combo.addItems(["低", "中", "高"])
+        self.preview_combo.setCurrentText("中")
+        setCustomStyleSheet(
+            self.preview_combo,
+            """QComboBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #ddd;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }""",
+            """QComboBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+            }"""
+        )
+        preview_layout.addWidget(preview_label)
+        preview_layout.addWidget(self.preview_combo)
+        preview_layout.addStretch()
+        video_card_layout.addLayout(preview_layout)
 
-            # 网络设置
-            network_group = QGroupBox("网络设置")
-            setCustomStyleSheet(
-                network_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            network_layout = QVBoxLayout()
-            network_layout.setSpacing(10)
+        # 硬件加速
+        hwaccel_layout = QHBoxLayout()
+        hwaccel_layout.setSpacing(16)
+        hwaccel_label = QLabel("硬件加速:")
+        hwaccel_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.hwaccel_check = QCheckBox()
+        self.hwaccel_check.setChecked(True)
+        setCustomStyleSheet(
+            self.hwaccel_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        hwaccel_layout.addWidget(hwaccel_label)
+        hwaccel_layout.addWidget(self.hwaccel_check)
+        hwaccel_layout.addStretch()
+        video_card_layout.addLayout(hwaccel_layout)
 
-            # GitHub 加速
-            github_layout = QHBoxLayout()
-            github_layout.setSpacing(10)
-            github_label = QLabel("GitHub 加速:")
-            self.github_accel_check = QCheckBox()
-            self.github_accel_check.setChecked(True)
-            github_layout.addWidget(github_label)
-            github_layout.addWidget(self.github_accel_check)
-            github_layout.addStretch()
-            network_layout.addLayout(github_layout)
+        scroll_layout.addWidget(video_card)
 
-            # 代理设置
-            proxy_layout = QHBoxLayout()
-            proxy_layout.setSpacing(10)
-            proxy_label = QLabel("使用代理:")
-            self.proxy_check = QCheckBox()
-            self.proxy_check.setChecked(False)
-            proxy_layout.addWidget(proxy_label)
-            proxy_layout.addWidget(self.proxy_check)
-            proxy_layout.addStretch()
-            network_layout.addLayout(proxy_layout)
+        # 导出设置卡片
+        export_card = QWidget()
+        export_card_layout = QVBoxLayout(export_card)
+        setCustomStyleSheet(
+            export_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        export_card_layout.setSpacing(16)
+        export_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            network_group.setLayout(network_layout)
-            scroll_layout.addWidget(network_group)
+        # 导出设置标题
+        export_title = QLabel("导出设置")
+        setCustomStyleSheet(
+            export_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        export_card_layout.addWidget(export_title)
 
-            # 关于
-            about_group = QGroupBox("关于")
-            setCustomStyleSheet(
-                about_group,
-                "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-                "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-            )
-            about_layout = QVBoxLayout()
+        # 导出质量
+        export_quality_layout = QHBoxLayout()
+        export_quality_layout.setSpacing(16)
+        export_quality_label = QLabel("导出质量:")
+        export_quality_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.export_quality_combo = QComboBox()
+        self.export_quality_combo.addItems(["低", "中", "高"])
+        self.export_quality_combo.setCurrentText("高")
+        setCustomStyleSheet(
+            self.export_quality_combo,
+            """QComboBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #ddd;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }""",
+            """QComboBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }
+            QComboBox:hover {
+                border-color: #ff6b8b;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+            }"""
+        )
+        export_quality_layout.addWidget(export_quality_label)
+        export_quality_layout.addWidget(self.export_quality_combo)
+        export_quality_layout.addStretch()
+        export_card_layout.addLayout(export_quality_layout)
 
-            about_info = QLabel(
-                f"{APP_NAME} v{APP_VERSION}\n\n明日方舟通行证素材制作器\n作者: Rafael_ban & 初微弦音 & 涙不在为你而流\n\n© 2026 罗德岛工程部")
-            about_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            setCustomStyleSheet(
-                about_info,
-                "padding: 10px; color: #666;",
-                "padding: 10px; color: #aaa;"
-            )
-            about_layout.addWidget(about_info)
+        # 导出线程数
+        export_thread_layout = QHBoxLayout()
+        export_thread_layout.setSpacing(16)
+        export_thread_label = QLabel("导出线程数:")
+        export_thread_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.export_thread_spin = QSpinBox()
+        self.export_thread_spin.setRange(1, 8)
+        self.export_thread_spin.setValue(4)
+        setCustomStyleSheet(
+            self.export_thread_spin,
+            """QSpinBox {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 8px 12px;
+            }
+            QSpinBox:hover {
+                border-color: #ff6b8b;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background-color: #f0f0f0;
+            }""",
+            """QSpinBox {
+                background-color: #333;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 8px 12px;
+            }
+            QSpinBox:hover {
+                border-color: #ff6b8b;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+                background-color: #444;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background-color: #555;
+            }"""
+        )
+        export_thread_layout.addWidget(export_thread_label)
+        export_thread_layout.addWidget(self.export_thread_spin)
+        export_thread_layout.addStretch()
+        export_card_layout.addLayout(export_thread_layout)
 
-            # 检查更新按钮
-            check_update_button = PrimaryPushButton("检查更新")
-            check_update_button.clicked.connect(self._on_check_update)
-            about_layout.addWidget(
-                check_update_button,
-                alignment=Qt.AlignmentFlag.AlignCenter)
+        scroll_layout.addWidget(export_card)
 
-            about_group.setLayout(about_layout)
-            scroll_layout.addWidget(about_group)
+        # 网络设置卡片
+        network_card = QWidget()
+        network_card_layout = QVBoxLayout(network_card)
+        setCustomStyleSheet(
+            network_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        network_card_layout.setSpacing(16)
+        network_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            # 保存按钮
-            save_button = PrimaryPushButton("保存设置")
-            save_button.clicked.connect(self._on_save_settings)
-            scroll_layout.addWidget(
-                save_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        # 网络设置标题
+        network_title = QLabel("网络设置")
+        setCustomStyleSheet(
+            network_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        network_card_layout.addWidget(network_title)
 
-            # 立即应用设置的提示
-            apply_tip = QLabel("* 设置更改会立即生效")
-            setCustomStyleSheet(
-                apply_tip,
-                "color: #999; font-size: 12px;",
-                "color: #888; font-size: 12px;"
-            )
-            scroll_layout.addWidget(
-                apply_tip, alignment=Qt.AlignmentFlag.AlignCenter)
+        # GitHub 加速
+        github_layout = QHBoxLayout()
+        github_layout.setSpacing(16)
+        github_label = QLabel("GitHub 加速:")
+        github_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.github_accel_check = QCheckBox()
+        self.github_accel_check.setChecked(True)
+        setCustomStyleSheet(
+            self.github_accel_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        github_layout.addWidget(github_label)
+        github_layout.addWidget(self.github_accel_check)
+        github_layout.addStretch()
+        network_card_layout.addLayout(github_layout)
 
-            scroll_area.setWidget(scroll_content)
-            scroll_area.setWidgetResizable(True)
-            settings_layout.addWidget(scroll_area)
+        # 代理设置
+        proxy_layout = QHBoxLayout()
+        proxy_layout.setSpacing(16)
+        proxy_label = QLabel("使用代理:")
+        proxy_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.proxy_check = QCheckBox()
+        self.proxy_check.setChecked(False)
+        setCustomStyleSheet(
+            self.proxy_check,
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #ddd;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }""",
+            """QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: #555;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff6b8b;
+            }
+            QCheckBox::indicator::text {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background-color: white;
+                margin: 2px;
+            }
+            QCheckBox::indicator:checked::text {
+                margin-left: 22px;
+            }"""
+        )
+        proxy_layout.addWidget(proxy_label)
+        proxy_layout.addWidget(self.proxy_check)
+        proxy_layout.addStretch()
+        network_card_layout.addLayout(proxy_layout)
 
-            # 添加到内容布局
-            self.content_layout.addWidget(self._settings_widget)
+        scroll_layout.addWidget(network_card)
 
-            # 加载用户设置到界面控件
-            self._load_user_settings()
+        # 关于卡片
+        about_card = QWidget()
+        about_card_layout = QVBoxLayout(about_card)
+        setCustomStyleSheet(
+            about_card,
+            "QWidget { background-color: #f8f9fa; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }",
+            "QWidget { background-color: #2a2a2a; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }"
+        )
+        about_card_layout.setSpacing(16)
+        about_card_layout.setContentsMargins(0, 0, 0, 0)
 
-            # 连接设置控件的信号，实现立即生效
-            self._connect_settings_signals()
+        # 关于标题
+        about_title = QLabel("关于")
+        setCustomStyleSheet(
+            about_title,
+            "font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;",
+            "font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 10px;"
+        )
+        about_card_layout.addWidget(about_title)
+
+        about_info = QLabel(
+            f"{APP_NAME} v{APP_VERSION}\n\n明日方舟通行证素材制作器\n作者: Rafael_ban & 初微弦音 & 涙不在为你而流\n\n© 2026 罗德岛工程部")
+        about_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        setCustomStyleSheet(
+            about_info,
+            "padding: 10px; color: #666;",
+            "padding: 10px; color: #aaa;"
+        )
+        about_card_layout.addWidget(about_info)
+
+        # 检查更新按钮
+        check_update_button = PrimaryPushButton("检查更新")
+        check_update_button.clicked.connect(self._on_check_update)
+        about_card_layout.addWidget(
+            check_update_button,
+            alignment=Qt.AlignmentFlag.AlignCenter)
+
+        scroll_layout.addWidget(about_card)
+
+        # 保存按钮
+        save_button = PrimaryPushButton("保存设置")
+        save_button.clicked.connect(self._on_save_settings)
+        scroll_layout.addWidget(
+            save_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 立即应用设置的提示
+        apply_tip = QLabel("* 设置更改会立即生效")
+        setCustomStyleSheet(
+            apply_tip,
+            "color: #999; font-size: 12px;",
+            "color: #888; font-size: 12px;"
+        )
+        scroll_layout.addWidget(
+            apply_tip, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        scroll_layout.addStretch()
+
+        # 设置滚动区域
+        scroll_area.setWidget(scroll_content)
+        scroll_area.setWidgetResizable(True)
+
+        # 添加滚动区域到主布局
+        settings_layout.addWidget(scroll_area)
+
+        # 添加到内容布局
+        self.content_layout.addWidget(self._settings_widget)
+
+        # 加载用户设置到界面控件
+        self._load_user_settings()
+
+        # 连接设置控件的信号，实现立即生效
+        self._connect_settings_signals()
 
         # 显示设置视图
         if hasattr(self, '_settings_widget'):
@@ -3194,8 +3762,15 @@ class MainWindow(QMainWindow):
         if setting_name == 'theme':
             self._apply_theme_change(value)
 
+        # 字体大小设置
+        if setting_name == 'font_size':
+            logger.info(f"字体大小已设置为: {value}")
+
+        # 界面缩放设置
+        if setting_name == 'scale':
+            logger.info(f"界面缩放已设置为: {value}")
+
         # 其他需要即时生效的设置可以在这里添加
-        # 例如：字体大小、界面缩放等
 
     def _apply_theme_change(self, theme_name):
         """应用主题变化"""
@@ -3216,8 +3791,15 @@ class MainWindow(QMainWindow):
             if theme_name == '默认':
                 # 应用默认主题
                 self._apply_default_theme()
+            elif theme_name == '自定义':
+                # 应用自定义主题颜色
+                theme_color = settings.get('theme_color', '#ff6b8b')
+                self._apply_theme_color(theme_color)
             elif theme_name == '自定义图片':
-                # 应用自定义主题图片
+                # 应用自定义主题颜色（先应用颜色）
+                theme_color = settings.get('theme_color', '#ff6b8b')
+                self._apply_theme_color(theme_color)
+                # 然后应用自定义主题图片
                 theme_image = settings.get('theme_image', '')
                 if theme_image:
                     self._apply_theme_image(theme_image)
@@ -3242,10 +3824,15 @@ class MainWindow(QMainWindow):
 
     def _apply_theme_color(self, color_hex):
         """应用主题颜色到界面"""
-        # 应用主题颜色到标题栏
+        # 应用主题颜色到标题栏（纯色，与颜色选择器保持一致，添加圆角）
         if hasattr(self, 'header_bar'):
-            style = f"QWidget {{ background-color: {color_hex}; color: white; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
+            style = f"QWidget {{ background-color: {color_hex}; color: white; border-bottom-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
             self.header_bar.setStyleSheet(style)
+        
+        # 应用主题颜色到侧边栏（纯色，与顶部栏保持一致）
+        if hasattr(self, 'sidebar'):
+            sidebar_style = f"QWidget {{ background-color: {color_hex}; }}"
+            self.sidebar.setStyleSheet(sidebar_style)
 
         # 应用主题颜色到导航按钮（如果存在）
         nav_buttons = [
@@ -3275,47 +3862,79 @@ class MainWindow(QMainWindow):
         # 应用主题图片到界面并添加毛玻璃效果
         logger.info(f"应用主题图片: {image_path}")
 
-        # 注意：毛玻璃效果在PyQt6中实现较为复杂，这里我们使用一种简化的方法
-        # 我们可以通过设置主窗口的背景图片，并调整透明度来模拟毛玻璃效果
+        # 先加载主题颜色
+        theme_color = "#ff6b8b"
+        try:
+            import json
+            config_dir = os.path.join(
+                os.path.dirname(__file__), "..", "config")
+            config_file = os.path.join(config_dir, "user_settings.json")
+            
+            if os.path.exists(config_file):
+                with open(config_file, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    theme_color = settings.get('theme_color', '#ff6b8b')
+        except Exception as e:
+            logger.error(f"加载主题颜色失败: {e}")
 
         # 设置主窗口的背景图片
         try:
-            # 使用样式表设置背景图片
-            # 这里我们设置背景图片，并添加半透明效果
+            # 检查当前是否为深色模式
+            is_dark = isDarkTheme()
+            
+            # 根据主题模式设置不同的背景颜色
+            if is_dark:
+                content_bg = "rgba(30, 30, 30, 0.7)"
+                status_bg = "rgba(30, 30, 30, 0.7)"
+                status_color = "white"
+                status_border = "rgba(255, 255, 255, 0.1)"
+            else:
+                content_bg = "rgba(255, 255, 255, 0.7)"
+                status_bg = "rgba(248, 249, 250, 0.7)"
+                status_color = "#333"
+                status_border = "rgba(0, 0, 0, 0.1)"
+            
+            # 使用样式表设置背景图片，同时设置header_bar和sidebar使用主题颜色
             style = """
                 QMainWindow {
                     background-image: url('%s');
                     background-repeat: no-repeat;
                     background-position: center;
-                    background-size: cover;
                 }
 
                 /* 为了让内容区域可见，我们需要为内容区域设置背景色和透明度 */
                 QWidget#content_stack {
-                    background-color: rgba(255, 255, 255, 0.8);
+                    background-color: %s;
                 }
 
                 QWidget#header_bar {
-                    background-color: rgba(255, 107, 139, 0.9);
+                    background-color: %s;
+                    border-bottom-right-radius: 16px;
                 }
 
                 QWidget#sidebar {
-                    background-color: rgba(248, 249, 250, 0.9);
+                    background-color: %s;
+                    border-top-right-radius: 0px;
+                    border-bottom-right-radius: 16px;
+                }
+
+                /* 状态栏样式 */
+                QStatusBar {
+                    background-color: %s;
+                    color: %s;
+                    border-top: 1px solid %s;
+                }
+                
+                QStatusBar::item {
+                    border: none;
                 }
             """
 
-            self.setStyleSheet(style % image_path)
+            self.setStyleSheet(style % (image_path, content_bg, theme_color, theme_color, status_bg, status_color, status_border))
 
             logger.info("主题图片已应用，带有半透明效果")
         except Exception as e:
             logger.error(f"应用主题图片失败: {e}")
-
-        # 注意：真正的毛玻璃效果需要使用QGraphicsBlurEffect等方式实现
-        # 这里我们使用半透明效果来模拟毛玻璃效果，后续可以进一步优化
-        # 例如：
-        # 1. 使用QGraphicsBlurEffect对背景图片进行模糊处理
-        # 2. 创建一个专门的背景组件来显示模糊后的图片
-        # 3. 调整模糊半径和透明度来获得最佳效果
 
     def _open_image_dialog(self):
         """打开图片选择对话框"""

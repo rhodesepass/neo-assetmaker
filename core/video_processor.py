@@ -14,6 +14,33 @@ from utils.file_utils import get_app_dir
 
 logger = logging.getLogger(__name__)
 
+# 编码参数（参照 Avoe x264 教程 v48.1 通用·简单配置，动画内容微调）
+X264_PARAMS = (
+    "rc-lookahead=90"
+    ":bframes=12:b-adapt=2"
+    ":me=umh:subme=9:merange=48"
+    ":no-fast-pskip=1:direct=auto:weightb=1"
+    ":keyint=360:min-keyint=5:ref=3"
+    ":chroma-qp-offset=-3"
+    ":aq-mode=3:aq-strength=0.7:trellis=2"
+    ":deblock=0,0:psy-rd=0.5,0.12"
+)
+
+
+def find_ffmpeg() -> str:
+    """查找安装目录中的ffmpeg（仅限应用自带，避免多版本冲突）"""
+    # 1. 在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
+    app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+    if os.path.isfile(app_ffmpeg):
+        return app_ffmpeg
+
+    # 2. 在 ffmpeg 子目录中查找
+    ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
+    if os.path.isfile(ffmpeg_dir_ffmpeg):
+        return ffmpeg_dir_ffmpeg
+
+    return ""
+
 
 @dataclass
 class VideoInfo:
@@ -75,42 +102,7 @@ class VideoProcessor:
 
     def find_ffmpeg(self) -> str:
         """查找系统中的ffmpeg（支持打包环境）"""
-        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
-        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
-        if os.path.isfile(app_ffmpeg):
-            return app_ffmpeg
-
-        # 2. 在 ffmpeg 目录中查找
-        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
-        if os.path.isfile(ffmpeg_dir_ffmpeg):
-            return ffmpeg_dir_ffmpeg
-
-        # 3. 在当前工作目录查找
-        local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
-        if os.path.isfile(local_ffmpeg):
-            return local_ffmpeg
-
-        # 4. 在系统 PATH 中查找（使用 where 命令）
-        try:
-            cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
-        except Exception:
-            pass
-
-        # 5. 直接检查系统 PATH 环境变量中的路径
-        try:
-            path_env = os.environ.get("PATH", "")
-            paths = path_env.split(os.pathsep)
-            for path in paths:
-                ffmpeg_path = os.path.join(path, "ffmpeg.exe")
-                if os.path.isfile(ffmpeg_path):
-                    return ffmpeg_path
-        except Exception:
-            pass
-
-        return ""
+        return find_ffmpeg()
 
     def get_video_info(self, input_path: str) -> Optional[VideoInfo]:
         """
@@ -232,6 +224,7 @@ class VideoProcessor:
             "-preset", "medium",
             "-crf", "18",
             "-pix_fmt", "yuv420p",
+            "-x264-params", X264_PARAMS,
             "-an",  # 无音频
             output_path
         ])
@@ -305,6 +298,7 @@ class VideoProcessor:
 
         return (f'ffmpeg -i "{input_path}" -vf "{filter_str}" '
                 f'-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p '
+                f'-x264-params "{X264_PARAMS}" '
                 f'-an "{output_path}"')
 
     def get_resolution_info(self, resolution: str) -> Dict[str, Any]:

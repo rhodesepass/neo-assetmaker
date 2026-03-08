@@ -26,7 +26,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QObject
 
 from config.constants import get_resolution_spec
 from config.epconfig import EPConfig
-from utils.file_utils import get_app_dir
+from core.video_processor import find_ffmpeg, X264_PARAMS
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class ExportWorker(QThread):
         """设置导出任务"""
         self._tasks = tasks
         self._output_dir = output_dir
-        self._ffmpeg_path = ffmpeg_path or self._find_ffmpeg()
+        self._ffmpeg_path = ffmpeg_path or find_ffmpeg()
         self._epconfig = epconfig
         self._resolution = resolution
         self._cancelled = False
@@ -114,45 +114,6 @@ class ExportWorker(QThread):
                 logger.info("已发送终止信号给FFmpeg进程")
             except Exception as e:
                 logger.warning(f"终止FFmpeg进程时出错: {e}")
-
-    def _find_ffmpeg(self) -> str:
-        """查找ffmpeg（支持打包环境）"""
-        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
-        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
-        if os.path.isfile(app_ffmpeg):
-            return app_ffmpeg
-
-        # 2. 在 ffmpeg 目录中查找
-        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
-        if os.path.isfile(ffmpeg_dir_ffmpeg):
-            return ffmpeg_dir_ffmpeg
-
-        # 3. 在当前工作目录查找
-        local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
-        if os.path.isfile(local_ffmpeg):
-            return local_ffmpeg
-
-        # 4. 在系统 PATH 中查找（使用 where 命令）
-        try:
-            cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
-        except Exception:
-            pass
-
-        # 5. 直接检查系统 PATH 环境变量中的路径
-        try:
-            path_env = os.environ.get("PATH", "")
-            paths = path_env.split(os.pathsep)
-            for path in paths:
-                ffmpeg_path = os.path.join(path, "ffmpeg.exe")
-                if os.path.isfile(ffmpeg_path):
-                    return ffmpeg_path
-        except Exception:
-            pass
-
-        return ""
 
     def run(self):
         """执行导出"""
@@ -387,6 +348,7 @@ class ExportWorker(QThread):
                 "-level", "4.0",
                 "-pix_fmt", "yuv420p",
                 "-b:v", bitrate,
+                "-x264-params", X264_PARAMS,
                 "-pass", "1",
                 "-passlogfile", passlog_prefix,
                 "-an",
@@ -450,6 +412,7 @@ class ExportWorker(QThread):
                 "-level", "4.0",
                 "-pix_fmt", "yuv420p",
                 "-b:v", bitrate,
+                "-x264-params", X264_PARAMS,
                 "-pass", "2",
                 "-passlogfile", passlog_prefix,
                 "-an",
@@ -624,47 +587,8 @@ class ExportService(QObject):
     @property
     def ffmpeg_available(self) -> bool:
         if not self._ffmpeg_path:
-            self._ffmpeg_path = self._find_ffmpeg()
+            self._ffmpeg_path = find_ffmpeg()
         return bool(self._ffmpeg_path)
-
-    def _find_ffmpeg(self) -> str:
-        """查找ffmpeg（支持打包环境）"""
-        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
-        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
-        if os.path.isfile(app_ffmpeg):
-            return app_ffmpeg
-
-        # 2. 在 ffmpeg 目录中查找
-        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
-        if os.path.isfile(ffmpeg_dir_ffmpeg):
-            return ffmpeg_dir_ffmpeg
-
-        # 3. 在当前工作目录查找
-        local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
-        if os.path.isfile(local_ffmpeg):
-            return local_ffmpeg
-
-        # 4. 在系统 PATH 中查找（使用 where 命令）
-        try:
-            cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
-        except Exception:
-            pass
-
-        # 5. 直接检查系统 PATH 环境变量中的路径
-        try:
-            path_env = os.environ.get("PATH", "")
-            paths = path_env.split(os.pathsep)
-            for path in paths:
-                ffmpeg_path = os.path.join(path, "ffmpeg.exe")
-                if os.path.isfile(ffmpeg_path):
-                    return ffmpeg_path
-        except Exception:
-            pass
-
-        return ""
 
     def export_all(
         self,

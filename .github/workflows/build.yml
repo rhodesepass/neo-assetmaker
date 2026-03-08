@@ -65,7 +65,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -100,6 +100,10 @@ jobs:
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
+        shell: pwsh
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$env:GITHUB_WORKSPACE" >> $env:GITHUB_ENV
         shell: pwsh
 
       - name: Build with cx_Freeze and Inno Setup

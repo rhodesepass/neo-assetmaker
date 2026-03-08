@@ -15,7 +15,7 @@ import webbrowser
 from typing import Any, Optional
 
 import keyring
-from qtpy.QtCore import QObject, Signal
+from qtpy.QtCore import QObject, QTimer, Signal
 
 from _mext.core.config import Config, get_config
 from _mext.core.constants import (
@@ -95,8 +95,8 @@ class AuthService(QObject):
         # Register refresh callback on the API client
         self._api.set_refresh_callback(self._do_refresh_token)
 
-        # Attempt to restore session from keyring
-        self._restore_session()
+        # Attempt to restore session from keyring asynchronously
+        QTimer.singleShot(0, self._restore_session)
 
     # -- Public properties --
 

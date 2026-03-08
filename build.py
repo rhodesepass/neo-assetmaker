@@ -11,7 +11,7 @@ import urllib.request
 sys.setrecursionlimit(10000)
 
 PROJECT_NAME = "ArknightsPassMaker"
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 MAIN_SCRIPT = "main.py"
 ICON_FILE = "resources/icons/favicon.ico"
 BUILD_DIR = PROJECT_NAME
@@ -127,6 +127,12 @@ def clean_build():
 def run_cxfreeze(skip_flasher=False):
     """执行 cx_Freeze 打包"""
 
+    # 确保项目根目录在 Python 路径中（支持 --no-install-project 模式）
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    print(f"Project root: {project_root}")
+
     # 强制清理 __pycache__，确保使用最新源代码编译
     print("Clearing __pycache__ before build...")
     for root, dirs, files in os.walk('.'):
@@ -154,16 +160,19 @@ def run_cxfreeze(skip_flasher=False):
     ]
 
     includes = [
-        "config", "config.constants", "config.epconfig",
+        "config", "config.constants", "config.epconfig", "config.operator_db",
         "core", "core.validator", "core.video_processor", "core.image_processor",
         "core.export_service", "core.overlay_renderer",
-        "core.update_service",
+        "core.update_service", "core.error_handler",
+        "core.crash_recovery_service", "core.auto_save_service",
+        "core.optimized_processor",
         "gui", "gui.main_window", "gui.dialogs",
         "gui.dialogs.export_progress_dialog", "gui.dialogs.welcome_dialog",
         "gui.dialogs.shortcuts_dialog", "gui.dialogs.update_dialog",
-        "gui.dialogs.flasher_dialog",
+        "gui.dialogs.flasher_dialog", "gui.dialogs.crash_recovery_dialog",
         "gui.widgets", "gui.widgets.config_panel",
         "gui.widgets.video_preview", "gui.widgets.timeline", "gui.widgets.json_preview",
+        "gui.widgets.basic_config_panel", "gui.widgets.transition_preview",
         "utils", "utils.logger", "utils.file_utils", "utils.color_utils",
         "_mext", "_mext.core", "_mext.core.config",
         "_mext.core.constants", "_mext.core.service_manager",
@@ -232,6 +241,13 @@ def run_cxfreeze(skip_flasher=False):
     else:
         print("  Warning: epass_flasher/bin/ not found (skipped due to --skip-flasher)")
 
+    # 添加本地模块目录（确保 cx_Freeze 能找到）
+    local_modules = ["gui", "core", "config", "utils", "_mext"]
+    for module in local_modules:
+        if os.path.exists(module):
+            include_files.append((module, module))
+            print(f"  Including local module: {module}")
+
     pyqt6_plugins = os.path.join(site_packages, "PyQt6", "Qt6", "plugins")
     if os.path.exists(pyqt6_plugins):
         for plugin in ["platforms", "imageformats", "styles"]:
@@ -252,6 +268,7 @@ def run_cxfreeze(skip_flasher=False):
         "include_files": include_files,
         "optimize": 2,
         "build_exe": BUILD_DIR,
+        "include_path": [project_root],
     }
 
     # Windows 上使用 "gui" base 避免出现控制台窗口（cx_Freeze 7.0+ 用 "gui" 替代了旧的 "Win32GUI"）

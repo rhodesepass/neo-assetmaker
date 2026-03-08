@@ -1,15 +1,13 @@
 """
-日志系统配置
+日志系统配置 - 支持日志轮转、搜索和导出
 """
 import os
 import logging
+import re
 import tempfile
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from typing import Optional
-
-# 导入增强的日志管理器
-from utils.enhanced_logger import EnhancedLogger, get_logger as get_enhanced_logger
+from typing import List, Optional, Tuple
 
 
 def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
@@ -102,17 +100,12 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
     else:
         root_logger.warning("日志系统已初始化（仅控制台输出）")
 
-    # 初始化增强的日志管理器
+    # 初始化日志管理器（仅用于搜索/导出/统计，不创建 handler）
     try:
-        get_enhanced_logger(
-            log_file=log_file,
-            max_size=10 * 1024 * 1024,  # 10MB
-            backup_count=5,
-            log_level="INFO"
-        )
-        root_logger.info("增强的日志管理器已初始化")
+        get_log_manager(log_file=log_file)
+        root_logger.info("日志管理器已初始化")
     except Exception as e:
-        root_logger.warning(f"增强的日志管理器初始化失败: {e}")
+        root_logger.warning(f"日志管理器初始化失败: {e}")
 
     return root_logger
 
@@ -152,3 +145,266 @@ def cleanup_old_logs(log_dir: Optional[str] = None, days: int = 30):
                     logger.info(f"已删除旧日志文件: {log_file}")
         except (ValueError, OSError) as e:
             logger.warning(f"清理日志文件时出错: {log_file}, {e}")
+
+
+class LogManager:
+    """日志文件管理工具 - 提供日志搜索、导出、统计功能
+
+    不创建任何 handler，所有日志记录依赖 root logger 的 handler（通过 propagate=True）。
+    """
+
+    def __init__(self, log_file: str):
+        self.log_file = log_file
+        self.logger = logging.getLogger(__name__)
+
+    def search_logs(
+        self,
+        keyword: str,
+        level: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        max_results: int = 100
+    ) -> List[Tuple[str, str, str, str]]:
+        """
+        搜索日志
+
+        参数:
+            keyword: 搜索关键词
+            level: 日志级别过滤（DEBUG, INFO, WARNING, ERROR, CRITICAL）
+            start_time: 开始时间（格式: YYYY-MM-DD HH:MM:SS）
+            end_time: 结束时间（格式: YYYY-MM-DD HH:MM:SS）
+            max_results: 最大结果数
+
+        返回:
+            List[Tuple[时间, 级别, 名称, 消息]]
+        """
+        results = []
+
+        if not os.path.exists(self.log_file):
+            return results
+
+        try:
+            with open(self.log_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    # 解析日志行（匹配 root logger 格式）
+                    # 格式: 2024-01-01 12:00:00 [INFO] module.name: message
+                    match = re.match(
+                        r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(\w+)\] (\S+): (.+)',
+                        line.strip()
+                    )
+
+                    if not match:
+                        continue
+
+                    timestamp, log_level, name, message = match.groups()
+
+                    # 关键词过滤
+                    if keyword and keyword.lower() not in message.lower():
+                        continue
+
+                    # 日志级别过滤
+                    if level and level.upper() != log_level:
+                        continue
+
+                    # 时间范围过滤
+                    if start_time or end_time:
+                        log_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+
+                        if start_time:
+                            start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                            if log_time < start_dt:
+                                continue
+
+                        if end_time:
+                            end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                            if log_time > end_dt:
+                                continue
+
+                    results.append((timestamp, log_level, name, message))
+
+                    if len(results) >= max_results:
+                        break
+
+        except Exception as e:
+            self.logger.error(f"搜索日志失败: {e}")
+
+        return results
+
+    def export_logs(
+        self,
+        output_file: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        level: Optional[str] = None
+    ):
+        """
+        导出日志
+
+        参数:
+            output_file: 输出文件路径
+            start_time: 开始时间（格式: YYYY-MM-DD HH:MM:SS）
+            end_time: 结束时间（格式: YYYY-MM-DD HH:MM:SS）
+            level: 日志级别过滤
+        """
+        try:
+            # 搜索符合条件的日志
+            logs = self.search_logs(
+                keyword="",
+                level=level,
+                start_time=start_time,
+                end_time=end_time,
+                max_results=100000  # 导出时允许更多结果
+            )
+
+            # 写入文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(f"日志导出 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 80 + "\n\n")
+
+                for timestamp, log_level, name, message in logs:
+                    f.write(f"[{timestamp}] [{log_level}] {name}: {message}\n")
+
+            self.logger.info(f"日志已导出到: {output_file}")
+
+        except Exception as e:
+            self.logger.error(f"导出日志失败: {e}")
+            raise
+
+    def get_log_stats(self) -> dict:
+        """获取日志统计信息"""
+        stats = {
+            'total_lines': 0,
+            'by_level': {
+                'DEBUG': 0,
+                'INFO': 0,
+                'WARNING': 0,
+                'ERROR': 0,
+                'CRITICAL': 0
+            },
+            'file_size': 0,
+            'backup_files': []
+        }
+
+        try:
+            # 统计主日志文件
+            if os.path.exists(self.log_file):
+                stats['file_size'] = os.path.getsize(self.log_file)
+
+                with open(self.log_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        stats['total_lines'] += 1
+
+                        # 统计各级别数量（匹配 [LEVEL] 格式）
+                        match = re.search(r'\[(\w+)\]', line)
+                        if match:
+                            level = match.group(1)
+                            if level in stats['by_level']:
+                                stats['by_level'][level] += 1
+
+            # 查找备份文件
+            log_dir = os.path.dirname(self.log_file)
+            log_name = os.path.basename(self.log_file)
+
+            for file in os.listdir(log_dir):
+                if file.startswith(log_name) and file != log_name:
+                    backup_path = os.path.join(log_dir, file)
+                    stats['backup_files'].append({
+                        'name': file,
+                        'path': backup_path,
+                        'size': os.path.getsize(backup_path)
+                    })
+
+        except Exception as e:
+            self.logger.error(f"获取日志统计失败: {e}")
+
+        return stats
+
+    def clear_logs(self):
+        """清空日志文件"""
+        try:
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'w', encoding='utf-8') as f:
+                    f.write("")
+                self.logger.info("日志文件已清空")
+        except Exception as e:
+            self.logger.error(f"清空日志失败: {e}")
+            raise
+
+    def cleanup_old_backups(self, keep_count: int = 5):
+        """清理旧的备份文件"""
+        try:
+            log_dir = os.path.dirname(self.log_file)
+            log_name = os.path.basename(self.log_file)
+
+            # 查找所有备份文件
+            backup_files = []
+            for file in os.listdir(log_dir):
+                if file.startswith(log_name) and file != log_name:
+                    backup_path = os.path.join(log_dir, file)
+                    backup_files.append((backup_path, os.path.getmtime(backup_path)))
+
+            # 按修改时间排序（从旧到新）
+            backup_files.sort(key=lambda x: x[1])
+
+            # 删除超过保留数量的旧备份
+            if len(backup_files) > keep_count:
+                for backup_path, _ in backup_files[:-keep_count]:
+                    os.remove(backup_path)
+                    self.logger.info(f"已删除旧备份: {backup_path}")
+
+        except Exception as e:
+            self.logger.error(f"清理旧备份失败: {e}")
+
+
+# 全局日志管理器实例
+_global_log_manager: Optional[LogManager] = None
+
+
+def get_log_manager(log_file: str = None) -> LogManager:
+    """
+    获取全局日志管理器实例
+
+    参数:
+        log_file: 日志文件路径（仅首次调用时使用）
+
+    返回:
+        LogManager 实例
+    """
+    global _global_log_manager
+
+    if _global_log_manager is None:
+        if log_file is None:
+            raise ValueError("首次调用时必须提供 log_file 参数")
+
+        _global_log_manager = LogManager(log_file=log_file)
+
+    return _global_log_manager
+
+
+def search_logs(
+    keyword: str,
+    level: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    max_results: int = 100
+) -> List[Tuple[str, str, str, str]]:
+    """搜索日志（便捷函数）"""
+    manager = get_log_manager()
+    return manager.search_logs(keyword, level, start_time, end_time, max_results)
+
+
+def export_logs(
+    output_file: str,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    level: Optional[str] = None
+):
+    """导出日志（便捷函数）"""
+    manager = get_log_manager()
+    manager.export_logs(output_file, start_time, end_time, level)
+
+
+def get_log_stats() -> dict:
+    """获取日志统计（便捷函数）"""
+    manager = get_log_manager()
+    return manager.get_log_stats()
