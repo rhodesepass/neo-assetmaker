@@ -8,8 +8,6 @@ import struct
 import shutil
 import subprocess
 import logging
-import tempfile
-import glob
 from typing import Optional, Dict, Any, Tuple, List
 from dataclasses import dataclass
 from enum import Enum
@@ -26,7 +24,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QObject
 
 from config.constants import get_resolution_spec
 from config.epconfig import EPConfig
-from core.video_processor import find_ffmpeg, X264_PARAMS
+from core.video_processor import find_ffmpeg, X264_PARAMS, QUALITY_PRESETS
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +74,7 @@ class ExportWorker(QThread):
         self._cancelled: bool = False
         self._epconfig: Optional[EPConfig] = None
         self._resolution: str = "360x640"
+        self._quality: str = "高"
         # 当前FFmpeg进程引用，用于支持取消操作
         # 参考: Python subprocess文档 - Popen.terminate() 可终止子进程
         self._ffmpeg_process: Optional[subprocess.Popen] = None
@@ -86,7 +85,8 @@ class ExportWorker(QThread):
         output_dir: str,
         ffmpeg_path: str = "",
         epconfig: Optional[EPConfig] = None,
-        resolution: str = "360x640"
+        resolution: str = "360x640",
+        quality: str = "高"
     ):
         """设置导出任务"""
         self._tasks = tasks
@@ -94,6 +94,7 @@ class ExportWorker(QThread):
         self._ffmpeg_path = ffmpeg_path or find_ffmpeg()
         self._epconfig = epconfig
         self._resolution = resolution
+        self._quality = quality
         self._cancelled = False
 
     def cancel(self):
@@ -306,169 +307,92 @@ class ExportWorker(QThread):
                 raise RuntimeError("没有成功写入任何视频帧")
             logger.info(f"成功写入 {frames_written} 帧")
 
-            self.progress_updated.emit(base_progress + 50, "正在编码视频(2pass)...")
+            self.progress_updated.emit(base_progress + 50, "正在编码视频...")
             input_pattern = f"{temp_dir}/frame_%06d.png"
             output_file = output_path.replace("\\", "/")
 
-            # 使用2pass编码以获得更好的码率分配
-            # 参考: x264 ratecontrol.txt - "2pass: Given some data about each frame of a 1st pass,
-            # we try to choose QPs to maximize quality while matching a specified total size"
-            self._run_ffmpeg_2pass(
+            self._run_ffmpeg_crf(
                 input_pattern=input_pattern,
                 output_file=output_file,
                 fps=params.fps,
-                bitrate="3000k"
             )
 
         finally:
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
-    def _run_ffmpeg_2pass(
+    def _run_ffmpeg_crf(
         self,
         input_pattern: str,
         output_file: str,
         fps: float,
-        bitrate: str = "3000k"
     ):
-        
-        """使用FFmpeg进行2pass编码"""
-        # 生成临时passlogfile前缀
-        passlog_prefix = tempfile.mktemp(prefix="ffmpeg2pass_", dir=os.path.dirname(output_file))
-        
-        try:
-            # ===== Pass 1: 分析阶段 =====
-            pass1_cmd = [
-                self._ffmpeg_path,
-                "-hide_banner",
-                "-framerate", str(fps),
-                "-i", input_pattern,
-                "-c:v", "libx264",
-                "-profile:v", "high",
-                "-level", "4.0",
-                "-pix_fmt", "yuv420p",
-                "-b:v", bitrate,
-                "-x264-params", X264_PARAMS,
-                "-pass", "1",
-                "-passlogfile", passlog_prefix,
-                "-an",
-                "-f", "null",
-                "-y",
-                os.devnull
-            ]
-            
-            logger.info(f"执行ffmpeg 2pass第一遍: {' '.join(pass1_cmd)}")
+        """使用FFmpeg进行CRF质量编码
 
-            popen_kwargs = {
-                'stdout': subprocess.PIPE,
-                'stderr': subprocess.PIPE,
-                'encoding': 'utf-8',
-                'errors': 'replace'
-            }
-            if sys.platform == 'win32':
-                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        CRF (Constant Rate Factor) 模式以恒定质量为目标，
+        由 x264 自动分配码率。
+        参考: https://trac.ffmpeg.org/wiki/Encode/H.264#crf
+        """
+        preset_config = QUALITY_PRESETS.get(self._quality, QUALITY_PRESETS["高"])
+        crf_value = preset_config["crf"]
+        preset = preset_config["preset"]
 
-            self._ffmpeg_process = subprocess.Popen(pass1_cmd, **popen_kwargs)
+        cmd = [
+            self._ffmpeg_path,
+            "-hide_banner",
+            "-framerate", str(fps),
+            "-i", input_pattern,
+            "-c:v", "libx264",
+            "-preset", preset,
+            "-crf", str(crf_value),
+            "-profile:v", "high",
+            "-level", "4.0",
+            "-pix_fmt", "yuv420p",
+            "-x264-params", X264_PARAMS,
+            "-an",
+            "-y",
+            output_file
+        ]
 
-            # 使用 communicate(timeout) 循环等待进程完成
-            # Python文档警告: 使用 poll() + PIPE 会导致死锁，必须用 communicate()
-            # https://docs.python.org/3/library/subprocess.html#subprocess.Popen.wait
-            stdout, stderr = "", ""
-            while True:
-                try:
-                    out, err = self._ffmpeg_process.communicate(timeout=0.5)
-                    stdout = out or ""
-                    stderr = err or ""
-                    break  # 进程已结束
-                except subprocess.TimeoutExpired:
-                    # 进程仍在运行，检查取消标志
-                    if self._cancelled:
-                        self._ffmpeg_process.kill()
-                        self._ffmpeg_process.communicate()  # 清理管道
-                        self._ffmpeg_process = None
-                        raise InterruptedError("导出已取消")
-                    # 继续等待
+        logger.info(f"执行ffmpeg CRF编码 (crf={crf_value}, preset={preset}): {' '.join(cmd)}")
 
-            returncode = self._ffmpeg_process.returncode
-            self._ffmpeg_process = None
+        popen_kwargs = {
+            'stdout': subprocess.PIPE,
+            'stderr': subprocess.PIPE,
+            'encoding': 'utf-8',
+            'errors': 'replace'
+        }
+        if sys.platform == 'win32':
+            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
-            if returncode != 0:
-                stderr_msg = stderr[-500:] if stderr else "未知错误"
-                logger.error(f"ffmpeg pass1 stderr: {stderr}")
-                raise RuntimeError(f"ffmpeg 2pass第一遍失败 (code {returncode}): {stderr_msg}")
-            
-            # ===== 两个pass之间检查取消 =====
-            if self._cancelled:
-                raise InterruptedError("导出已取消")
-            
-            # ===== Pass 2: 编码阶段 =====
-            pass2_cmd = [
-                self._ffmpeg_path,
-                "-hide_banner",
-                "-framerate", str(fps),
-                "-i", input_pattern,
-                "-c:v", "libx264",
-                "-profile:v", "high",
-                "-level", "4.0",
-                "-pix_fmt", "yuv420p",
-                "-b:v", bitrate,
-                "-x264-params", X264_PARAMS,
-                "-pass", "2",
-                "-passlogfile", passlog_prefix,
-                "-an",
-                "-y",
-                output_file
-            ]
-            
-            logger.info(f"执行ffmpeg 2pass第二遍: {' '.join(pass2_cmd)}")
+        self._ffmpeg_process = subprocess.Popen(cmd, **popen_kwargs)
 
-            popen_kwargs2 = {
-                'stdout': subprocess.PIPE,
-                'stderr': subprocess.PIPE,
-                'encoding': 'utf-8',
-                'errors': 'replace'
-            }
-            if sys.platform == 'win32':
-                popen_kwargs2['creationflags'] = subprocess.CREATE_NO_WINDOW
+        # 使用 communicate(timeout) 循环等待进程完成
+        # Python文档警告: 使用 poll() + PIPE 会导致死锁，必须用 communicate()
+        # https://docs.python.org/3/library/subprocess.html#subprocess.Popen.wait
+        stdout, stderr = "", ""
+        while True:
+            try:
+                out, err = self._ffmpeg_process.communicate(timeout=0.5)
+                stdout = out or ""
+                stderr = err or ""
+                break
+            except subprocess.TimeoutExpired:
+                if self._cancelled:
+                    self._ffmpeg_process.kill()
+                    self._ffmpeg_process.communicate()
+                    self._ffmpeg_process = None
+                    raise InterruptedError("导出已取消")
 
-            self._ffmpeg_process = subprocess.Popen(pass2_cmd, **popen_kwargs2)
+        returncode = self._ffmpeg_process.returncode
+        self._ffmpeg_process = None
 
-            # 使用 communicate(timeout) 循环等待进程完成
-            stdout, stderr = "", ""
-            while True:
-                try:
-                    out, err = self._ffmpeg_process.communicate(timeout=0.5)
-                    stdout = out or ""
-                    stderr = err or ""
-                    break
-                except subprocess.TimeoutExpired:
-                    if self._cancelled:
-                        self._ffmpeg_process.kill()
-                        self._ffmpeg_process.communicate()  # 清理管道
-                        self._ffmpeg_process = None
-                        raise InterruptedError("导出已取消")
+        if returncode != 0:
+            stderr_msg = stderr[-500:] if stderr else "未知错误"
+            logger.error(f"ffmpeg CRF编码 stderr: {stderr}")
+            raise RuntimeError(f"ffmpeg CRF编码失败 (code {returncode}): {stderr_msg}")
 
-            returncode = self._ffmpeg_process.returncode
-            self._ffmpeg_process = None
-
-            if returncode != 0:
-                stderr_msg = stderr[-500:] if stderr else "未知错误"
-                logger.error(f"ffmpeg pass2 stderr: {stderr}")
-                raise RuntimeError(f"ffmpeg 2pass第二遍失败 (code {returncode}): {stderr_msg}")
-                
-            logger.info("2pass编码完成")
-            
-        finally:
-            # 确保进程引用被清理
-            self._ffmpeg_process = None
-            # 清理passlogfile生成的临时文件
-            # FFmpeg 创建 PREFIX-N.log 和 PREFIX-N.log.mbtree，*.log* 可匹配两者
-            for f in glob.glob(f"{passlog_prefix}*.log*"):
-                try:
-                    os.remove(f)
-                    logger.debug(f"已清理临时文件: {f}")
-                except OSError:
-                    pass
+        logger.info("CRF编码完成")
 
     def _export_video_from_image(
         self,
@@ -536,16 +460,14 @@ class ExportWorker(QThread):
 
             logger.info(f"成功生成 {total_frames} 帧")
 
-            # 使用2pass ffmpeg编码
-            self.progress_updated.emit(base_progress + 50, "正在编码视频(2pass)...")
+            self.progress_updated.emit(base_progress + 50, "正在编码视频...")
             input_pattern = f"{temp_dir}/frame_%06d.png"
             output_file = output_path.replace("\\", "/")
 
-            self._run_ffmpeg_2pass(
+            self._run_ffmpeg_crf(
                 input_pattern=input_pattern,
                 output_file=output_file,
                 fps=fps,
-                bitrate="3000k"
             )
 
         finally:
@@ -598,7 +520,8 @@ class ExportService(QObject):
         overlay_mat: Optional[np.ndarray] = None,
         loop_video_params: Optional[VideoExportParams] = None,
         intro_video_params: Optional[VideoExportParams] = None,
-        loop_image_path: Optional[str] = None
+        loop_image_path: Optional[str] = None,
+        quality: str = "高"
     ):
         """导出所有素材"""
         if self.is_exporting:
@@ -678,7 +601,8 @@ class ExportService(QObject):
             output_dir=output_dir,
             ffmpeg_path=self._ffmpeg_path,
             epconfig=epconfig,
-            resolution=resolution
+            resolution=resolution,
+            quality=quality
         )
 
         self._worker.progress_updated.connect(self.progress_updated.emit)

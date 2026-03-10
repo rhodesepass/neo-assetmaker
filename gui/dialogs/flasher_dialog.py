@@ -86,17 +86,21 @@ class FlasherWorker(QThread):
             os.makedirs(config_dir, exist_ok=True)
             with open(config_file, "w") as f:
                 json.dump({"driver_installed": False, "eula_accepted": True}, f)
-        
+
         with open(config_file, "r") as f:
             config = json.load(f)
-        
+
         if not config.get("driver_installed", False):
             self.status_updated.emit("安装驱动...")
             drv_bat = os.path.join(self.bin_path, "drv_install.bat")
-            if os.path.exists(drv_bat):
-                subprocess.run([drv_bat], shell=True)
-                
-            # 更新配置
+            if not os.path.exists(drv_bat):
+                raise Exception(f"驱动安装文件不存在: {drv_bat}")
+
+            result = subprocess.run([drv_bat], shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"驱动安装失败: {result.stderr}")
+
+            # 仅在安装成功后标记
             config["driver_installed"] = True
             with open(config_file, "w") as f:
                 json.dump(config, f)

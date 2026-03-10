@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'README.md'
+      - 'docs/CHANGELOG.md'
   workflow_dispatch:
     inputs:
       force_release:
@@ -30,17 +30,17 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Get current version from README
+      - name: Get current version from CHANGELOG
         id: get-version
         run: |
-          VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+          VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' docs/CHANGELOG.md | head -1)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $VERSION"
 
       - name: Check if version changed
         id: check-change
         run: |
-          CURRENT_VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+          CURRENT_VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' docs/CHANGELOG.md | head -1)
 
           # 获取最新的 tag 版本号（而不是上一次提交）
           # 参考: https://git-scm.com/docs/git-describe
@@ -48,7 +48,7 @@ jobs:
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           LATEST_TAG_VERSION=${LATEST_TAG#v}  # 去掉 v 前缀
 
-          echo "Current version in README: $CURRENT_VERSION"
+          echo "Current version in CHANGELOG: $CURRENT_VERSION"
           echo "Latest tag version: $LATEST_TAG_VERSION"
 
           if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$LATEST_TAG_VERSION" ]; then
@@ -62,7 +62,7 @@ jobs:
       - name: Check if tag exists
         id: check-tag
         run: |
-          VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+          VERSION=$(grep -oP '### v\K[0-9]+\.[0-9]+\.[0-9]+' docs/CHANGELOG.md | head -1)
           if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION"; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Tag v$VERSION already exists"
@@ -226,11 +226,11 @@ jobs:
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           # 提取当前版本的更新日志（从 ### vX.X.X 到下一个 ### v）
-          CHANGELOG=$(awk "/^### v${VERSION}/,/^### v[0-9]/" README.md | head -n -1)
+          CHANGELOG=$(awk "/^### v${VERSION}/,/^### v[0-9]/" docs/CHANGELOG.md | head -n -1)
 
           # 如果是最后一个版本（没有下一个 ### v），提取到文件结尾
           if [ -z "$CHANGELOG" ]; then
-            CHANGELOG=$(awk "/^### v${VERSION}/,0" README.md)
+            CHANGELOG=$(awk "/^### v${VERSION}/,0" docs/CHANGELOG.md)
           fi
 
           echo "Extracted changelog for v${VERSION}:"

@@ -7,22 +7,15 @@ echo   ArknightsPassMaker - cx_Freeze + Inno Setup Build
 echo ================================================
 echo.
 
-python --version >nul 2>&1
+uv --version >nul 2>&1
 if errorlevel 1 (
-    echo [Error] Python not found!
+    echo [Error] uv not found! Please install uv: https://docs.astral.sh/uv/
     pause
     exit /b 1
 )
 
-if not exist ".venv" (
-    echo Creating virtual environment...
-    python -m venv .venv
-)
-
-call .venv\Scripts\activate.bat
-
 echo Installing dependencies...
-pip install -r requirements.txt -q
+uv sync --group dev --no-install-project
 
 set BUILD_ARGS=
 set SHOW_HELP=0
@@ -74,10 +67,9 @@ echo.
 echo Building...
 echo.
 
-python build.py%BUILD_ARGS%
+uv run python build.py%BUILD_ARGS%
 
 :end
-call .venv\Scripts\deactivate.bat
 
 echo.
 echo Done!

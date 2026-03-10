@@ -14,17 +14,23 @@ from utils.file_utils import get_app_dir
 
 logger = logging.getLogger(__name__)
 
-# 编码参数（参照 Avoe x264 教程 v48.1 通用·简单配置，动画内容微调）
 X264_PARAMS = (
-    "rc-lookahead=90"
+    "partitions=all"
+    ":rc-lookahead=90"
     ":bframes=12:b-adapt=2"
     ":me=umh:subme=9:merange=48"
     ":no-fast-pskip=1:direct=auto:weightb=1"
-    ":keyint=360:min-keyint=5:ref=3"
+    ":keyint=300:min-keyint=5:ref=3"
     ":chroma-qp-offset=-3"
     ":aq-mode=3:aq-strength=0.7:trellis=2"
     ":deblock=0,0:psy-rd=0.5,0.12"
 )
+
+QUALITY_PRESETS: Dict[str, Dict[str, Any]] = {
+    "低": {"crf": 23, "preset": "fast"},
+    "中": {"crf": 21, "preset": "medium"},
+    "高": {"crf": 19, "preset": "medium"},
+}
 
 
 def find_ffmpeg() -> str:
@@ -222,7 +228,7 @@ class VideoProcessor:
         cmd.extend([
             "-c:v", "libx264",
             "-preset", "medium",
-            "-crf", "18",
+            "-crf", "19",
             "-pix_fmt", "yuv420p",
             "-x264-params", X264_PARAMS,
             "-an",  # 无音频
@@ -297,7 +303,7 @@ class VideoProcessor:
         filter_str = ",".join(filters)
 
         return (f'ffmpeg -i "{input_path}" -vf "{filter_str}" '
-                f'-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p '
+                f'-c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p '
                 f'-x264-params "{X264_PARAMS}" '
                 f'-an "{output_path}"')
 

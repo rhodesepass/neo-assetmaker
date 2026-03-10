@@ -1266,6 +1266,7 @@ class MainWindow(QMainWindow):
         )
 
         # 启动导出
+        export_quality = self.export_quality_combo.currentText()
         self._export_service.export_all(
             output_dir=dir_path,
             epconfig=self._config,
@@ -1273,7 +1274,8 @@ class MainWindow(QMainWindow):
             overlay_mat=export_data.get('overlay_mat'),
             loop_video_params=export_data.get('loop_video_params'),
             intro_video_params=export_data.get('intro_video_params'),
-            loop_image_path=export_data.get('loop_image_path')
+            loop_image_path=export_data.get('loop_image_path'),
+            quality=export_quality
         )
 
         # 显示进度对话框

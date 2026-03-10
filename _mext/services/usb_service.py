@@ -142,6 +142,10 @@ class UsbService(QObject):
             logger.warning("pyusb not available; USB monitoring disabled")
             self.stop_monitoring()
             self.scan_error.emit("pyusb library not available")
+        except usb.core.NoBackendError:
+            logger.warning("No USB backend available (libusb not installed); USB monitoring disabled")
+            self.stop_monitoring()
+            self.scan_error.emit("USB驱动未安装，请安装 libusb 后重试")
         except Exception as exc:
             logger.error("USB scan error: %s", exc)
             self.scan_error.emit(str(exc))
