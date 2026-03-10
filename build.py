@@ -7,6 +7,7 @@ import subprocess
 import argparse
 import shutil
 import urllib.request
+import importlib.util
 
 sys.setrecursionlimit(10000)
 
@@ -132,6 +133,14 @@ def run_cxfreeze(skip_flasher=False):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     print(f"Project root: {project_root}")
+
+    # 验证关键模块可被发现
+    for check_mod in ["gui", "gui.main_window", "core", "config"]:
+        try:
+            spec = importlib.util.find_spec(check_mod)
+            print(f"  Module check: {check_mod} -> {spec.origin if spec else 'NOT FOUND'}")
+        except (ModuleNotFoundError, ValueError):
+            print(f"  Module check: {check_mod} -> NOT FOUND")
 
     # 强制清理 __pycache__，确保使用最新源代码编译
     print("Clearing __pycache__ before build...")
@@ -268,7 +277,7 @@ def run_cxfreeze(skip_flasher=False):
         "include_files": include_files,
         "optimize": 2,
         "build_exe": BUILD_DIR,
-        "include_path": [project_root],
+        "path": [project_root] + sys.path,
     }
 
     # Windows 上使用 "gui" base 避免出现控制台窗口（cx_Freeze 7.0+ 用 "gui" 替代了旧的 "Win32GUI"）
