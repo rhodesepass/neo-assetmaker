@@ -175,8 +175,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --group dev --no-install-project
+          uv sync --group dev
           uv run python -c "import PyQt6; print(f'PyQt6 installed at: {PyQt6.__file__}')"
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$env:GITHUB_WORKSPACE" >> $env:GITHUB_ENV
+        shell: pwsh
 
       - name: Cache FFmpeg
         id: cache-ffmpeg
@@ -207,6 +211,9 @@ jobs:
 
       - name: Build with cx_Freeze and Inno Setup
         run: uv run python build.py
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          PYTHONWARNINGS: "ignore::SyntaxWarning"
 
       - name: Verify build output
         run: |

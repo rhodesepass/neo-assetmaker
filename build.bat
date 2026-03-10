@@ -15,7 +15,7 @@ if errorlevel 1 (
 )
 
 echo Installing dependencies...
-uv sync --group dev --no-install-project
+uv sync --group dev
 
 set BUILD_ARGS=
 set SHOW_HELP=0

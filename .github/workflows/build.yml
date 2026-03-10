@@ -108,6 +108,9 @@ jobs:
 
       - name: Build with cx_Freeze and Inno Setup
         run: uv run python build.py --skip-flasher
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          PYTHONWARNINGS: "ignore::SyntaxWarning"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

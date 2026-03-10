@@ -132,15 +132,37 @@ def run_cxfreeze(skip_flasher=False):
     project_root = os.path.dirname(os.path.abspath(__file__))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
-    print(f"Project root: {project_root}")
 
-    # 验证关键模块可被发现
+    # 同时设置环境变量，确保 cx_Freeze 内部的 importlib finder 也能发现模块
+    # uv run 可能不传递外部 PYTHONPATH（参见 uv issue #5808）
+    existing_pythonpath = os.environ.get('PYTHONPATH', '')
+    if project_root not in existing_pythonpath:
+        os.environ['PYTHONPATH'] = project_root + os.pathsep + existing_pythonpath if existing_pythonpath else project_root
+
+    print(f"Project root: {project_root}")
+    print(f"PYTHONPATH: {os.environ.get('PYTHONPATH', '')}")
+
+    # 验证关键模块可被发现 — fail-fast
+    module_check_failed = False
     for check_mod in ["gui", "gui.main_window", "core", "config"]:
         try:
             spec = importlib.util.find_spec(check_mod)
-            print(f"  Module check: {check_mod} -> {spec.origin if spec else 'NOT FOUND'}")
-        except (ModuleNotFoundError, ValueError):
-            print(f"  Module check: {check_mod} -> NOT FOUND")
+            if spec is None:
+                print(f"  ERROR: Module {check_mod} -> NOT FOUND")
+                module_check_failed = True
+            else:
+                print(f"  Module check: {check_mod} -> {spec.origin}")
+        except (ModuleNotFoundError, ValueError) as e:
+            print(f"  ERROR: Module {check_mod} -> {e}")
+            module_check_failed = True
+
+    if module_check_failed:
+        print("\nFATAL: Critical modules not found in Python path.")
+        print("sys.path:")
+        for p in sys.path:
+            print(f"  - {p}")
+        print("\nFix: run 'uv sync --group dev' or set PYTHONPATH to project root")
+        return False
 
     # 强制清理 __pycache__，确保使用最新源代码编译
     print("Clearing __pycache__ before build...")
