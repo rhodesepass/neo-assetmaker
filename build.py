@@ -12,7 +12,7 @@ import importlib.util
 sys.setrecursionlimit(10000)
 
 PROJECT_NAME = "ArknightsPassMaker"
-VERSION = "2.4.0"
+VERSION = "2.0.0"
 MAIN_SCRIPT = "main.py"
 ICON_FILE = "resources/icons/favicon.ico"
 BUILD_DIR = PROJECT_NAME
@@ -172,46 +172,11 @@ def run_cxfreeze(skip_flasher=False):
         "platformdirs",
         "fido2", "fido2.hid", "fido2.client", "fido2.webauthn",
         "usb", "usb.core", "usb.backend", "usb.backend.libusb1",
+        # 本地项目包 — 使用 packages 让 cx_Freeze 通过 _import_all_sub_modules 自动发现所有子模块
+        "gui", "core", "config", "utils", "_mext",
     ]
 
-    includes = [
-        "config", "config.constants", "config.epconfig", "config.operator_db",
-        "core", "core.validator", "core.video_processor", "core.image_processor",
-        "core.export_service", "core.overlay_renderer",
-        "core.update_service", "core.error_handler",
-        "core.crash_recovery_service", "core.auto_save_service",
-        "core.optimized_processor",
-        "gui", "gui.main_window", "gui.dialogs",
-        "gui.dialogs.export_progress_dialog", "gui.dialogs.welcome_dialog",
-        "gui.dialogs.shortcuts_dialog", "gui.dialogs.update_dialog",
-        "gui.dialogs.flasher_dialog", "gui.dialogs.crash_recovery_dialog",
-        "gui.widgets", "gui.widgets.config_panel",
-        "gui.widgets.video_preview", "gui.widgets.timeline", "gui.widgets.json_preview",
-        "gui.widgets.basic_config_panel", "gui.widgets.transition_preview",
-        "utils", "utils.logger", "utils.file_utils", "utils.color_utils",
-        "_mext", "_mext.core", "_mext.core.config",
-        "_mext.core.constants", "_mext.core.service_manager",
-        "_mext.services", "_mext.services.api_client",
-        "_mext.services.auth_service", "_mext.services.download_engine",
-        "_mext.services.download_worker", "_mext.services.fido2_client",
-        "_mext.services.fido2_worker", "_mext.services.usb_service",
-        "_mext.services.mtp_service", "_mext.services.pkce_utils",
-        "_mext.models", "_mext.models.user",
-        "_mext.models.material", "_mext.models.download",
-        "_mext.utils", "_mext.utils.crypto", "_mext.utils.platform",
-        "_mext.ui", "_mext.ui.widget",
-        "_mext.ui.pages", "_mext.ui.pages.market_page",
-        "_mext.ui.pages.library_page", "_mext.ui.pages.login_page",
-        "_mext.ui.pages.downloads_page", "_mext.ui.pages.usb_page",
-        "_mext.ui.pages.settings_page",
-        "_mext.ui.dialogs", "_mext.ui.dialogs.fido2_pin_dialog",
-        "_mext.ui.dialogs.fido2_touch_dialog",
-        "_mext.ui.components", "_mext.ui.components.material_card",
-        "_mext.ui.components.search_bar",
-        "_mext.ui.components.filter_panel", "_mext.ui.components.download_progress",
-        "_mext.ui.components.fido2_credential_card",
-        "_mext.ui.components.usb_device_card",
-    ]
+    includes = []
 
     excludes = [
         "tkinter", "unittest", "test", "tests", "pytest", "IPython",
@@ -255,13 +220,6 @@ def run_cxfreeze(skip_flasher=False):
         return False
     else:
         print("  Warning: epass_flasher/bin/ not found (skipped due to --skip-flasher)")
-
-    # 添加本地模块目录（确保 cx_Freeze 能找到）
-    local_modules = ["gui", "core", "config", "utils", "_mext"]
-    for module in local_modules:
-        if os.path.exists(module):
-            include_files.append((module, module))
-            print(f"  Including local module: {module}")
 
     pyqt6_plugins = os.path.join(site_packages, "PyQt6", "Qt6", "plugins")
     if os.path.exists(pyqt6_plugins):
