@@ -7,8 +7,6 @@ import subprocess
 import argparse
 import shutil
 import urllib.request
-import importlib.util
-
 sys.setrecursionlimit(10000)
 
 PROJECT_NAME = "ArknightsPassMaker"
@@ -136,13 +134,17 @@ def clean_build():
             shutil.rmtree(d)
             print(f"  Removed: {d}")
 
-    # 清理所有 __pycache__ 目录，确保使用最新源代码
+    # 清理项目源码的 __pycache__ 目录，确保使用最新源代码
+    # 跳过 .venv/ 等无关目录（避免删除第三方包字节码）
+    skip_dirs = {'.venv', 'venv', '.git', 'simulator', 'node_modules', BUILD_DIR, DIST_DIR}
     print("Cleaning __pycache__ directories...")
     for root, dirs, files in os.walk('.'):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
         if '__pycache__' in dirs:
             cache_path = os.path.join(root, '__pycache__')
             shutil.rmtree(cache_path)
             print(f"  Removed cache: {cache_path}")
+            dirs.remove('__pycache__')
 
 
 def run_cxfreeze(skip_flasher=False):
@@ -154,31 +156,68 @@ def run_cxfreeze(skip_flasher=False):
         sys.path.insert(0, project_root)
     print(f"Project root: {project_root}")
 
-    # 验证关键模块可被发现 — fail-fast
-    for check_mod in ["gui", "gui.main_window", "core", "config"]:
-        try:
-            spec = importlib.util.find_spec(check_mod)
-            if spec is None:
-                print(f"  FATAL: Module {check_mod} not found")
-                print(f"  sys.path: {sys.path}")
-                print(f"  Fix: run 'uv sync --group dev' (without --no-install-project)")
-                return False
-            print(f"  Module check: {check_mod} -> {spec.origin}")
-        except (ModuleNotFoundError, ValueError) as e:
-            print(f"  FATAL: Module {check_mod} -> {e}")
+    # 验证关键模块可被发现 — 使用 PathFinder（cx_Freeze 使用的机制）
+    # cx_Freeze finder.py:382-383 使用 importlib.machinery.PathFinder.find_spec(name, path)
+    # 而非 importlib.util.find_spec（后者使用 sys.meta_path hooks，结果可能不同）
+    import importlib.machinery
+    gui_path = os.path.join(project_root, "gui")
+    check_pairs = [
+        ("gui", [project_root]),
+        ("gui.main_window", [gui_path]),
+        ("core", [project_root]),
+        ("config", [project_root]),
+    ]
+    for mod_name, search_path in check_pairs:
+        importlib.machinery.PathFinder.invalidate_caches()
+        spec = importlib.machinery.PathFinder.find_spec(mod_name, search_path)
+        if spec is None:
+            print(f"  FATAL: PathFinder cannot find {mod_name} in {search_path}")
+            print(f"  Directory listing: {os.listdir(search_path[0])}")
             return False
+        print(f"  PathFinder check: {mod_name} -> {spec.origin}")
 
-    # 强制清理 __pycache__，确保使用最新源代码编译
+    # 预编译检查：使用与 cx_Freeze 相同的 optimize 级别（finder.py:446-448）
+    main_window_path = os.path.join(project_root, "gui", "main_window.py")
+    try:
+        with open(main_window_path, "rb") as f:
+            compile(f.read(), main_window_path, "exec", optimize=2)
+        print(f"  Compile check: gui/main_window.py (optimize=2) OK")
+    except SyntaxError as e:
+        print(f"  FATAL: gui/main_window.py compile error: {e}")
+        return False
+
+    # 强制清理项目源码的 __pycache__，确保使用最新源代码编译
+    # 跳过 .venv/（第三方包字节码）、simulator/（Rust 编译产物）等无关目录
+    skip_dirs = {'.venv', 'venv', '.git', 'simulator', 'node_modules', BUILD_DIR, DIST_DIR}
     print("Clearing __pycache__ before build...")
     for root, dirs, files in os.walk('.'):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
         if '__pycache__' in dirs:
             cache_path = os.path.join(root, '__pycache__')
             shutil.rmtree(cache_path)
             print(f"  Cleared: {cache_path}")
+            dirs.remove('__pycache__')
 
     os.environ["QT_API"] = "pyqt6"
 
     from cx_Freeze import setup, Executable
+
+    # 诊断：包装 _load_module 以暴露被 _internal_import_module (finder.py:361-364) 吞掉的真实错误
+    # TODO: 确认 CI 构建通过后移除此诊断代码
+    import cx_Freeze.finder as _finder_mod
+    _orig_load = _finder_mod.ModuleFinder._load_module
+
+    def _debug_load_module(self, name, path, deferred_imports, parent=None):
+        try:
+            result = _orig_load(self, name, path, deferred_imports, parent)
+            if result is None and name.startswith(("gui.", "core.", "config.", "utils.", "_mext.")):
+                print(f"  [DIAG] _load_module({name!r}, path={path}) -> None (spec not found)")
+            return result
+        except ImportError as e:
+            print(f"  [DIAG] _load_module({name!r}) raised ImportError: {e}")
+            raise
+
+    _finder_mod.ModuleFinder._load_module = _debug_load_module
 
     site_packages = get_site_packages()
 
