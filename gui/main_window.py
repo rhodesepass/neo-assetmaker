@@ -428,8 +428,8 @@ class MainWindow(QMainWindow):
 
         # 设置模式下拉框（右侧）
         self.settings_mode_combo = FluentComboBox()
-        self.settings_mode_combo.addItem("基础设置", "basic")
-        self.settings_mode_combo.addItem("高级设置", "advanced")
+        self.settings_mode_combo.addItem("基础设置", userData="basic")
+        self.settings_mode_combo.addItem("高级设置", userData="advanced")
         self.settings_mode_combo.setFixedHeight(34)
         self.settings_mode_combo.currentIndexChanged.connect(
             self._on_settings_mode_combo_changed)
