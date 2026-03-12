@@ -28,6 +28,47 @@ logger = logging.getLogger(__name__)
 
 # 从原始代码中获取的常量
 MANIFEST_URL = "https://epflash.iccmc.cc/{rev}/{screen}/manifest.json"
+
+
+class VersionCheckWorker(QThread):
+    """后台获取固件版本信息"""
+
+    completed = pyqtSignal(dict)  # manifest dict
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self._url = url
+
+    def run(self):
+        try:
+            response = requests.get(self._url, timeout=30)
+            response.raise_for_status()
+            self.completed.emit(response.json())
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class DriverInstallWorker(QThread):
+    """后台安装驱动"""
+
+    completed = pyqtSignal(int, str, str)  # returncode, stdout, stderr
+    error = pyqtSignal(str)
+
+    def __init__(self, drv_bat: str, parent=None):
+        super().__init__(parent)
+        self._drv_bat = drv_bat
+
+    def run(self):
+        try:
+            result = subprocess.run(
+                [self._drv_bat], shell=True, capture_output=True, text=True, timeout=300
+            )
+            self.completed.emit(result.returncode, result.stdout, result.stderr)
+        except subprocess.TimeoutExpired:
+            self.error.emit("驱动安装超时（5分钟），请手动安装。")
+        except Exception as exc:
+            self.error.emit(str(exc))
 FLASHER_VERSION = 2
 
 class FlasherWorker(QThread):
@@ -659,72 +700,75 @@ class FlasherDialog(QDialog):
     
     def _on_get_version(self):
         """获取版本信息"""
-        try:
-            # 检查epass_flasher目录
-            if not os.path.exists(self.flasher_dir):
-                QMessageBox.warning(self, "提示", "epass_flasher 目录不存在，固件烧录功能暂不可用。")
-                return
-            
-            # 获取设备信息
-            rev_index = self.rev_combo.currentIndex()
-            rev_map = {0: "0.2", 1: "0.3", 2: "0.5", 3: "0.6"}
-            rev = rev_map.get(rev_index, "0.3")
-            
-            screen_index = self.screen_combo.currentIndex()
-            screen_map = {0: "boe", 1: "hsd", 2: "laowu"}
-            screen = screen_map.get(screen_index, "hsd")
-            
-            # 获取版本信息
-            self.status_text.append("=== 获取版本信息 ===")
-            self.status_text.append(f"设备版本: {rev}")
-            self.status_text.append(f"屏幕类型: {screen}")
-            
-            # 从服务器获取manifest
-            url = MANIFEST_URL.format(rev=rev, screen=screen)
-            self.status_text.append(f"请求: {url}")
-            
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            manifest = response.json()
-            
-            # 保存manifest
-            self.manifest = manifest
-            
-            # 更新版本选择下拉框
-            self.version_combo.clear()
-            if not manifest.get("manifest"):
-                self.version_combo.addItem("无可用版本")
-                raise Exception("固件版本列表为空")
-            
-            for i, version_item in enumerate(manifest["manifest"]):
-                version_name = f"{version_item['type']}:{version_item['title']}"
-                if version_item.get("commit"):
-                    version_name += f" ({version_item['commit'][:7]})"
-                self.version_combo.addItem(version_name, version_item)
-            
-            # 更新下载源选择下拉框
-            self.mirror_combo.clear()
-            if not manifest.get("available_mirror"):
-                self.mirror_combo.addItem("无可用下载源")
-                raise Exception("没有可用的下载源")
-            
-            for mirror_info in manifest["available_mirror"]:
-                self.mirror_combo.addItem(mirror_info["name"], mirror_info["url"])
-            
-            # 连接版本选择信号
-            self.version_combo.currentIndexChanged.connect(self._on_version_selected)
-            
-            # 默认选择第一个版本
-            if self.version_combo.count() > 0:
-                self.version_combo.setCurrentIndex(0)
-                self._on_version_selected(0)
-            
-            self.status_text.append("版本信息获取成功！")
-            QMessageBox.information(self, "成功", "版本信息获取成功！")
-            
-        except Exception as e:
-            self.status_text.append(f"获取版本信息失败: {str(e)}")
-            QMessageBox.critical(self, "错误", f"获取版本信息失败:\n{str(e)}")
+        # 检查epass_flasher目录
+        if not os.path.exists(self.flasher_dir):
+            QMessageBox.warning(self, "提示", "epass_flasher 目录不存在，固件烧录功能暂不可用。")
+            return
+
+        # 获取设备信息
+        rev_index = self.rev_combo.currentIndex()
+        rev_map = {0: "0.2", 1: "0.3", 2: "0.5", 3: "0.6"}
+        rev = rev_map.get(rev_index, "0.3")
+
+        screen_index = self.screen_combo.currentIndex()
+        screen_map = {0: "boe", 1: "hsd", 2: "laowu"}
+        screen = screen_map.get(screen_index, "hsd")
+
+        self.status_text.append("=== 获取版本信息 ===")
+        self.status_text.append(f"设备版本: {rev}")
+        self.status_text.append(f"屏幕类型: {screen}")
+
+        url = MANIFEST_URL.format(rev=rev, screen=screen)
+        self.status_text.append(f"请求: {url}")
+
+        # 禁用按钮防重复点击，启动后台线程
+        self.get_version_button.setEnabled(False)
+        self._version_worker = VersionCheckWorker(url, parent=self)
+        self._version_worker.completed.connect(self._on_version_loaded)
+        self._version_worker.error.connect(self._on_version_error)
+        self._version_worker.finished.connect(lambda: self.get_version_button.setEnabled(True))
+        self._version_worker.start()
+
+    def _on_version_loaded(self, manifest: dict):
+        """版本信息获取成功回调"""
+        self.manifest = manifest
+
+        self.version_combo.clear()
+        if not manifest.get("manifest"):
+            self.version_combo.addItem("无可用版本")
+            self.status_text.append("获取版本信息失败: 固件版本列表为空")
+            QMessageBox.critical(self, "错误", "获取版本信息失败:\n固件版本列表为空")
+            return
+
+        for i, version_item in enumerate(manifest["manifest"]):
+            version_name = f"{version_item['type']}:{version_item['title']}"
+            if version_item.get("commit"):
+                version_name += f" ({version_item['commit'][:7]})"
+            self.version_combo.addItem(version_name, version_item)
+
+        self.mirror_combo.clear()
+        if not manifest.get("available_mirror"):
+            self.mirror_combo.addItem("无可用下载源")
+            self.status_text.append("获取版本信息失败: 没有可用的下载源")
+            QMessageBox.critical(self, "错误", "获取版本信息失败:\n没有可用的下载源")
+            return
+
+        for mirror_info in manifest["available_mirror"]:
+            self.mirror_combo.addItem(mirror_info["name"], mirror_info["url"])
+
+        self.version_combo.currentIndexChanged.connect(self._on_version_selected)
+
+        if self.version_combo.count() > 0:
+            self.version_combo.setCurrentIndex(0)
+            self._on_version_selected(0)
+
+        self.status_text.append("版本信息获取成功！")
+        QMessageBox.information(self, "成功", "版本信息获取成功！")
+
+    def _on_version_error(self, error_msg: str):
+        """版本信息获取失败回调"""
+        self.status_text.append(f"获取版本信息失败: {error_msg}")
+        QMessageBox.critical(self, "错误", f"获取版本信息失败:\n{error_msg}")
     
     def _on_version_selected(self, index):
         """版本选择事件"""
@@ -736,44 +780,46 @@ class FlasherDialog(QDialog):
     
     def _on_install_driver(self):
         """手动安装驱动"""
-        try:
-            self.status_text.append("=== 开始安装驱动 ===")
-            
-            # 检查epass_flasher目录
-            if not os.path.exists(self.flasher_dir):
-                QMessageBox.warning(self, "提示", "epass_flasher 目录不存在，固件烧录功能暂不可用。")
-                return
-            
-            # 检查驱动安装文件
-            drv_bat = os.path.join(self.bin_path, "drv_install.bat")
-            if not os.path.exists(drv_bat):
-                raise Exception(f"驱动安装文件不存在: {drv_bat}")
-            
-            self.status_text.append("正在安装驱动...")
-            
-            # 运行驱动安装脚本
-            result = subprocess.run([drv_bat], shell=True, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                self.status_text.append("驱动安装成功！")
-                
-                # 更新配置
-                config_dir = os.path.join(os.path.dirname(self.flasher_dir), "config")
-                config_file = os.path.join(config_dir, "config.json")
-                os.makedirs(config_dir, exist_ok=True)
-                
-                config = {"driver_installed": True, "eula_accepted": True}
-                with open(config_file, "w") as f:
-                    json.dump(config, f)
-                
-                QMessageBox.information(self, "成功", "驱动安装成功！")
-            else:
-                self.status_text.append(f"驱动安装失败: {result.stderr}")
-                QMessageBox.warning(self, "警告", f"驱动安装可能失败:\n{result.stderr}")
-                
-        except Exception as e:
-            self.status_text.append(f"驱动安装失败: {str(e)}")
-            QMessageBox.critical(self, "错误", f"驱动安装失败:\n{str(e)}")
+        self.status_text.append("=== 开始安装驱动 ===")
+
+        if not os.path.exists(self.flasher_dir):
+            QMessageBox.warning(self, "提示", "epass_flasher 目录不存在，固件烧录功能暂不可用。")
+            return
+
+        drv_bat = os.path.join(self.bin_path, "drv_install.bat")
+        if not os.path.exists(drv_bat):
+            self.status_text.append(f"驱动安装失败: 驱动安装文件不存在: {drv_bat}")
+            QMessageBox.critical(self, "错误", f"驱动安装失败:\n驱动安装文件不存在: {drv_bat}")
+            return
+
+        self.status_text.append("正在安装驱动...")
+        self.install_driver_button.setEnabled(False)
+
+        self._driver_worker = DriverInstallWorker(drv_bat, parent=self)
+        self._driver_worker.completed.connect(self._on_driver_install_done)
+        self._driver_worker.error.connect(self._on_driver_install_error)
+        self._driver_worker.finished.connect(lambda: self.install_driver_button.setEnabled(True))
+        self._driver_worker.start()
+
+    def _on_driver_install_done(self, returncode: int, stdout: str, stderr: str):
+        """驱动安装完成回调"""
+        if returncode == 0:
+            self.status_text.append("驱动安装成功！")
+            config_dir = os.path.join(os.path.dirname(self.flasher_dir), "config")
+            config_file = os.path.join(config_dir, "config.json")
+            os.makedirs(config_dir, exist_ok=True)
+            config = {"driver_installed": True, "eula_accepted": True}
+            with open(config_file, "w") as f:
+                json.dump(config, f)
+            QMessageBox.information(self, "成功", "驱动安装成功！")
+        else:
+            self.status_text.append(f"驱动安装失败: {stderr}")
+            QMessageBox.warning(self, "警告", f"驱动安装可能失败:\n{stderr}")
+
+    def _on_driver_install_error(self, error_msg: str):
+        """驱动安装失败回调"""
+        self.status_text.append(f"驱动安装失败: {error_msg}")
+        QMessageBox.critical(self, "错误", f"驱动安装失败:\n{error_msg}")
     
     def _on_update_firmware(self):
         """更新固件到最新版本"""

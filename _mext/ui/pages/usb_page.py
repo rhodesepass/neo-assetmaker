@@ -32,6 +32,7 @@ from qtpy.QtWidgets import (
 )
 
 from _mext.core.service_manager import ServiceManager
+from _mext.services.api_worker import MtpFileLoadWorker
 from _mext.services.mtp_service import MtpError
 from _mext.ui.components.usb_device_card import UsbDeviceCard
 
@@ -263,44 +264,41 @@ class UsbPage(QWidget):
         if device_info is None:
             return
 
-        mtp = self._services.mtp_service
-        try:
-            if not mtp.is_connected:
-                mtp.connect(device_info)
-            if not mtp.is_session_open:
-                mtp.open_session()
+        self._mtp_worker = MtpFileLoadWorker(
+            self._services.mtp_service, device_info, parent=self
+        )
+        self._mtp_worker.completed.connect(self._on_mtp_files_loaded)
+        self._mtp_worker.error.connect(self._on_mtp_files_error)
+        self._mtp_worker.start()
 
-            storage_ids = mtp.get_storage_ids()
-
-            for sid in storage_ids:
-                storage_item = QTreeWidgetItem(
-                    self._file_tree, [f"Storage 0x{sid:08X}", "", "Storage"]
-                )
-
-                try:
-                    handles = mtp.get_object_handles(sid)
-                    for handle in handles:
-                        QTreeWidgetItem(
-                            storage_item,
-                            [f"Object 0x{handle:08X}", "", "File"],
-                        )
-                except MtpError as exc:
+    @Slot(list)
+    def _on_mtp_files_loaded(self, result: list) -> None:
+        """Handle MTP file tree loaded from background worker."""
+        for sid, handles_or_error in result:
+            storage_item = QTreeWidgetItem(
+                self._file_tree, [f"Storage 0x{sid:08X}", "", "Storage"]
+            )
+            if isinstance(handles_or_error, str):
+                QTreeWidgetItem(storage_item, [f"Error: {handles_or_error}", "", ""])
+            else:
+                for handle in handles_or_error:
                     QTreeWidgetItem(
                         storage_item,
-                        [f"Error: {exc}", "", ""],
+                        [f"Object 0x{handle:08X}", "", "File"],
                     )
+            storage_item.setExpanded(True)
 
-                storage_item.setExpanded(True)
-
-        except MtpError as exc:
-            logger.error("MTP error loading files: %s", exc)
-            InfoBar.error(
-                title="MTP 错误",
-                content=str(exc),
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-            )
+    @Slot(str)
+    def _on_mtp_files_error(self, detail: str) -> None:
+        """Handle MTP file tree load failure."""
+        logger.error("MTP error loading files: %s", detail)
+        InfoBar.error(
+            title="MTP 错误",
+            content=detail,
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+        )
 
     @Slot()
     def _on_transfer_to_device(self) -> None:

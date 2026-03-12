@@ -7,6 +7,7 @@ and transparent token refresh on 401 responses.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Generator, Optional
 
@@ -42,6 +43,7 @@ class ApiClient:
         self._config = config or get_config()
         self._access_token: Optional[str] = None
         self._refresh_callback: Optional[callable] = None
+        self._token_lock = threading.Lock()
 
         self._client = httpx.Client(
             base_url=self._config.api_url,
@@ -68,7 +70,8 @@ class ApiClient:
     @access_token.setter
     def access_token(self, token: Optional[str]) -> None:
         """Set the access token for subsequent requests."""
-        self._access_token = token
+        with self._token_lock:
+            self._access_token = token
 
     def set_refresh_callback(self, callback: callable) -> None:
         """Register a callback invoked when a 401 triggers token refresh.
@@ -80,8 +83,10 @@ class ApiClient:
     def _build_headers(self, extra_headers: Optional[dict[str, str]] = None) -> dict[str, str]:
         """Build request headers, injecting Authorization if token exists."""
         headers: dict[str, str] = {}
-        if self._access_token:
-            headers["Authorization"] = f"Bearer {self._access_token}"
+        with self._token_lock:
+            token = self._access_token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         if extra_headers:
             headers.update(extra_headers)
         return headers
@@ -130,7 +135,8 @@ class ApiClient:
             logger.info("Received 401, attempting token refresh...")
             new_token = self._refresh_callback()
             if new_token:
-                self._access_token = new_token
+                with self._token_lock:
+                    self._access_token = new_token
                 merged_headers = self._build_headers(headers)
                 try:
                     response = self._client.request(

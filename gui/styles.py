@@ -27,6 +27,10 @@ COLOR_WARNING = ("#ff9800", "#ffa726")
 
 COLOR_ACCENT = ("#ff6b8b", "#ff6b8b")  # 主题强调色
 
+# 预览区域（始终深色，参考剪映/CapCut）
+COLOR_PREVIEW_BG = ("#1a1a1a", "#0a0a0a")
+COLOR_PREVIEW_TEXT = ("#888888", "#666666")
+
 # ── 字体尺寸 ──────────────────────────────────────────────
 
 FONT_SIZE_TITLE = 20

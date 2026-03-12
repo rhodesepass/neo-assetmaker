@@ -99,14 +99,14 @@ class VideoPreviewWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
 
-        # 视频显示标签
+        # 视频显示标签 — 始终深色背景（剪映/CapCut 风格）
         self.video_label = QLabel()
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setMinimumSize(320, 180)
         setCustomStyleSheet(
             self.video_label,
-            "background-color: #f0f0f0; border: 2px solid #ddd; border-radius: 8px; color: #666; font-size: 14px; font-weight: 500;",
-            "background-color: #121212; border: 2px solid #333; border-radius: 8px; color: #ccc; font-size: 14px; font-weight: 500;"
+            "background-color: #1a1a1a; border: none; border-radius: 8px; color: #888; font-size: 14px; font-weight: 500;",
+            "background-color: #0a0a0a; border: none; border-radius: 8px; color: #666; font-size: 14px; font-weight: 500;"
         )
         self.video_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -116,12 +116,12 @@ class VideoPreviewWidget(QWidget):
         self.video_label.setToolTip("视频预览区域\nWASD移动裁剪框，空格播放/暂停")
         layout.addWidget(self.video_label)
 
-        # 信息标签（控制按钮已移至时间轴组件）
+        # 信息标签 — 透明背景，浮于深色预览区上方
         self.info_label = CaptionLabel("帧: 0/0 | 裁剪: (0, 0, 0, 0)")
         setCustomStyleSheet(
             self.info_label,
-            "color: #666; padding: 4px 10px; background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; margin-top: 5px;",
-            "color: #aaa; padding: 4px 10px; background-color: #1a1a1a; border: 1px solid #333; border-radius: 4px; margin-top: 5px;"
+            "color: #999; padding: 4px 10px; background-color: transparent; border: none;",
+            "color: #777; padding: 4px 10px; background-color: transparent; border: none;"
         )
         layout.addWidget(self.info_label)
 

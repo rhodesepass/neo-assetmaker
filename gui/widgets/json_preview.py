@@ -80,16 +80,24 @@ class JsonPreviewWidget(QWidget):
 
     def _setup_ui(self):
         """设置UI"""
+        # 给整个面板添加左侧分隔线，与深色预览区自然分界
+        self.setObjectName("json_preview_panel")
+        setCustomStyleSheet(
+            self,
+            "QWidget#json_preview_panel { border-left: 1px solid #e0e0e0; }",
+            "QWidget#json_preview_panel { border-left: 1px solid #3a3a3a; }"
+        )
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
+        layout.setSpacing(0)
 
-        # 标题
+        # 标题 — 柔和背景融入面板
         title_label = StrongBodyLabel("配置预览 (JSON)")
         setCustomStyleSheet(
             title_label,
-            "padding: 5px; background-color: #f0f0f0; border-bottom: 1px solid #ddd;",
-            "padding: 5px; background-color: #333; border-bottom: 1px solid #444;"
+            "padding: 8px 12px; background-color: #f5f5f5; border-bottom: 1px solid #e8e8e8;",
+            "padding: 8px 12px; background-color: #2a2a2a; border-bottom: 1px solid #3a3a3a;"
         )
         layout.addWidget(title_label)
 
@@ -107,15 +115,15 @@ class JsonPreviewWidget(QWidget):
         # 语法高亮
         self._highlighter = JsonSyntaxHighlighter(self.text_edit.document())
 
-        # 验证状态
+        # 验证状态 — 背景更接近面板整体
         self.status_frame = QFrame()
         setCustomStyleSheet(
             self.status_frame,
-            "background-color: #f5f5f5; border-top: 1px solid #ddd;",
-            "background-color: #2d2d2d; border-top: 1px solid #444;"
+            "background-color: #f5f5f5; border-top: 1px solid #e8e8e8;",
+            "background-color: #252525; border-top: 1px solid #3a3a3a;"
         )
         status_layout = QHBoxLayout(self.status_frame)
-        status_layout.setContentsMargins(10, 5, 10, 5)
+        status_layout.setContentsMargins(12, 6, 12, 6)
 
         self.status_icon = CaptionLabel()
         status_layout.addWidget(self.status_icon)

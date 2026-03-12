@@ -29,6 +29,7 @@ from _mext.core.constants import SEARCH_DEBOUNCE_MS
 from _mext.core.service_manager import ServiceManager
 from _mext.models.material import Material
 from _mext.services.api_client import ApiError
+from _mext.services.api_worker import DownloadUrlWorker, MaterialsLoadWorker
 from _mext.ui.components.filter_panel import FilterPanel
 from _mext.ui.components.material_card import MaterialCard
 
@@ -220,40 +221,45 @@ class MarketPage(QWidget):
         if self._current_category:
             params["category"] = self._current_category
         if self._current_tags:
-            # Server expects repeated query params: tags=a&tags=b
             params["tags"] = self._current_tags
 
-        try:
-            response = self._services.api_client.get("materials", params=params)
-            items = response.get("items", [])
-            total = response.get("total", 0)
+        self._materials_worker = MaterialsLoadWorker(
+            self._services.api_client, params, parent=self
+        )
+        self._materials_worker.completed.connect(self._on_materials_loaded)
+        self._materials_worker.error.connect(self._on_materials_error)
+        self._materials_worker.start()
 
-            for item_data in items:
-                material = Material.from_dict(item_data)
-                self._materials.append(material)
-                card = MaterialCard(material, parent=self._grid_container)
-                card.clicked.connect(lambda mid=material.id: self.material_selected.emit(mid))
-                card.download_clicked.connect(
-                    lambda mid=material.id: self._on_download_requested(mid)
-                )
-                self._grid_layout.addWidget(card)
-
-            self._has_more = len(self._materials) < total
-            self._current_page += 1
-
-            self._empty_label.setVisible(len(self._materials) == 0)
-
-        except ApiError as exc:
-            logger.error("Failed to load materials: %s", exc)
-            InfoBar.error(
-                title="加载失败",
-                content=f"无法加载素材: {exc.detail}",
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=5000,
+    @Slot(list, int)
+    def _on_materials_loaded(self, items: list, total: int) -> None:
+        """Handle materials loaded from background worker."""
+        for item_data in items:
+            material = Material.from_dict(item_data)
+            self._materials.append(material)
+            card = MaterialCard(material, parent=self._grid_container)
+            card.clicked.connect(lambda mid=material.id: self.material_selected.emit(mid))
+            card.download_clicked.connect(
+                lambda mid=material.id: self._on_download_requested(mid)
             )
-        finally:
-            self._is_loading = False
+            self._grid_layout.addWidget(card)
+
+        self._has_more = len(self._materials) < total
+        self._current_page += 1
+        self._empty_label.setVisible(len(self._materials) == 0)
+        self._is_loading = False
+
+    @Slot(str)
+    def _on_materials_error(self, detail: str) -> None:
+        """Handle materials load failure."""
+        logger.error("Failed to load materials: %s", detail)
+        InfoBar.error(
+            title="加载失败",
+            content=f"无法加载素材: {detail}",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+        )
+        self._is_loading = False
 
     @Slot(str)
     def _on_download_requested(self, material_id: str) -> None:
@@ -266,47 +272,26 @@ class MarketPage(QWidget):
         if material is None:
             return
 
-        try:
-            # Step 1: Request a signed verification URL from the server
-            url_response = self._services.api_client.post(
-                "downloads/generate-url",
-                json={"material_id": material.id},
-            )
-            verify_url = url_response.get("url", "")
-            if not verify_url:
-                raise ApiError(500, "Server returned empty download URL")
+        self._download_url_worker = DownloadUrlWorker(
+            self._services.api_client,
+            material.id,
+            material.file_hash or "",
+            material.file_size or 0,
+            parent=self,
+        )
+        # Store material reference for the completion handler
+        self._pending_download_material = material
+        self._download_url_worker.completed.connect(self._on_download_url_ready)
+        self._download_url_worker.error.connect(self._on_download_url_error)
+        self._download_url_worker.start()
 
-            # Build a full URL if the server returned a relative path.
-            # The signed URL is an absolute path like /api/v1/downloads/verify?...
-            # so we need the bare server origin, not the versioned API base.
-            if verify_url.startswith("/"):
-                server_origin = self._services.api_client._config.api_base_url.rstrip("/")
-                verify_url = f"{server_origin}{verify_url}"
-
-            # Step 2: Call the verify endpoint to record the download and
-            # get the actual presigned storage URL for the file
-            verify_response = self._services.api_client.get(verify_url)
-            download_url = verify_response.get("presigned_url", "")
-            if not download_url:
-                raise ApiError(500, "Server returned empty presigned URL")
-
-            # Use server-provided hash/size if available (may be more
-            # up-to-date than the cached material data)
-            file_hash = verify_response.get("file_hash", material.file_hash)
-            file_size = verify_response.get("file_size", material.file_size)
-
-        except ApiError as exc:
-            logger.error("Failed to generate download URL: %s", exc)
-            InfoBar.error(
-                title="下载失败",
-                content=f"无法生成下载链接: {exc.detail}",
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-            )
+    @Slot(str, str, int)
+    def _on_download_url_ready(self, download_url: str, file_hash: str, file_size: int) -> None:
+        """Download URL resolved — start the actual download."""
+        material = self._pending_download_material
+        if material is None:
             return
 
-        # Sanitize filename for filesystem
         safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in material.name).strip()
         filename = f"{safe_name}_{material.id}"
 
@@ -327,7 +312,19 @@ class MarketPage(QWidget):
             duration=3000,
         )
 
-        self.download_requested.emit(material_id)
+        self.download_requested.emit(material.id)
+
+    @Slot(str)
+    def _on_download_url_error(self, detail: str) -> None:
+        """Download URL resolution failed."""
+        logger.error("Failed to generate download URL: %s", detail)
+        InfoBar.error(
+            title="下载失败",
+            content=f"无法生成下载链接: {detail}",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+        )
 
     def load_initial(self) -> None:
         """Load the initial set of materials. Call after the page is shown."""

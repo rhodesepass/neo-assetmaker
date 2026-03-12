@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from qtpy.QtCore import QObject, QTimer, Signal
+from qtpy.QtCore import QObject, QTimer, Signal, Slot
 
 from _mext.core.constants import USB_POLL_INTERVAL_MS
+from _mext.services.api_worker import UsbScanWorker
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class UsbService(QObject):
         # Known devices keyed by device_id
         self._known_devices: dict[str, dict[str, Any]] = {}
         self._is_monitoring = False
+        self._scan_worker: Optional[UsbScanWorker] = None
 
     @property
     def is_monitoring(self) -> bool:
@@ -111,41 +113,38 @@ class UsbService(QObject):
         return self._known_devices.get(device_id)
 
     def _poll(self) -> None:
-        """Scan for USB devices and emit signals for changes."""
-        try:
-            import usb.core
+        """Launch a background scan for USB devices."""
+        if self._scan_worker is not None and self._scan_worker.isRunning():
+            return  # Previous scan still running, skip this tick
 
-            current_devices: dict[str, dict[str, Any]] = {}
-            for dev in usb.core.find(find_all=True):
-                try:
-                    did = _device_id(dev)
-                    current_devices[did] = _device_info(dev)
-                except Exception as exc:
-                    logger.debug("Skipping inaccessible device: %s", exc)
-                    continue
+        self._scan_worker = UsbScanWorker(parent=self)
+        self._scan_worker.completed.connect(self._on_scan_result)
+        self._scan_worker.error.connect(self._on_scan_error)
+        self._scan_worker.start()
 
-            # Detect new devices
-            for did, info in current_devices.items():
-                if did not in self._known_devices:
-                    logger.info("USB device connected: %s (%s)", did, info.get("product", ""))
-                    self.device_connected.emit(info)
+    @Slot(dict)
+    def _on_scan_result(self, current_devices: dict) -> None:
+        """Process scan results from the background worker."""
+        # Detect new devices
+        for did, info in current_devices.items():
+            if did not in self._known_devices:
+                logger.info("USB device connected: %s (%s)", did, info.get("product", ""))
+                self.device_connected.emit(info)
 
-            # Detect removed devices
-            for did in list(self._known_devices.keys()):
-                if did not in current_devices:
-                    logger.info("USB device disconnected: %s", did)
-                    self.device_disconnected.emit(did)
+        # Detect removed devices
+        for did in list(self._known_devices.keys()):
+            if did not in current_devices:
+                logger.info("USB device disconnected: %s", did)
+                self.device_disconnected.emit(did)
 
-            self._known_devices = current_devices
+        self._known_devices = current_devices
 
-        except ImportError:
-            logger.warning("pyusb not available; USB monitoring disabled")
+    @Slot(str)
+    def _on_scan_error(self, error_msg: str) -> None:
+        """Handle scan worker errors."""
+        if "not available" in error_msg.lower() or "not installed" in error_msg.lower():
+            logger.warning("USB scan unavailable: %s", error_msg)
             self.stop_monitoring()
-            self.scan_error.emit("pyusb library not available")
-        except usb.core.NoBackendError:
-            logger.warning("No USB backend available (libusb not installed); USB monitoring disabled")
-            self.stop_monitoring()
-            self.scan_error.emit("USB驱动未安装，请安装 libusb 后重试")
-        except Exception as exc:
-            logger.error("USB scan error: %s", exc)
-            self.scan_error.emit(str(exc))
+        else:
+            logger.error("USB scan error: %s", error_msg)
+        self.scan_error.emit(error_msg)

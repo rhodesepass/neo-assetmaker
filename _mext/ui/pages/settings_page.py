@@ -33,6 +33,7 @@ from qtpy.QtWidgets import (
 from _mext.core.service_manager import ServiceManager
 from _mext.models.user import Fido2Credential
 from _mext.services.api_client import ApiError
+from _mext.services.api_worker import ApiCallWorker, CredentialsLoadWorker
 from _mext.ui.components.fido2_credential_card import Fido2CredentialCard
 from _mext.ui.dialogs.fido2_pin_dialog import Fido2PinDialog
 from _mext.ui.dialogs.fido2_touch_dialog import Fido2TouchDialog
@@ -292,26 +293,31 @@ class SettingsPage(QWidget):
             self._no_keys_label.setVisible(True)
             return
 
-        try:
-            response = self._services.api_client.get(_FIDO2_CREDENTIALS_PATH)
-            credentials = [Fido2Credential.from_dict(c) for c in response.get("credentials", [])]
+        self._creds_worker = CredentialsLoadWorker(
+            self._services.api_client, _FIDO2_CREDENTIALS_PATH, parent=self
+        )
+        self._creds_worker.completed.connect(self._on_credentials_loaded)
+        self._creds_worker.error.connect(self._on_credentials_error)
+        self._creds_worker.start()
 
-            self._no_keys_label.setVisible(len(credentials) == 0)
+    @Slot(list)
+    def _on_credentials_loaded(self, creds_raw: list) -> None:
+        """Handle FIDO2 credentials loaded from background worker."""
+        credentials = [Fido2Credential.from_dict(c) for c in creds_raw]
+        self._no_keys_label.setVisible(len(credentials) == 0)
+        for cred in credentials:
+            card = Fido2CredentialCard(cred, parent=self._credentials_container)
+            card.delete_clicked.connect(
+                lambda cid=cred.credential_id: self._on_delete_credential(cid)
+            )
+            self._credential_cards.append(card)
+            self._credentials_layout.addWidget(card)
 
-            for cred in credentials:
-                card = Fido2CredentialCard(cred, parent=self._credentials_container)
-                card.delete_clicked.connect(
-                    lambda cid=cred.credential_id: self._on_delete_credential(cid)
-                )
-                self._credential_cards.append(card)
-                self._credentials_layout.addWidget(card)
-
-        except ApiError as exc:
-            logger.warning("Could not load FIDO2 credentials: %s", exc)
-            self._no_keys_label.setVisible(True)
-        except Exception as exc:
-            logger.warning("Unexpected error loading FIDO2 credentials: %s", exc)
-            self._no_keys_label.setVisible(True)
+    @Slot(str)
+    def _on_credentials_error(self, detail: str) -> None:
+        """Handle FIDO2 credentials load failure."""
+        logger.warning("Could not load FIDO2 credentials: %s", detail)
+        self._no_keys_label.setVisible(True)
 
     @Slot()
     def _on_register_fido2_key(self) -> None:
@@ -326,19 +332,24 @@ class SettingsPage(QWidget):
             )
             return
 
-        try:
-            response = self._services.api_client.post(_FIDO2_REGISTER_BEGIN_PATH)
-        except ApiError as exc:
-            InfoBar.error(
+        self._register_begin_worker = ApiCallWorker(
+            self._services.api_client, "POST", _FIDO2_REGISTER_BEGIN_PATH, parent=self
+        )
+        self._register_begin_worker.completed.connect(self._on_register_begin_ready)
+        self._register_begin_worker.error.connect(
+            lambda msg: InfoBar.error(
                 title="注册错误",
-                content=f"无法开始注册: {exc.detail}",
+                content=f"无法开始注册: {msg}",
                 parent=self,
                 position=InfoBarPosition.TOP,
                 duration=5000,
             )
-            return
+        )
+        self._register_begin_worker.start()
 
-        # Extract the state token from the server response for the completion step
+    @Slot(object)
+    def _on_register_begin_ready(self, response: object) -> None:
+        """Register-begin response received — start FIDO2 worker."""
         state_token = response.get("state", "")
 
         touch_dialog = Fido2TouchDialog(self)
@@ -373,33 +384,40 @@ class SettingsPage(QWidget):
         """Handle successful FIDO2 key registration."""
         dialog.close()
 
-        try:
-            # Send attestation, state, and a default credential name
-            # matching the server's Fido2RegisterCompleteRequest schema
-            self._services.api_client.post(
-                _FIDO2_REGISTER_COMPLETE_PATH,
-                json={
-                    "attestation": result,
-                    "state": state_token,
-                    "credential_name": "Security Key",
-                },
-            )
-            InfoBar.success(
-                title="安全密钥已注册",
-                content="你的安全密钥已注册成功。",
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=4000,
-            )
-            self._load_fido2_credentials()
-        except ApiError as exc:
-            InfoBar.error(
+        self._register_complete_worker = ApiCallWorker(
+            self._services.api_client,
+            "POST",
+            _FIDO2_REGISTER_COMPLETE_PATH,
+            json={
+                "attestation": result,
+                "state": state_token,
+                "credential_name": "Security Key",
+            },
+            parent=self,
+        )
+        self._register_complete_worker.completed.connect(self._on_register_complete_done)
+        self._register_complete_worker.error.connect(
+            lambda msg: InfoBar.error(
                 title="注册失败",
-                content=f"无法完成注册: {exc.detail}",
+                content=f"无法完成注册: {msg}",
                 parent=self,
                 position=InfoBarPosition.TOP,
                 duration=5000,
             )
+        )
+        self._register_complete_worker.start()
+
+    @Slot(object)
+    def _on_register_complete_done(self, response: object) -> None:
+        """Register-complete succeeded."""
+        InfoBar.success(
+            title="安全密钥已注册",
+            content="你的安全密钥已注册成功。",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=4000,
+        )
+        self._load_fido2_credentials()
 
     def _on_register_error(self, message: str, dialog: Fido2TouchDialog) -> None:
         """Handle FIDO2 registration error."""
@@ -414,21 +432,32 @@ class SettingsPage(QWidget):
 
     def _on_delete_credential(self, credential_id: str) -> None:
         """Delete a FIDO2 credential."""
-        try:
-            self._services.api_client.delete(f"{_FIDO2_CREDENTIALS_PATH}/{credential_id}")
-            InfoBar.success(
-                title="密钥已移除",
-                content="安全密钥已移除。",
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-            )
-            self._load_fido2_credentials()
-        except ApiError as exc:
-            InfoBar.error(
+        self._delete_cred_worker = ApiCallWorker(
+            self._services.api_client,
+            "DELETE",
+            f"{_FIDO2_CREDENTIALS_PATH}/{credential_id}",
+            parent=self,
+        )
+        self._delete_cred_worker.completed.connect(self._on_delete_credential_done)
+        self._delete_cred_worker.error.connect(
+            lambda msg: InfoBar.error(
                 title="删除失败",
-                content=f"无法移除密钥: {exc.detail}",
+                content=f"无法移除密钥: {msg}",
                 parent=self,
                 position=InfoBarPosition.TOP,
                 duration=5000,
             )
+        )
+        self._delete_cred_worker.start()
+
+    @Slot(object)
+    def _on_delete_credential_done(self, response: object) -> None:
+        """Credential deleted successfully."""
+        InfoBar.success(
+            title="密钥已移除",
+            content="安全密钥已移除。",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+        )
+        self._load_fido2_credentials()

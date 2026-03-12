@@ -468,8 +468,14 @@ class MainWindow(QMainWindow):
 
         self.splitter.addWidget(self.config_container)
 
-        # === 中间: 视频预览标签页 + 时间轴 ===
+        # === 中间: 视频预览标签页 + 时间轴（深色预览区，剪映风格）===
         preview_container = QWidget()
+        preview_container.setObjectName("preview_container")
+        setCustomStyleSheet(
+            preview_container,
+            "QWidget#preview_container { background-color: #1a1a1a; border-radius: 8px; }",
+            "QWidget#preview_container { background-color: #0a0a0a; border-radius: 8px; }"
+        )
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(5, 5, 5, 5)
         preview_layout.setSpacing(5)
@@ -478,6 +484,12 @@ class MainWindow(QMainWindow):
         self.preview_tabs = TabWidget()
         self.preview_tabs.setTabsClosable(False)  # 禁用关闭按钮
         self.preview_tabs.setMovable(False)  # 禁用标签移动
+        # 标签页文字在深色预览背景上需要浅色
+        setCustomStyleSheet(
+            self.preview_tabs,
+            "TabWidget > QTabBar::tab { color: #ccc; } TabWidget > QTabBar::tab:selected { color: #fff; }",
+            "TabWidget > QTabBar::tab { color: #aaa; } TabWidget > QTabBar::tab:selected { color: #eee; }"
+        )
         self.video_preview = VideoPreviewWidget()  # 循环视频预览
         self.intro_preview = VideoPreviewWidget()  # 入场视频预览
         self.transition_preview = TransitionPreviewWidget()  # 过渡图片预览

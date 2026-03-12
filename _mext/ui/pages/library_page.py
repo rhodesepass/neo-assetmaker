@@ -33,6 +33,7 @@ from qtpy.QtWidgets import (
 from _mext.core.service_manager import ServiceManager
 from _mext.models.material import Material
 from _mext.services.api_client import ApiError
+from _mext.services.api_worker import LibraryLoadWorker
 from _mext.ui.components.material_card import MaterialCard
 
 logger = logging.getLogger(__name__)
@@ -233,54 +234,37 @@ class LibraryPage(QWidget):
         - GET /users/me/downloads for download history
         - GET /users/me/favorites for favorited materials
         """
-        # Load download history (returns DownloadRecordResponse items)
-        try:
-            download_records = self._services.api_client.get("users/me/downloads")
-            # download_records is a list of {id, material_id, material_name, downloaded_at}
-            # We need to fetch full material details for each unique material_id
-            if isinstance(download_records, list):
-                # Build lightweight Material objects from download records
-                seen_ids: set[str] = set()
-                materials: list[Material] = []
-                for record in download_records:
-                    mid = str(record.get("material_id", ""))
-                    if mid and mid not in seen_ids:
-                        seen_ids.add(mid)
-                        try:
-                            mat_data = self._services.api_client.get(f"materials/{mid}")
-                            materials.append(Material.from_dict(mat_data))
-                        except ApiError:
-                            # Material may have been deleted; skip it
-                            pass
-                self._all_materials = materials
-            else:
-                self._all_materials = []
-        except ApiError as exc:
-            logger.error("Failed to load download history: %s", exc)
-            InfoBar.error(
-                title="加载失败",
-                content=f"无法加载素材库: {exc.detail}",
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-            )
-            return
+        self._library_worker = LibraryLoadWorker(
+            self._services.api_client, parent=self
+        )
+        self._library_worker.completed.connect(self._on_library_loaded)
+        self._library_worker.error.connect(self._on_library_error)
+        self._library_worker.start()
 
-        # Load favorites (returns list of MaterialResponse)
-        try:
-            fav_items = self._services.api_client.get("users/me/favorites")
-            if isinstance(fav_items, list):
-                self._favorite_materials = [Material.from_dict(item) for item in fav_items]
-                # Mark favorites in the all-materials list
-                fav_ids = {m.id for m in self._favorite_materials}
-                for m in self._all_materials:
-                    m.is_favorited = m.id in fav_ids
-            else:
-                self._favorite_materials = []
-        except ApiError:
+    @Slot(list, list)
+    def _on_library_loaded(self, materials_raw: list, fav_raw: list) -> None:
+        """Handle library data loaded from background worker."""
+        self._all_materials = [Material.from_dict(d) for d in materials_raw]
+        if fav_raw:
+            self._favorite_materials = [Material.from_dict(item) for item in fav_raw]
+            fav_ids = {m.id for m in self._favorite_materials}
+            for m in self._all_materials:
+                m.is_favorited = m.id in fav_ids
+        else:
             self._favorite_materials = [m for m in self._all_materials if m.is_favorited]
-
         self._refresh_view()
+
+    @Slot(str)
+    def _on_library_error(self, detail: str) -> None:
+        """Handle library load failure."""
+        logger.error("Failed to load library: %s", detail)
+        InfoBar.error(
+            title="加载失败",
+            content=f"无法加载素材库: {detail}",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+        )
 
     def load_initial(self) -> None:
         """Load library data on first display."""

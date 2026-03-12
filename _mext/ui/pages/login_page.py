@@ -32,6 +32,12 @@ from qtpy.QtWidgets import (
 
 from _mext.core.service_manager import ServiceManager
 from _mext.services.api_client import ApiError
+from _mext.services.api_worker import (
+    ApiCallWorker,
+    AuthLoginWorker,
+    AuthRegisterWorker,
+    DrmLoginInitWorker,
+)
 from _mext.ui.dialogs.fido2_touch_dialog import Fido2TouchDialog
 
 logger = logging.getLogger(__name__)
@@ -185,25 +191,51 @@ class LoginPage(QWidget):
                 self._show_error("请输入邮箱地址。")
                 self._set_loading(False)
                 return
-            success = self._services.auth_service.register(username, email, password)
+            self._auth_worker = AuthRegisterWorker(
+                self._services.auth_service, username, email, password, parent=self
+            )
+            self._auth_worker.completed.connect(self._on_auth_result)
+            self._auth_worker.error.connect(self._on_auth_worker_error)
+            self._auth_worker.start()
         else:
-            success = self._services.auth_service.login(username, password)
+            self._auth_worker = AuthLoginWorker(
+                self._services.auth_service, username, password, parent=self
+            )
+            self._auth_worker.completed.connect(self._on_auth_result)
+            self._auth_worker.fido2_required.connect(self._on_fido2_required)
+            self._auth_worker.error.connect(self._on_auth_worker_error)
+            self._auth_worker.start()
 
-        # Do not reset loading state if FIDO2 flow was initiated; the
-        # fido2_required signal handler will manage the loading state.
+    @Slot(bool)
+    def _on_auth_result(self, success: bool) -> None:
+        """Handle auth worker completion."""
         if not self._pending_fido2:
             self._set_loading(False)
-
         if success:
             self._clear_fields()
             self.login_successful.emit()
+
+    @Slot(str)
+    def _on_auth_worker_error(self, message: str) -> None:
+        """Handle auth worker error."""
+        self._set_loading(False)
+        self._show_error(message)
 
     @Slot()
     def _on_drm_login_clicked(self) -> None:
         """Start the OAuth2 + PKCE login flow."""
         self._set_loading(True)
-        self._services.auth_service.initiate_drm_login()
 
+        self._drm_init_worker = DrmLoginInitWorker(
+            self._services.auth_service, parent=self
+        )
+        self._drm_init_worker.completed.connect(self._on_drm_init_done)
+        self._drm_init_worker.error.connect(self._on_drm_init_error)
+        self._drm_init_worker.start()
+
+    @Slot()
+    def _on_drm_init_done(self) -> None:
+        """DRM initiation succeeded — browser opened, wait for callback."""
         InfoBar.info(
             title="浏览器已打开",
             content="请在浏览器中完成登录。",
@@ -217,7 +249,6 @@ class LoginPage(QWidget):
 
         def _wait_for_callback() -> None:
             success = self._services.auth_service.handle_callback()
-            # Schedule UI update on the main thread
             from qtpy.QtCore import QMetaObject
 
             if success:
@@ -231,6 +262,12 @@ class LoginPage(QWidget):
 
         thread = threading.Thread(target=_wait_for_callback, daemon=True)
         thread.start()
+
+    @Slot(str)
+    def _on_drm_init_error(self, message: str) -> None:
+        """DRM initiation failed."""
+        self._set_loading(False)
+        self._show_error(f"Could not initiate DRM login: {message}")
 
     @Slot()
     def _on_drm_login_success(self) -> None:
@@ -273,24 +310,31 @@ class LoginPage(QWidget):
         fido2_token: str | None = None,
     ) -> None:
         """Common FIDO2 authentication flow for both passwordless and 2FA modes."""
-        try:
-            # Request challenge from server
-            body: dict = {}
-            if username:
-                body["username"] = username
-            challenge_data = self._services.api_client.post(
-                "auth/fido2/login/begin",
-                json=body,
-            )
-        except ApiError as exc:
-            self._show_error(f"Could not start FIDO2 authentication: {exc.detail}")
-            self._set_loading(False)
-            return
+        body: dict = {}
+        if username:
+            body["username"] = username
 
-        # Store fido2_token and state for the completion step
+        self._fido2_challenge_worker = ApiCallWorker(
+            self._services.api_client,
+            "POST",
+            "auth/fido2/login/begin",
+            json=body,
+            parent=self,
+        )
+        # Store fido2_token for the completion step
+        self._pending_fido2_token = fido2_token
+        self._fido2_challenge_worker.completed.connect(self._on_fido2_challenge_ready)
+        self._fido2_challenge_worker.error.connect(
+            lambda msg: (self._show_error(f"Could not start FIDO2 authentication: {msg}"), self._set_loading(False))
+        )
+        self._fido2_challenge_worker.start()
+
+    @Slot(object)
+    def _on_fido2_challenge_ready(self, challenge_data: object) -> None:
+        """Challenge received — start FIDO2 auth worker."""
         state_token = challenge_data.get("state", "")
+        fido2_token = getattr(self, "_pending_fido2_token", None)
 
-        # Show touch dialog
         touch_dialog = Fido2TouchDialog(self)
 
         from _mext.services.fido2_worker import Fido2AuthWorker
@@ -321,25 +365,33 @@ class LoginPage(QWidget):
         """Handle successful FIDO2 authentication."""
         dialog.close()
 
-        try:
-            payload = {
-                "assertion": result,
-                "state": state_token,
-            }
-            if fido2_token:
-                payload["fido2_token"] = fido2_token
+        payload = {
+            "assertion": result,
+            "state": state_token,
+        }
+        if fido2_token:
+            payload["fido2_token"] = fido2_token
 
-            token_data = self._services.api_client.post(
-                "auth/fido2/login/complete",
-                json=payload,
-            )
-            self._services.auth_service._handle_token_response(token_data)
-            self._set_loading(False)
-            self._clear_fields()
-            self.login_successful.emit()
-        except ApiError as exc:
-            self._show_error(f"FIDO2 verification failed: {exc.detail}")
-            self._set_loading(False)
+        self._fido2_complete_worker = ApiCallWorker(
+            self._services.api_client,
+            "POST",
+            "auth/fido2/login/complete",
+            json=payload,
+            parent=self,
+        )
+        self._fido2_complete_worker.completed.connect(self._on_fido2_complete_result)
+        self._fido2_complete_worker.error.connect(
+            lambda msg: (self._show_error(f"FIDO2 verification failed: {msg}"), self._set_loading(False))
+        )
+        self._fido2_complete_worker.start()
+
+    @Slot(object)
+    def _on_fido2_complete_result(self, token_data: object) -> None:
+        """Handle FIDO2 login/complete response."""
+        self._services.auth_service._handle_token_response(token_data)
+        self._set_loading(False)
+        self._clear_fields()
+        self.login_successful.emit()
 
     def _on_fido2_auth_error(self, message: str, dialog: Fido2TouchDialog) -> None:
         """Handle FIDO2 authentication error."""
