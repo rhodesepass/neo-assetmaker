@@ -74,7 +74,7 @@ class BasicConfigPanel(QWidget):
         self.combo_screen = ComboBox()
         for screen in RESOLUTION_SPECS:
             desc = RESOLUTION_SPECS[screen].get("description", screen)
-            self.combo_screen.addItem(desc, screen)
+            self.combo_screen.addItem(desc, userData=screen)
         basic_layout.addRow("分辨率:", self.combo_screen)
 
         layout.addWidget(group_basic)
@@ -143,9 +143,9 @@ class BasicConfigPanel(QWidget):
         
         # 职业下拉框
         self.combo_ark_class = ComboBox()
-        self.combo_ark_class.addItem("无", "")
+        self.combo_ark_class.addItem("无", userData="")
         for class_name, class_value in OPERATOR_CLASS_PRESETS.items():
-            self.combo_ark_class.addItem(class_name, class_value)
+            self.combo_ark_class.addItem(class_name, userData=class_value)
         self.combo_ark_class.setToolTip("选择干员职业\n输入干员名称后自动匹配")
         form_layout.addRow("职业:", self.combo_ark_class)
         

@@ -18,7 +18,7 @@ from qfluentwidgets import (
     ScrollArea, FluentIcon,
     setCustomStyleSheet, isDarkTheme
 )
-from PyQt6.QtGui import QAction, QKeySequence, QIcon
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QShortcut
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QMenuBar, QMenu, QStatusBar,
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._setup_menu()
+        self._setup_shortcuts()
         self._setup_icon()
         self._connect_signals()
         self._load_settings()
@@ -544,11 +545,9 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu("文件(&F)")
 
         self.action_new = QAction("新建项目(&N)", self)
-        self.action_new.setShortcut(QKeySequence.StandardKey.New)
         file_menu.addAction(self.action_new)
 
         self.action_open = QAction("打开项目(&O)...", self)
-        self.action_open.setShortcut(QKeySequence.StandardKey.Open)
         file_menu.addAction(self.action_open)
 
         # 最近打开的文件
@@ -558,29 +557,24 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         self.action_save = QAction("保存(&S)", self)
-        self.action_save.setShortcut(QKeySequence.StandardKey.Save)
         file_menu.addAction(self.action_save)
 
         self.action_save_as = QAction("另存为(&A)...", self)
-        self.action_save_as.setShortcut(QKeySequence("Ctrl+Shift+S"))
         file_menu.addAction(self.action_save_as)
 
         file_menu.addSeparator()
 
         self.action_exit = QAction("退出(&X)", self)
-        self.action_exit.setShortcut(QKeySequence.StandardKey.Quit)
         file_menu.addAction(self.action_exit)
 
         # 编辑菜单
         edit_menu = menubar.addMenu("编辑(&E)")
 
         self.action_undo = QAction("撤销(&U)", self)
-        self.action_undo.setShortcut(QKeySequence.StandardKey.Undo)
         self.action_undo.setEnabled(False)
         edit_menu.addAction(self.action_undo)
 
         self.action_redo = QAction("重做(&R)", self)
-        self.action_redo.setShortcut(QKeySequence.StandardKey.Redo)
         self.action_redo.setEnabled(False)
         edit_menu.addAction(self.action_redo)
 
@@ -594,7 +588,6 @@ class MainWindow(QMainWindow):
         help_menu = menubar.addMenu("帮助(&H)")
 
         self.action_shortcuts = QAction("快捷键帮助(&K)", self)
-        self.action_shortcuts.setShortcut(QKeySequence("F1"))
         help_menu.addAction(self.action_shortcuts)
 
         self.action_check_update = QAction("检查更新(&U)...", self)
@@ -604,6 +597,30 @@ class MainWindow(QMainWindow):
 
         self.action_about = QAction("关于(&A)", self)
         help_menu.addAction(self.action_about)
+
+    def _setup_shortcuts(self):
+        """设置全局快捷键 - 统一注册到 MainWindow 上，不受子面板可见性影响"""
+        # 文件操作
+        QShortcut(QKeySequence.StandardKey.New, self).activated.connect(self._on_new_project)
+        QShortcut(QKeySequence.StandardKey.Open, self).activated.connect(self._on_open_project)
+        QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._on_save_project)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self).activated.connect(self._on_save_as)
+        QShortcut(QKeySequence.StandardKey.Quit, self).activated.connect(self.close)
+
+        # 撤销/重做（需要动态启用/禁用）
+        self._shortcut_undo = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self._shortcut_undo.setEnabled(False)
+        self._shortcut_undo.activated.connect(self._on_undo)
+        self._shortcut_redo = QShortcut(QKeySequence.StandardKey.Redo, self)
+        self._shortcut_redo.setEnabled(False)
+        self._shortcut_redo.activated.connect(self._on_redo)
+
+        # 工具
+        QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self._on_validate)
+        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_export)
+
+        # 帮助
+        QShortcut(QKeySequence("F1"), self).activated.connect(self._on_shortcuts)
 
     def _connect_signals(self):
         """连接信号"""
@@ -1492,6 +1509,8 @@ class MainWindow(QMainWindow):
         self.action_redo.setEnabled(len(self._redo_stack) > 0)
         self.menu_action_undo.setEnabled(len(self._undo_stack) > 0)
         self.menu_action_redo.setEnabled(len(self._redo_stack) > 0)
+        self._shortcut_undo.setEnabled(len(self._undo_stack) > 0)
+        self._shortcut_redo.setEnabled(len(self._redo_stack) > 0)
 
         self.status_bar.showMessage("已撤销", 2000)
 
@@ -1517,6 +1536,8 @@ class MainWindow(QMainWindow):
         self.action_redo.setEnabled(len(self._redo_stack) > 0)
         self.menu_action_undo.setEnabled(len(self._undo_stack) > 0)
         self.menu_action_redo.setEnabled(len(self._redo_stack) > 0)
+        self._shortcut_undo.setEnabled(len(self._undo_stack) > 0)
+        self._shortcut_redo.setEnabled(len(self._redo_stack) > 0)
 
         self.status_bar.showMessage("已重做", 2000)
 
@@ -1540,6 +1561,8 @@ class MainWindow(QMainWindow):
         self.action_redo.setEnabled(False)
         self.menu_action_undo.setEnabled(len(self._undo_stack) > 0)
         self.menu_action_redo.setEnabled(False)
+        self._shortcut_undo.setEnabled(len(self._undo_stack) > 0)
+        self._shortcut_redo.setEnabled(False)
 
     def _update_ui_from_config(self):
         """从配置更新UI"""

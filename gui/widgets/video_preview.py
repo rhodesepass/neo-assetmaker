@@ -702,23 +702,27 @@ class VideoPreviewWidget(QWidget):
             return
 
         key = event.key()
+        modifiers = event.modifiers()
         step = 10
 
+        # 仅在无修饰键时处理，避免拦截 Ctrl+S 等全局快捷键
+        has_modifier = modifiers != Qt.KeyboardModifier.NoModifier
+
         # 播放/帧跳转操作需要视频
-        if key == Qt.Key.Key_Space and self.cap is not None:
+        if key == Qt.Key.Key_Space and self.cap is not None and not has_modifier:
             self.toggle_play()
-        elif key == Qt.Key.Key_Left and self.cap is not None:
+        elif key == Qt.Key.Key_Left and self.cap is not None and not has_modifier:
             self.prev_frame()
-        elif key == Qt.Key.Key_Right and self.cap is not None:
+        elif key == Qt.Key.Key_Right and self.cap is not None and not has_modifier:
             self.next_frame()
-        # WASD 裁剪框移动（视频和静态图片都支持）
-        elif key == Qt.Key.Key_W:
+        # WASD 裁剪框移动（视频和静态图片都支持，仅无修饰键时）
+        elif key == Qt.Key.Key_W and not has_modifier:
             self.cropbox[1] -= step
-        elif key == Qt.Key.Key_S:
+        elif key == Qt.Key.Key_S and not has_modifier:
             self.cropbox[1] += step
-        elif key == Qt.Key.Key_A:
+        elif key == Qt.Key.Key_A and not has_modifier:
             self.cropbox[0] -= step
-        elif key == Qt.Key.Key_D:
+        elif key == Qt.Key.Key_D and not has_modifier:
             self.cropbox[0] += step
         else:
             super().keyPressEvent(event)

@@ -521,12 +521,10 @@ class ConfigPanel(QWidget):
         actions_layout = QVBoxLayout()
 
         self.btn_validate = PrimaryPushButton("验证配置")
-        self.btn_validate.setShortcut(QKeySequence("Ctrl+T"))
         self.btn_validate.setToolTip("验证配置是否有效 (Ctrl+T)")
         actions_layout.addWidget(self.btn_validate)
 
         self.btn_export = PrimaryPushButton("导出素材")
-        self.btn_export.setShortcut(QKeySequence("Ctrl+E"))
         self.btn_export.setToolTip("导出素材文件 (Ctrl+E)")
         actions_layout.addWidget(self.btn_export)
         group_actions.addLayout(actions_layout)
