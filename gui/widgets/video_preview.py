@@ -1,5 +1,13 @@
 """
 视频预览组件 - 支持视频播放和裁剪框交互
+
+视频帧读取和处理已移至后台线程 (FrameReaderThread)，避免阻塞 UI 事件循环。
+
+Qt 6 官方文档依据：
+- 主线程长耗时操作阻塞事件循环 (https://doc.qt.io/qt-6/threads-qobjects.html)
+- QImage 可安全在工作线程创建 (https://doc.qt.io/qt-6/qimage.html#details)
+- QPixmap 必须在主线程创建 (https://doc.qt.io/qt-6/qpixmap.html#details)
+- 跨线程信号自动 QueuedConnection (https://doc.qt.io/qt-6/threads-qobjects.html)
 """
 import logging
 from typing import Optional, Tuple, TYPE_CHECKING
@@ -37,7 +45,7 @@ class VideoPreviewWidget(QWidget):
     frame_changed = pyqtSignal(int)  # 当前帧号
     playback_state_changed = pyqtSignal(bool)  # 播放状态
     video_loaded = pyqtSignal(int, float)  # 总帧数, fps
-    rotation_changed = pyqtSignal(int)  # 旋转角度 (0, 90, 180, 270)
+    rotation_changed = pyqtSignal(int)  # 旋转角度 (0-359)
 
     # 拖拽模式
     DRAG_NONE = 0
@@ -51,7 +59,6 @@ class VideoPreviewWidget(QWidget):
         super().__init__(parent)
 
         # 视频状态
-        self.cap = None
         self.video_path: str = ""
         self.video_fps: float = 30.0
         self.video_width: int = 0
@@ -59,6 +66,11 @@ class VideoPreviewWidget(QWidget):
         self.total_frames: int = 0
         self.current_frame_index: int = 0
         self.current_frame = None
+
+        # 后台帧读取线程（替代旧的 self.cap）
+        self._reader_thread = None
+        # 标记是否有活跃的视频（用于替代 self.cap is not None 的检查）
+        self._has_video: bool = False
 
         # 播放状态
         self.is_playing: bool = False
@@ -87,8 +99,11 @@ class VideoPreviewWidget(QWidget):
         self._epconfig: Optional["EPConfig"] = None
         self._overlay_renderer = None
 
-        # 视频旋转 (0, 90, 180, 270)
+        # 视频旋转 (0-359 任意整数角度)
         self._rotation: int = 0
+
+        # 图片循环模式（load_image_as_loop 设置）
+        self._loop_frame: Optional[np.ndarray] = None
 
         self._setup_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -125,6 +140,87 @@ class VideoPreviewWidget(QWidget):
         )
         layout.addWidget(self.info_label)
 
+    # ── 后台线程生命周期管理 ──
+
+    def _stop_reader_thread(self):
+        """安全停止后台帧读取线程"""
+        if self._reader_thread is not None:
+            self._reader_thread.request_stop()
+            self._reader_thread.wait(3000)  # 最多等待 3 秒
+            if self._reader_thread.isRunning():
+                logger.warning("FrameReaderThread 未能在 3 秒内退出，强制终止")
+                self._reader_thread.terminate()
+                self._reader_thread.wait(1000)
+            self._reader_thread = None
+        self._has_video = False
+
+    def _on_video_opened(self, fps: float, width: int, height: int,
+                         total_frames: int):
+        """后台线程成功打开视频的回调（主线程执行）"""
+        self.video_fps = fps
+        self.video_width = width
+        self.video_height = height
+        self.total_frames = total_frames
+        self.current_frame_index = 0
+        self._has_video = True
+
+        logger.info(
+            f"视频已加载: {width}x{height}, "
+            f"{total_frames} 帧, {fps:.1f} FPS"
+        )
+
+        self._init_cropbox()
+        # 同步 cropbox 到工作线程
+        self._sync_state_to_reader()
+        self.video_loaded.emit(total_frames, fps)
+
+    def _on_video_open_failed(self, error_msg: str):
+        """视频打开失败的回调"""
+        logger.error(f"视频加载失败: {error_msg}")
+        self.video_label.setText(f"加载失败: {error_msg}")
+        self._has_video = False
+
+    def _on_frame_ready(self, frame_index: int, qimage: QImage,
+                        raw_frame: object):
+        """后台线程帧就绪回调（主线程执行 — Qt QueuedConnection 保证）
+
+        主线程仅做 QPixmap.fromImage() + setPixmap()，非常轻量。
+        """
+        self.current_frame_index = frame_index
+        self.current_frame = raw_frame  # 保存原始帧，供 cropbox 交互即时重绘
+
+        # QImage → QPixmap（必须在主线程）
+        label_size = self.video_label.size()
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            label_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        # 更新显示参数（仅编辑模式需要用于坐标转换）
+        if not self._preview_mode:
+            rotated_width, _ = self._get_rotated_video_size()
+            self.display_scale = (
+                pixmap.width() / rotated_width if rotated_width > 0 else 1.0)
+            self.display_offset_x = (label_size.width() - pixmap.width()) // 2
+            self.display_offset_y = (
+                label_size.height() - pixmap.height()) // 2
+
+        self.video_label.setPixmap(pixmap)
+        self.frame_changed.emit(frame_index)
+        self._update_info_label()
+
+    def _sync_state_to_reader(self):
+        """将当前状态同步到后台线程"""
+        if self._reader_thread is not None:
+            self._reader_thread.request_set_rotation(self._rotation)
+            self._reader_thread.request_set_cropbox(self.cropbox)
+            self._reader_thread.request_set_preview_params(
+                self._preview_mode, self.target_width, self.target_height,
+                self._epconfig, self._overlay_renderer)
+
+    # ── 公共 API（保持不变） ──
+
     def set_target_resolution(self, width: int, height: int):
         """设置目标裁剪分辨率"""
         self.target_width = width
@@ -132,10 +228,15 @@ class VideoPreviewWidget(QWidget):
         self.target_aspect_ratio = width / height
         if self.current_frame is not None:
             self._init_cropbox()
+            self._sync_state_to_reader()
             self._display_frame(self.current_frame)
 
     def load_video(self, path: str) -> bool:
-        """加载视频"""
+        """加载视频（异步，不阻塞 UI）
+
+        返回 True 表示加载请求已提交（路径有效），
+        实际加载结果通过 video_loaded 信号通知。
+        """
         logger.info(f"尝试加载视频: {path}")
 
         if not HAS_CV2:
@@ -149,47 +250,26 @@ class VideoPreviewWidget(QWidget):
             self.video_label.setText(f"文件不存在: {path}")
             return False
 
-        if self.cap is not None:
-            self.cap.release()
+        # 停止旧的读取线程和播放
+        self._stop_reader_thread()
         self.pause()
-
-        # 处理中文路径问题
-        try:
-            # 尝试直接加载
-            self.cap = cv2.VideoCapture(path)
-            if not self.cap.isOpened():
-                # 如果失败，尝试使用 Unicode 路径
-                logger.warning("直接加载失败，尝试使用 Unicode 路径")
-                # 在 Windows 上，使用 utf-8 编码处理中文路径
-                import sys
-                if sys.platform.startswith('win'):
-                    # 使用路径的原始字符串
-                    self.cap = cv2.VideoCapture(str(path))
-        except Exception as e:
-            logger.error(f"加载视频时出错: {e}")
-            self.video_label.setText(f"加载失败: {str(e)}")
-            return False
-
-        if not self.cap.isOpened():
-            logger.error(f"无法打开视频: {path}")
-            self.video_label.setText("无法打开视频")
-            return False
+        self._loop_frame = None  # 清除图片循环状态
 
         self.video_path = path
-        self.video_fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
-        self.video_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.video_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.current_frame_index = 0
+        self.video_label.setText("正在加载视频...")
 
-        logger.info(
-            f"视频已加载: {self.video_width}x{self.video_height}, "
-            f"{self.total_frames} 帧, {self.video_fps:.1f} FPS"
-        )
+        # 创建并启动后台帧读取线程
+        from gui.widgets.frame_reader_thread import FrameReaderThread
+        self._reader_thread = FrameReaderThread(self)
+        self._reader_thread.video_opened.connect(self._on_video_opened)
+        self._reader_thread.video_open_failed.connect(self._on_video_open_failed)
+        self._reader_thread.frame_ready.connect(self._on_frame_ready)
+        self._reader_thread.start()
 
-        self._init_cropbox()
-        self._read_and_display_frame()
-        self.video_loaded.emit(self.total_frames, self.video_fps)
+        # 同步当前状态到新线程，然后请求打开视频
+        self._sync_state_to_reader()
+        self._reader_thread.request_open(path)
+
         return True
 
     def load_static_image_from_file(self, image_path: str) -> bool:
@@ -216,7 +296,8 @@ class VideoPreviewWidget(QWidget):
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
         self._load_static_frame(img)
-        logger.info(f"已加载静态图片: {image_path} ({img.shape[1]}x{img.shape[0]})")
+        logger.info(
+            f"已加载静态图片: {image_path} ({img.shape[1]}x{img.shape[0]})")
         return True
 
     def load_static_image_from_array(self, frame: np.ndarray) -> bool:
@@ -227,13 +308,51 @@ class VideoPreviewWidget(QWidget):
         logger.info(f"已加载静态图片帧: {frame.shape[1]}x{frame.shape[0]}")
         return True
 
+    def update_static_frame(self, frame: np.ndarray) -> bool:
+        """更新静态图片帧数据，保留当前 cropbox 位置
+
+        用于截取帧编辑标签页中，源视频帧变化时更新显示，
+        同时保留用户已调整的 cropbox。
+        """
+        if frame is None:
+            return False
+        frame = frame.copy()
+        self.video_width = frame.shape[1]
+        self.video_height = frame.shape[0]
+        self.current_frame = frame
+        self._bound_cropbox()
+        self._display_frame(frame)
+        return True
+
+    def load_image_as_loop(self, path: str, fps: float = 30.0,
+                          duration: float = 5.0) -> bool:
+        """将图片加载为循环视频（支持播放/暂停/裁剪框/时间轴）
+
+        Args:
+            path: 图片文件路径
+            fps: 模拟帧率（默认 30fps）
+            duration: 单次循环时长秒数（默认 5 秒）
+        """
+        if not self.load_static_image_from_file(path):
+            return False
+
+        # 覆盖 _load_static_frame 设置的 total_frames=1
+        self._loop_frame = self.current_frame.copy()
+        self.video_fps = fps
+        self.total_frames = int(fps * duration)
+        self.video_loaded.emit(self.total_frames, self.video_fps)
+        logger.info(
+            f"图片已加载为循环视频: {path} "
+            f"({self.total_frames} 帧, {fps}fps, {duration}s)"
+        )
+        return True
+
     def _load_static_frame(self, frame: np.ndarray):
         """内部方法：设置静态图片到预览"""
-        # 释放之前的视频（如果有）
+        # 释放之前的视频线程（如果有）
         self.pause()
-        if self.cap is not None:
-            self.cap.release()
-            self.cap = None
+        self._stop_reader_thread()
+        self._loop_frame = None  # 清除图片循环状态
 
         self.video_width = frame.shape[1]
         self.video_height = frame.shape[0]
@@ -296,32 +415,15 @@ class VideoPreviewWidget(QWidget):
     def _update_info_label(self):
         """更新信息标签"""
         x, y, w, h = self.cropbox
-        rotation_str = f" | 旋转: {self._rotation}°" if self._rotation != 0 else ""
+        rotation_str = (
+            f" | 旋转: {self._rotation}°" if self._rotation != 0 else "")
         self.info_label.setText(
             f"帧: {self.current_frame_index}/{self.total_frames} | "
             f"裁剪: ({x}, {y}, {w}, {h}){rotation_str}"
         )
 
-    def _read_and_display_frame(self):
-        """读取并显示当前帧"""
-        if self.cap is None:
-            logger.warning("_read_and_display_frame: cap 为 None")
-            return
-
-        ret, frame = self.cap.read()
-        if not ret:
-            logger.warning(f"无法读取帧 {self.current_frame_index}")
-            self.pause()
-            return
-
-        self.current_frame = frame
-        logger.debug(f"读取帧 {self.current_frame_index}, 尺寸: {frame.shape}")
-        self._display_frame(frame)
-        self.frame_changed.emit(self.current_frame_index)
-        self._update_info_label()
-
     def _display_frame(self, frame):
-        """显示帧"""
+        """显示帧（仅用于 cropbox 交互/静态图片的即时重绘，不涉及视频 I/O）"""
         if frame is None or not HAS_CV2:
             return
 
@@ -338,7 +440,8 @@ class VideoPreviewWidget(QWidget):
             display_frame = rotated_frame.copy()
 
             # cropbox 已经在旋转后坐标系中，直接使用
-            cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.rectangle(
+                display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
             # 绘制角落手柄
             hs = 8
@@ -362,32 +465,6 @@ class VideoPreviewWidget(QWidget):
                 (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1
             )
 
-        # 如果是静态图片（total_frames == 1），创建黑色背景并将图片居中显示
-        if self.total_frames == 1 and not self._preview_mode:
-            # 创建黑色背景（目标尺寸）
-            black_bg = np.zeros((self.target_height, self.target_width, 3), dtype=np.uint8)
-
-            # 计算缩放后的图片尺寸和位置
-            frame_h, frame_w = display_frame.shape[:2]
-            scale_w = self.target_width / frame_w
-            scale_h = self.target_height / frame_h
-            scale = min(scale_w, scale_h)
-
-            scaled_w = int(frame_w * scale)
-            scaled_h = int(frame_h * scale)
-
-            # 缩放图片
-            if scale != 1.0:
-                display_frame = cv2.resize(display_frame, (scaled_w, scaled_h))
-
-            # 计算居中位置
-            offset_x = (self.target_width - scaled_w) // 2
-            offset_y = (self.target_height - scaled_h) // 2
-
-            # 将缩放后的图片放置在黑色背景上
-            black_bg[offset_y:offset_y+scaled_h, offset_x:offset_x+scaled_w] = display_frame
-            display_frame = black_bg
-
         # 转换为QPixmap
         rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
         h_frame, w_frame, ch = rgb_frame.shape
@@ -406,10 +483,12 @@ class VideoPreviewWidget(QWidget):
         # 更新显示参数（仅编辑模式需要用于坐标转换）
         if not self._preview_mode:
             # 使用旋转后的帧宽度计算缩放比例
-            rotated_width = self.video_height if self._rotation in (90, 270) else self.video_width
-            self.display_scale = pixmap.width() / rotated_width if rotated_width > 0 else 1.0
+            rotated_width, _ = self._get_rotated_video_size()
+            self.display_scale = (
+                pixmap.width() / rotated_width if rotated_width > 0 else 1.0)
             self.display_offset_x = (label_size.width() - pixmap.width()) // 2
-            self.display_offset_y = (label_size.height() - pixmap.height()) // 2
+            self.display_offset_y = (
+                label_size.height() - pixmap.height()) // 2
 
         self.video_label.setPixmap(pixmap)
 
@@ -421,7 +500,8 @@ class VideoPreviewWidget(QWidget):
         cropped = frame[y:y+h, x:x+w].copy()
 
         # 缩放到目标分辨率
-        preview_frame = cv2.resize(cropped, (self.target_width, self.target_height))
+        preview_frame = cv2.resize(
+            cropped, (self.target_width, self.target_height))
 
         # 应用叠加UI
         if self._epconfig and self._overlay_renderer:
@@ -435,18 +515,23 @@ class VideoPreviewWidget(QWidget):
         return preview_frame
 
     def _on_timer_tick(self):
-        """定时器回调"""
-        if self.cap is None:
+        """定时器回调 — 不再直接读帧，改为发送命令到工作线程"""
+        if self._loop_frame is not None:
+            # 图片循环模式：帧索引递增但画面不变（无 I/O，保持主线程）
+            self.current_frame_index += 1
+            if self.current_frame_index >= self.total_frames:
+                self.current_frame_index = 0
+            self.frame_changed.emit(self.current_frame_index)
             return
-        self.current_frame_index += 1
-        if self.current_frame_index >= self.total_frames:
-            self.current_frame_index = 0
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        self._read_and_display_frame()
+        if self._reader_thread is None:
+            return
+        self._reader_thread.request_read_next()
 
     def play(self):
         """播放"""
-        if self.cap is None or self.is_playing:
+        if self.is_playing:
+            return
+        if not self._has_video and self._loop_frame is None:
             return
         # 使用 round() 减少截断误差
         interval = round(1000 / self.video_fps)
@@ -469,30 +554,42 @@ class VideoPreviewWidget(QWidget):
 
     def next_frame(self):
         """下一帧"""
-        if self.cap is None:
+        if self._loop_frame is not None:
+            self.pause()
+            self.current_frame_index = min(
+                self.current_frame_index + 1, self.total_frames - 1)
+            self.frame_changed.emit(self.current_frame_index)
+            return
+        if not self._has_video or self._reader_thread is None:
             return
         self.pause()
-        self.current_frame_index = min(self.current_frame_index + 1, self.total_frames - 1)
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
-        self._read_and_display_frame()
+        target = min(self.current_frame_index + 1, self.total_frames - 1)
+        self._reader_thread.request_seek(target)
 
     def prev_frame(self):
         """上一帧"""
-        if self.cap is None:
+        if self._loop_frame is not None:
+            self.pause()
+            self.current_frame_index = max(self.current_frame_index - 1, 0)
+            self.frame_changed.emit(self.current_frame_index)
+            return
+        if not self._has_video or self._reader_thread is None:
             return
         self.pause()
-        self.current_frame_index = max(self.current_frame_index - 1, 0)
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
-        self._read_and_display_frame()
+        target = max(self.current_frame_index - 1, 0)
+        self._reader_thread.request_seek(target)
 
     def seek_to_frame(self, index: int):
         """跳转到指定帧"""
-        if self.cap is None:
+        if self._loop_frame is not None:
+            index = max(0, min(index, self.total_frames - 1))
+            self.current_frame_index = index
+            self.frame_changed.emit(self.current_frame_index)
+            return
+        if not self._has_video or self._reader_thread is None:
             return
         index = max(0, min(index, self.total_frames - 1))
-        self.current_frame_index = index
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, index)
-        self._read_and_display_frame()
+        self._reader_thread.request_seek(index)
 
     def get_current_frame(self) -> int:
         """获取当前帧号"""
@@ -502,7 +599,9 @@ class VideoPreviewWidget(QWidget):
         """获取裁剪框（旋转后坐标系）"""
         return tuple(self.cropbox)
 
-    def _cropbox_to_original_coords(self, x: int, y: int, w: int, h: int) -> Tuple[int, int, int, int]:
+    def _cropbox_to_original_coords(
+        self, x: int, y: int, w: int, h: int
+    ) -> Tuple[int, int, int, int]:
         """将 cropbox 从旋转后坐标系逆变换到原始视频坐标系（用于导出）"""
         if self._rotation == 0:
             return (x, y, w, h)
@@ -510,10 +609,30 @@ class VideoPreviewWidget(QWidget):
             # 旋转后坐标 -> 原始坐标
             return (y, self.video_height - x - w, h, w)
         elif self._rotation == 180:
-            return (self.video_width - x - w, self.video_height - y - h, w, h)
+            return (
+                self.video_width - x - w, self.video_height - y - h, w, h)
         elif self._rotation == 270:
             return (self.video_width - y - h, x, h, w)
-        return (x, y, w, h)
+        # 任意角度：逆仿射变换 + 轴对齐包围盒近似
+        ow, oh = self.video_width, self.video_height
+        M = cv2.getRotationMatrix2D(
+            (ow / 2.0, oh / 2.0), -self._rotation, 1.0)
+        cos_a, sin_a = abs(M[0, 0]), abs(M[0, 1])
+        nw = int(ow * cos_a + oh * sin_a)
+        nh = int(ow * sin_a + oh * cos_a)
+        M[0, 2] += (nw - ow) / 2.0
+        M[1, 2] += (nh - oh) / 2.0
+        M_inv = cv2.invertAffineTransform(M)
+        corners = np.array(
+            [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+            dtype=np.float64)
+        orig = np.array(
+            [M_inv[:, :2] @ c + M_inv[:, 2] for c in corners])
+        x0 = max(0, int(np.floor(orig[:, 0].min())))
+        y0 = max(0, int(np.floor(orig[:, 1].min())))
+        x1 = min(ow, int(np.ceil(orig[:, 0].max())))
+        y1 = min(oh, int(np.ceil(orig[:, 1].max())))
+        return (x0, y0, x1 - x0, y1 - y0)
 
     def get_cropbox_for_export(self) -> Tuple[int, int, int, int]:
         """获取导出用的 cropbox（原始坐标系）"""
@@ -525,16 +644,25 @@ class VideoPreviewWidget(QWidget):
         self.cropbox = [x, y, w, h]
         self._bound_cropbox()
         self._emit_cropbox_changed()
+        # 同步到工作线程
+        if self._reader_thread is not None:
+            self._reader_thread.request_set_cropbox(self.cropbox)
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
     def get_video_info(self) -> Tuple[float, int, int, int]:
         """获取视频信息 (fps, total_frames, width, height)"""
-        return (self.video_fps, self.total_frames, self.video_width, self.video_height)
+        return (
+            self.video_fps, self.total_frames,
+            self.video_width, self.video_height)
 
     def set_preview_mode(self, enabled: bool):
         """设置预览模式"""
         self._preview_mode = enabled
+        if self._reader_thread is not None:
+            self._reader_thread.request_set_preview_params(
+                enabled, self.target_width, self.target_height,
+                self._epconfig, self._overlay_renderer)
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
@@ -543,17 +671,24 @@ class VideoPreviewWidget(QWidget):
         return self._preview_mode
 
     def set_rotation(self, degrees: int):
-        """设置视频旋转角度 (0, 90, 180, 270)"""
+        """设置视频旋转角度（0-359 任意角度）"""
         degrees = degrees % 360
-        if degrees not in (0, 90, 180, 270):
-            degrees = 0
         if self._rotation != degrees:
+            old_orthogonal = self._rotation in (0, 90, 180, 270)
+            new_orthogonal = degrees in (0, 90, 180, 270)
             self._rotation = degrees
             self.rotation_changed.emit(degrees)
-            # 旋转后只验证边界，不重新初始化 cropbox
-            # 这样 cropbox 在屏幕上的视觉位置保持不变
+            # 同步到工作线程
+            if self._reader_thread is not None:
+                self._reader_thread.request_set_rotation(degrees)
             if self.video_width > 0 and self.video_height > 0:
-                self._bound_cropbox()  # 只验证边界，确保在新尺寸范围内
+                if old_orthogonal and new_orthogonal:
+                    self._bound_cropbox()  # 正交角度间切换：只验证边界
+                else:
+                    self._init_cropbox()  # 涉及非正交角度：重新初始化
+                # 同步 cropbox 到工作线程
+                if self._reader_thread is not None:
+                    self._reader_thread.request_set_cropbox(self.cropbox)
             if self.current_frame is not None:
                 self._display_frame(self.current_frame)
 
@@ -562,32 +697,74 @@ class VideoPreviewWidget(QWidget):
         return self._rotation
 
     def rotate_clockwise(self):
-        """顺时针旋转90度"""
-        new_rotation = (self._rotation + 90) % 360
-        self.set_rotation(new_rotation)
+        """顺时针旋转1度"""
+        self.set_rotation((self._rotation + 1) % 360)
 
     def rotate_counterclockwise(self):
-        """逆时针旋转90度"""
-        new_rotation = (self._rotation - 90) % 360
-        self.set_rotation(new_rotation)
+        """逆时针旋转1度"""
+        self.set_rotation((self._rotation - 1) % 360)
 
     def _apply_rotation(self, frame: np.ndarray) -> np.ndarray:
-        """应用旋转到帧"""
+        """应用旋转到帧（支持任意角度）"""
         if self._rotation == 0:
             return frame
-        elif self._rotation == 90:
+        # 正交角度快速路径（cv2.rotate 比 warpAffine 快约 10 倍）
+        if self._rotation == 90:
             return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         elif self._rotation == 180:
             return cv2.rotate(frame, cv2.ROTATE_180)
         elif self._rotation == 270:
             return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        return frame
+        # 任意角度：getRotationMatrix2D + warpAffine
+        h, w = frame.shape[:2]
+        M = cv2.getRotationMatrix2D(
+            (w / 2.0, h / 2.0), -self._rotation, 1.0)
+        cos_a, sin_a = abs(M[0, 0]), abs(M[0, 1])
+        new_w = int(w * cos_a + h * sin_a)
+        new_h = int(w * sin_a + h * cos_a)
+        M[0, 2] += (new_w - w) / 2.0
+        M[1, 2] += (new_h - h) / 2.0
+        return cv2.warpAffine(frame, M, (new_w, new_h),
+                              borderMode=cv2.BORDER_CONSTANT,
+                              borderValue=(0, 0, 0))
 
     def _get_rotated_video_size(self) -> Tuple[int, int]:
-        """获取旋转后的视频尺寸"""
+        """获取旋转后的视频尺寸（包围盒）"""
+        if self._rotation == 0 or self._rotation == 180:
+            return (self.video_width, self.video_height)
         if self._rotation in (90, 270):
             return (self.video_height, self.video_width)
-        return (self.video_width, self.video_height)
+        # 任意角度：计算包围盒
+        import math
+        rad = math.radians(self._rotation)
+        cos_a, sin_a = abs(math.cos(rad)), abs(math.sin(rad))
+        return (int(self.video_width * cos_a + self.video_height * sin_a),
+                int(self.video_width * sin_a + self.video_height * cos_a))
+
+    @staticmethod
+    def apply_rotation_to_frame(
+        frame: np.ndarray, rotation: int
+    ) -> np.ndarray:
+        """对帧应用指定角度旋转（外部可调用）"""
+        if rotation == 0:
+            return frame
+        if rotation == 90:
+            return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        elif rotation == 180:
+            return cv2.rotate(frame, cv2.ROTATE_180)
+        elif rotation == 270:
+            return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        h, w = frame.shape[:2]
+        M = cv2.getRotationMatrix2D(
+            (w / 2.0, h / 2.0), -rotation, 1.0)
+        cos_a, sin_a = abs(M[0, 0]), abs(M[0, 1])
+        nw, nh = (int(w * cos_a + h * sin_a),
+                  int(w * sin_a + h * cos_a))
+        M[0, 2] += (nw - w) / 2.0
+        M[1, 2] += (nh - h) / 2.0
+        return cv2.warpAffine(frame, M, (nw, nh),
+                              borderMode=cv2.BORDER_CONSTANT,
+                              borderValue=(0, 0, 0))
 
     def set_epconfig(self, config: "EPConfig"):
         """设置配置（用于叠加UI渲染）"""
@@ -596,14 +773,21 @@ class VideoPreviewWidget(QWidget):
         if self._overlay_renderer is None:
             from core.overlay_renderer import OverlayRenderer
             self._overlay_renderer = OverlayRenderer()
+        # 同步到工作线程
+        if self._reader_thread is not None:
+            self._reader_thread.request_set_preview_params(
+                self._preview_mode, self.target_width, self.target_height,
+                self._epconfig, self._overlay_renderer)
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
     def _display_to_rotated_coords(self, pos: QPoint) -> Tuple[int, int]:
         """将显示坐标转换为旋转后视频坐标"""
         label_pos = self.video_label.mapFrom(self, pos)
-        rx = int((label_pos.x() - self.display_offset_x) / self.display_scale) if self.display_scale > 0 else 0
-        ry = int((label_pos.y() - self.display_offset_y) / self.display_scale) if self.display_scale > 0 else 0
+        rx = (int((label_pos.x() - self.display_offset_x) / self.display_scale)
+              if self.display_scale > 0 else 0)
+        ry = (int((label_pos.y() - self.display_offset_y) / self.display_scale)
+              if self.display_scale > 0 else 0)
         return (rx, ry)
 
     def _get_drag_mode(self, vx: int, vy: int) -> int:
@@ -625,7 +809,8 @@ class VideoPreviewWidget(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent):
         """鼠标按下"""
-        if event.button() == Qt.MouseButton.LeftButton and self.current_frame is not None:
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.current_frame is not None):
             rx, ry = self._display_to_rotated_coords(event.pos())
             self.drag_mode = self._get_drag_mode(rx, ry)
             if self.drag_mode != self.DRAG_NONE:
@@ -645,11 +830,13 @@ class VideoPreviewWidget(QWidget):
                 self.cropbox = [sx + dx, sy + dy, sw, sh]
             elif self.drag_mode == self.DRAG_RESIZE_BR:
                 new_w = sw + dx
-                self.cropbox = [sx, sy, new_w, int(new_w / self.target_aspect_ratio)]
+                self.cropbox = [
+                    sx, sy, new_w, int(new_w / self.target_aspect_ratio)]
             elif self.drag_mode == self.DRAG_RESIZE_TL:
                 new_w = sw - dx
                 new_h = int(new_w / self.target_aspect_ratio)
-                self.cropbox = [sx + (sw - new_w), sy + (sh - new_h), new_w, new_h]
+                self.cropbox = [
+                    sx + (sw - new_w), sy + (sh - new_h), new_w, new_h]
             elif self.drag_mode == self.DRAG_RESIZE_TR:
                 new_w = sw + dx
                 new_h = int(new_w / self.target_aspect_ratio)
@@ -661,6 +848,9 @@ class VideoPreviewWidget(QWidget):
 
             self._bound_cropbox()
             self._emit_cropbox_changed()
+            # 同步 cropbox 到工作线程
+            if self._reader_thread is not None:
+                self._reader_thread.request_set_cropbox(self.cropbox)
             if self.current_frame is not None:
                 self._display_frame(self.current_frame)
 
@@ -699,11 +889,14 @@ class VideoPreviewWidget(QWidget):
         has_modifier = modifiers != Qt.KeyboardModifier.NoModifier
 
         # 播放/帧跳转操作需要视频
-        if key == Qt.Key.Key_Space and self.cap is not None and not has_modifier:
+        if (key == Qt.Key.Key_Space and self._has_video
+                and not has_modifier):
             self.toggle_play()
-        elif key == Qt.Key.Key_Left and self.cap is not None and not has_modifier:
+        elif (key == Qt.Key.Key_Left and self._has_video
+              and not has_modifier):
             self.prev_frame()
-        elif key == Qt.Key.Key_Right and self.cap is not None and not has_modifier:
+        elif (key == Qt.Key.Key_Right and self._has_video
+              and not has_modifier):
             self.next_frame()
         # WASD 裁剪框移动（视频和静态图片都支持，仅无修饰键时）
         elif key == Qt.Key.Key_W and not has_modifier:
@@ -720,6 +913,9 @@ class VideoPreviewWidget(QWidget):
 
         self._bound_cropbox()
         self._emit_cropbox_changed()
+        # 同步 cropbox 到工作线程
+        if self._reader_thread is not None:
+            self._reader_thread.request_set_cropbox(self.cropbox)
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
@@ -732,16 +928,14 @@ class VideoPreviewWidget(QWidget):
     def closeEvent(self, event):
         """关闭事件"""
         self.pause()
-        if self.cap is not None:
-            self.cap.release()
+        self._stop_reader_thread()
         super().closeEvent(event)
 
     def clear(self):
         """清空预览状态"""
         self.pause()
-        if self.cap is not None:
-            self.cap.release()
-            self.cap = None
+        self._stop_reader_thread()
+        self._loop_frame = None
         self.video_path = ""
         self.total_frames = 0
         self.current_frame_index = 0

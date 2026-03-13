@@ -69,7 +69,11 @@ class TransitionOptions:
             "background_color": self.background_color
         }
         if self.image:
-            result["image"] = self.image
+            if normalize_paths:
+                # 导出时使用文件名部分，去除绝对路径
+                result["image"] = os.path.basename(self.image)
+            else:
+                result["image"] = self.image
         return result
 
     @classmethod

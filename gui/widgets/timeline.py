@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QRect, QPoint
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QMouseEvent, QPaintEvent
 from qfluentwidgets import (
-    ToolButton, PushButton, CaptionLabel, setCustomStyleSheet
+    ToolButton, PushButton, CaptionLabel, SpinBox, setCustomStyleSheet
 )
 
 
@@ -195,7 +195,7 @@ class TimelineWidget(QWidget):
     set_in_point_clicked = pyqtSignal()
     set_out_point_clicked = pyqtSignal()
     simulator_requested = pyqtSignal()  # 模拟器启动请求信号
-    rotation_clicked = pyqtSignal()  # 旋转按钮点击信号
+    rotation_value_changed = pyqtSignal(int)  # 旋转角度变更信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -273,11 +273,27 @@ class TimelineWidget(QWidget):
         self.btn_preview.setToolTip("启动模拟器预览实际显示效果")
         control_layout.addWidget(self.btn_preview)
 
-        # 旋转按钮
-        self.btn_rotate = PushButton("旋转 0°")
-        self.btn_rotate.setToolTip("旋转视频（点击顺时针旋转90度）")
-        self.btn_rotate.setMinimumWidth(85)
-        control_layout.addWidget(self.btn_rotate)
+        # 旋转控件组：逆时针按钮 + SpinBox + 顺时针按钮
+        self.btn_rotate_ccw = ToolButton()
+        self.btn_rotate_ccw.setText("↺")
+        self.btn_rotate_ccw.setFixedWidth(32)
+        self.btn_rotate_ccw.setToolTip("逆时针旋转 1°")
+        control_layout.addWidget(self.btn_rotate_ccw)
+
+        self.spin_rotation = SpinBox()
+        self.spin_rotation.setRange(0, 359)
+        self.spin_rotation.setValue(0)
+        self.spin_rotation.setSuffix("°")
+        self.spin_rotation.setWrapping(True)
+        self.spin_rotation.setFixedWidth(100)
+        self.spin_rotation.setToolTip("旋转角度（0-359°）")
+        control_layout.addWidget(self.spin_rotation)
+
+        self.btn_rotate_cw = ToolButton()
+        self.btn_rotate_cw.setText("↻")
+        self.btn_rotate_cw.setFixedWidth(32)
+        self.btn_rotate_cw.setToolTip("顺时针旋转 1°")
+        control_layout.addWidget(self.btn_rotate_cw)
 
         control_layout.addStretch()
 
@@ -307,7 +323,9 @@ class TimelineWidget(QWidget):
         self.btn_set_out.clicked.connect(self.set_out_point_clicked.emit)
         self.timeline_slider.seek_requested.connect(self.seek_requested.emit)
         self.btn_preview.clicked.connect(self.simulator_requested.emit)
-        self.btn_rotate.clicked.connect(self.rotation_clicked.emit)
+        self.btn_rotate_ccw.clicked.connect(lambda: self._step_rotation(-1))
+        self.btn_rotate_cw.clicked.connect(lambda: self._step_rotation(1))
+        self.spin_rotation.valueChanged.connect(self._on_spin_changed)
 
     def set_total_frames(self, count: int):
         """设置总帧数"""
@@ -360,5 +378,16 @@ class TimelineWidget(QWidget):
         self.label_frame.setText(f"{self._current_frame} / {self._total_frames}")
 
     def set_rotation(self, degrees: int):
-        """更新旋转按钮显示"""
-        self.btn_rotate.setText(f"旋转 {degrees}°")
+        """更新旋转控件显示（blockSignals 防止信号循环）"""
+        self.spin_rotation.blockSignals(True)
+        self.spin_rotation.setValue(degrees % 360)
+        self.spin_rotation.blockSignals(False)
+
+    def _step_rotation(self, delta: int):
+        """按步进调整旋转角度"""
+        new_val = (self.spin_rotation.value() + delta) % 360
+        self.spin_rotation.setValue(new_val)
+
+    def _on_spin_changed(self, value: int):
+        """SpinBox 值变化时发出信号"""
+        self.rotation_value_changed.emit(value)

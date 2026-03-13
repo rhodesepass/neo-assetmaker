@@ -7,7 +7,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
-    QGroupBox, QFormLayout, QTextEdit,
+    QGroupBox, QFormLayout,
     QFileDialog, QColorDialog,
     QStackedWidget, QFrame
 )
@@ -160,6 +160,7 @@ class ConfigPanel(QWidget):
         self.edit_description.setMaximumHeight(80)
         self.edit_description.setPlaceholderText("素材描述")
         self.edit_description.setToolTip("素材详细描述")
+        self.edit_description.setAcceptRichText(False)
         info_layout.addRow("描述:", self.edit_description)
 
         self.combo_screen = ComboBox()
@@ -424,10 +425,11 @@ class ConfigPanel(QWidget):
         self.edit_ark_barcode.setToolTip("条码下方的文本")
         ark_layout.addRow("条码文本:", self.edit_ark_barcode)
 
-        self.edit_ark_aux = QTextEdit()
+        self.edit_ark_aux = TextEdit()
         self.edit_ark_aux.setMaximumHeight(60)
         self.edit_ark_aux.setPlainText("Operator of Rhodes Island")
         self.edit_ark_aux.setToolTip("辅助描述文本")
+        self.edit_ark_aux.setAcceptRichText(False)
         ark_layout.addRow("辅助文本:", self.edit_ark_aux)
 
         self.edit_ark_staff = LineEdit()
@@ -1006,41 +1008,52 @@ class ConfigPanel(QWidget):
             self, "选择过渡图片", self._base_dir,
             "图片文件 (*.png *.jpg *.jpeg)"
         )
-        if file_path and self._base_dir:
-            from PyQt6.QtWidgets import QApplication
-            from PyQt6.QtCore import Qt
-            from core.image_processor import ImageProcessor
+        if file_path:
+            self._process_transition_image(file_path, trans_type)
 
-            # 显示等待光标
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                # 加载原始图片（不缩放）
-                img = ImageProcessor.load_image(file_path)
-                if img is None:
-                    return
+    def _process_transition_image(self, file_path: str, trans_type: str):
+        """处理过渡图片文件（从浏览按钮或拖拽调用）
 
-                # 保存原始图片到项目目录（用于裁切编辑）
-                _, ext = os.path.splitext(file_path)
-                src_filename = f"trans_{trans_type}_src{ext}"
-                src_path = os.path.join(self._base_dir, src_filename)
-                ImageProcessor.save_image(img, src_path)
+        Args:
+            file_path: 图片文件绝对路径
+            trans_type: 过渡类型（"in" 或 "loop"）
+        """
+        if not file_path or not self._base_dir:
+            return
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import Qt
+        from core.image_processor import ImageProcessor
 
-                # 同时保存一份初始版本作为模拟器使用的文件
-                dest_filename = f"trans_{trans_type}_image.png"
-                dest_path = os.path.join(self._base_dir, dest_filename)
-                ImageProcessor.save_image(img, dest_path)
+        # 显示等待光标
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            # 加载原始图片（不缩放）
+            img = ImageProcessor.load_image(file_path)
+            if img is None:
+                return
 
-                # 更新 UI 字段为模拟器使用的文件名
-                if trans_type == "in":
-                    self.edit_trans_in_image.setText(dest_filename)
-                else:
-                    self.edit_trans_loop_image.setText(dest_filename)
-                self._on_config_changed()
+            # 保存原始图片到项目目录（用于裁切编辑）
+            _, ext = os.path.splitext(file_path)
+            src_filename = f"trans_{trans_type}_src{ext}"
+            src_path = os.path.join(self._base_dir, src_filename)
+            ImageProcessor.save_image(img, src_path)
 
-                # 发射信号，传递原始图片路径供预览加载
-                self.transition_image_changed.emit(trans_type, src_path)
-            finally:
-                QApplication.restoreOverrideCursor()
+            # 同时保存一份初始版本作为模拟器使用的文件
+            dest_filename = f"trans_{trans_type}_image.png"
+            dest_path = os.path.join(self._base_dir, dest_filename)
+            ImageProcessor.save_image(img, dest_path)
+
+            # 更新 UI 字段为模拟器使用的文件名
+            if trans_type == "in":
+                self.edit_trans_in_image.setText(dest_filename)
+            else:
+                self.edit_trans_loop_image.setText(dest_filename)
+            self._on_config_changed()
+
+            # 发射信号，传递原始图片路径供预览加载
+            self.transition_image_changed.emit(trans_type, src_path)
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _on_select_img_overlay(self):
         """选择叠加图片"""

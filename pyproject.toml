@@ -1,7 +1,7 @@
 [project]
 name = "neo-assetmaker"
-version = "2.4.0"
-description = "明日方舟通行证素材制作器"
+version = "2.1.0"
+description = "明日方舟通行证素材工具箱"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

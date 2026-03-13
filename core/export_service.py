@@ -24,7 +24,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QObject
 
 from config.constants import get_resolution_spec
 from config.epconfig import EPConfig
-from core.video_processor import find_ffmpeg, X264_PARAMS, QUALITY_PRESETS
+from core.video_processor import find_ffmpeg, X264_PARAMS
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,6 @@ class ExportWorker(QThread):
         self._cancelled: bool = False
         self._epconfig: Optional[EPConfig] = None
         self._resolution: str = "360x640"
-        self._quality: str = "高"
         # 当前FFmpeg进程引用，用于支持取消操作
         # 参考: Python subprocess文档 - Popen.terminate() 可终止子进程
         self._ffmpeg_process: Optional[subprocess.Popen] = None
@@ -86,7 +85,6 @@ class ExportWorker(QThread):
         ffmpeg_path: str = "",
         epconfig: Optional[EPConfig] = None,
         resolution: str = "360x640",
-        quality: str = "高"
     ):
         """设置导出任务"""
         self._tasks = tasks
@@ -94,7 +92,6 @@ class ExportWorker(QThread):
         self._ffmpeg_path = ffmpeg_path or find_ffmpeg()
         self._epconfig = epconfig
         self._resolution = resolution
-        self._quality = quality
         self._cancelled = False
 
     def cancel(self):
@@ -255,6 +252,19 @@ class ExportWorker(QThread):
             else:
                 rx, ry, rw, rh = (x, y, w, h)
 
+            # 任意角度旋转：预计算旋转矩阵（循环外计算，所有帧复用）
+            rot_matrix = None
+            rotated_size = None
+            if rotation not in (0, 90, 180, 270):
+                cx, cy = orig_w / 2.0, orig_h / 2.0
+                rot_matrix = cv2.getRotationMatrix2D((cx, cy), -rotation, 1.0)
+                cos_a, sin_a = abs(rot_matrix[0, 0]), abs(rot_matrix[0, 1])
+                nw = int(orig_w * cos_a + orig_h * sin_a)
+                nh = int(orig_w * sin_a + orig_h * cos_a)
+                rot_matrix[0, 2] += (nw - orig_w) / 2.0
+                rot_matrix[1, 2] += (nh - orig_h) / 2.0
+                rotated_size = (nw, nh)
+
             frames_written = 0
             for frame_idx in range(total_frames):
                 if self._cancelled:
@@ -271,6 +281,12 @@ class ExportWorker(QThread):
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
                 elif rotation == 270:
                     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                elif rotation != 0:
+                    frame = cv2.warpAffine(
+                        frame, rot_matrix, rotated_size,
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_CONSTANT,
+                        borderValue=(0, 0, 0))
 
                 # 应用裁剪（使用旋转后的坐标）
                 frame = frame[ry:ry+rh, rx:rx+rw]
@@ -330,9 +346,8 @@ class ExportWorker(QThread):
         替代之前逐帧 numpy 拼接的方式，性能更优。
         参考: https://ffmpeg.org/ffmpeg-filters.html#pad
         """
-        preset_config = QUALITY_PRESETS.get(self._quality, QUALITY_PRESETS["高"])
-        crf_value = preset_config["crf"]
-        preset = preset_config["preset"]
+        crf_value = 19
+        preset = "medium"
 
         # 构建视频滤镜（pad 黑边）
         vf_filters = []
@@ -517,7 +532,6 @@ class ExportService(QObject):
         loop_video_params: Optional[VideoExportParams] = None,
         intro_video_params: Optional[VideoExportParams] = None,
         loop_image_path: Optional[str] = None,
-        quality: str = "高"
     ):
         """导出所有素材"""
         if self.is_exporting:
@@ -598,7 +612,6 @@ class ExportService(QObject):
             ffmpeg_path=self._ffmpeg_path,
             epconfig=epconfig,
             resolution=resolution,
-            quality=quality
         )
 
         self._worker.progress_updated.connect(self.progress_updated.emit)

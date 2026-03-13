@@ -481,3 +481,56 @@ class UsbScanWorker(QThread):
             self.error.emit("pyusb library not available")
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Auth: background session restore
+# ---------------------------------------------------------------------------
+
+class SessionRestoreWorker(QThread):
+    """Restore a stored session (keyring + token refresh) in a background thread.
+
+    Avoids blocking the UI thread with keyring reads and synchronous HTTP.
+
+    Signals
+    -------
+    completed(bool)
+        True if the session was restored successfully, False otherwise.
+    error(str)
+        Error description if an unexpected error occurred.
+    """
+
+    completed = Signal(bool)
+    error = Signal(str)
+
+    def __init__(
+        self,
+        auth_service: Any,
+        parent: Optional[QObject] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._auth = auth_service
+
+    def run(self) -> None:
+        try:
+            import keyring
+            from _mext.core.constants import KEYRING_SERVICE_NAME, KEYRING_REFRESH_TOKEN_KEY
+
+            try:
+                stored_refresh = keyring.get_password(
+                    KEYRING_SERVICE_NAME, KEYRING_REFRESH_TOKEN_KEY
+                )
+            except Exception:
+                logger.debug("Could not access keyring for session restore")
+                self.completed.emit(False)
+                return
+
+            if stored_refresh:
+                logger.info("Found stored refresh token, attempting session restore...")
+                new_token = self._auth._do_refresh_token()
+                self.completed.emit(new_token is not None)
+            else:
+                self.completed.emit(False)
+        except Exception as exc:
+            logger.error("SessionRestoreWorker error: %s", exc)
+            self.error.emit(str(exc))

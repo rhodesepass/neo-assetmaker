@@ -31,13 +31,6 @@ COLOR_ACCENT = ("#ff6b8b", "#ff6b8b")  # 主题强调色
 COLOR_PREVIEW_BG = ("#1a1a1a", "#0a0a0a")
 COLOR_PREVIEW_TEXT = ("#888888", "#666666")
 
-# ── 字体尺寸 ──────────────────────────────────────────────
-
-FONT_SIZE_TITLE = 20
-FONT_SIZE_SUBTITLE = 16
-FONT_SIZE_BODY = 14
-FONT_SIZE_CAPTION = 11
-
 # ── 间距 ──────────────────────────────────────────────────
 
 SPACING_SM = 8

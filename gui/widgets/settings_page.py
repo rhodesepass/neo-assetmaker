@@ -41,17 +41,17 @@ class SettingsPage(QWidget):
     # ------------------------------------------------------------------
     def _init_ui(self):
         self.mainLayout = QVBoxLayout(self)
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setContentsMargins(0, 15, 0, 0)
 
         # 标题
         self.titleLabel = SubtitleLabel("设置", self)
+        self.titleLabel.setContentsMargins(30, 0, 0, 0)
         self.mainLayout.addWidget(self.titleLabel)
-        self.mainLayout.addSpacing(8)
+        self.mainLayout.addSpacing(15)
 
         # 滚动区域
         self.scrollArea = ScrollArea(self)
         self.scrollArea.setWidgetResizable(True)
-        self.scrollArea.setStyleSheet("QScrollArea { border: none; }")
 
         self.scrollWidget = QWidget()
         self.scrollLayout = QVBoxLayout(self.scrollWidget)
@@ -74,9 +74,6 @@ class SettingsPage(QWidget):
         # ---------- 2. 界面设置 ----------
         self.uiGroup = SettingCardGroup("界面设置", self.scrollWidget)
 
-        self.fontSizeCard = ComboSettingCard(
-            FluentIcon.FONT_SIZE, "字体大小",
-            texts=["小", "中", "大"], parent=self.uiGroup)
         self.themeCard = ComboSettingCard(
             FluentIcon.PALETTE, "主题",
             texts=["默认", "自定义图片"], parent=self.uiGroup)
@@ -96,7 +93,7 @@ class SettingsPage(QWidget):
             texts=["简体中文", "English"], parent=self.uiGroup)
 
         self.uiGroup.addSettingCards([
-            self.fontSizeCard, self.themeCard, self.themeColorCard,
+            self.themeCard, self.themeColorCard,
             self.themeImageCard, self.scaleCard, self.languageCard])
 
         # ---------- 3. 个性化设置 ----------
@@ -122,22 +119,15 @@ class SettingsPage(QWidget):
         # ---------- 4. 视频与导出 ----------
         self.videoGroup = SettingCardGroup("视频与导出", self.scrollWidget)
 
-        self.previewQualityCard = ComboSettingCard(
-            FluentIcon.SPEED_MEDIUM, "预览质量",
-            texts=["低", "中", "高"], parent=self.videoGroup)
         self.hwAccelCard = SwitchSettingCard(
             FluentIcon.SPEED_HIGH, "硬件加速",
             parent=self.videoGroup)
-        self.exportQualityCard = ComboSettingCard(
-            FluentIcon.VIDEO, "导出质量",
-            texts=["低", "中", "高"], parent=self.videoGroup)
         self.exportThreadsCard = SpinSettingCard(
             FluentIcon.SETTING, "导出线程数",
             min_val=1, max_val=8, default=1, parent=self.videoGroup)
 
         self.videoGroup.addSettingCards([
-            self.previewQualityCard, self.hwAccelCard,
-            self.exportQualityCard, self.exportThreadsCard])
+            self.hwAccelCard, self.exportThreadsCard])
 
         # ---------- 5. 网络设置 ----------
         self.networkGroup = SettingCardGroup("网络设置", self.scrollWidget)
@@ -180,6 +170,7 @@ class SettingsPage(QWidget):
 
         self.scrollLayout.addStretch(1)
         self.scrollArea.setWidget(self.scrollWidget)
+        self.scrollArea.enableTransparentBackground()
         self.mainLayout.addWidget(self.scrollArea)
 
     # ------------------------------------------------------------------
@@ -193,8 +184,6 @@ class SettingsPage(QWidget):
             lambda v: self._emit('update_freq', v))
 
         # 界面设置
-        self.fontSizeCard.currentTextChanged.connect(
-            lambda v: self._emit('font_size', v))
         self.themeCard.currentTextChanged.connect(
             lambda v: self._emit('theme', v))
         self.themeColorCard.colorChanged.connect(
@@ -217,12 +206,8 @@ class SettingsPage(QWidget):
             lambda v: self._emit('auto_save', v))
 
         # 视频与导出
-        self.previewQualityCard.currentTextChanged.connect(
-            lambda v: self._emit('preview_quality', v))
         self.hwAccelCard.checkedChanged.connect(
             lambda v: self._emit('hardware_acceleration', v))
-        self.exportQualityCard.currentTextChanged.connect(
-            lambda v: self._emit('export_quality', v))
         self.exportThreadsCard.valueChanged.connect(
             lambda v: self._emit('export_threads', v))
 
@@ -253,8 +238,6 @@ class SettingsPage(QWidget):
             self.updateFreqCard.setCurrentText(
                 settings.get('update_freq', '每天'))
 
-            self.fontSizeCard.setCurrentText(
-                settings.get('font_size', '中'))
             self.themeCard.setCurrentText(
                 settings.get('theme', '默认'))
             self.themeColorCard.setColor(
@@ -275,12 +258,8 @@ class SettingsPage(QWidget):
             self.autoSaveCard.setChecked(
                 settings.get('auto_save', False))
 
-            self.previewQualityCard.setCurrentText(
-                settings.get('preview_quality', '中'))
             self.hwAccelCard.setChecked(
                 settings.get('hardware_acceleration', True))
-            self.exportQualityCard.setCurrentText(
-                settings.get('export_quality', '高'))
             self.exportThreadsCard.setValue(
                 settings.get('export_threads', 1))
 

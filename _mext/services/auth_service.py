@@ -95,8 +95,8 @@ class AuthService(QObject):
         # Register refresh callback on the API client
         self._api.set_refresh_callback(self._do_refresh_token)
 
-        # Attempt to restore session from keyring asynchronously
-        QTimer.singleShot(0, self._restore_session)
+        # Attempt to restore session from keyring in a background thread
+        QTimer.singleShot(0, self._start_session_restore)
 
     # -- Public properties --
 
@@ -339,18 +339,22 @@ class AuthService(QObject):
         if emit_signal:
             self.auth_changed.emit(True)
 
-    def _restore_session(self) -> None:
-        """Try to restore a session from a stored refresh token on startup."""
-        try:
-            stored_refresh = keyring.get_password(KEYRING_SERVICE_NAME, KEYRING_REFRESH_TOKEN_KEY)
-        except Exception:
-            logger.debug("Could not access keyring for session restore")
-            return
-        if stored_refresh:
-            logger.info("Found stored refresh token, attempting session restore...")
-            new_token = self._do_refresh_token()
-            if new_token:
-                logger.info("Session restored successfully")
+    def _start_session_restore(self) -> None:
+        """Start a background worker to restore session, avoiding UI freeze."""
+        from _mext.services.api_worker import SessionRestoreWorker
+
+        self._restore_worker = SessionRestoreWorker(self, parent=self)
+        self._restore_worker.completed.connect(self._on_session_restored)
+        self._restore_worker.error.connect(
+            lambda msg: logger.warning("Session restore failed: %s", msg)
+        )
+        self._restore_worker.start()
+
+    def _on_session_restored(self, success: bool) -> None:
+        """Handle background session restore completion."""
+        if success:
+            logger.info("Session restored successfully via background worker")
+            self.auth_changed.emit(True)
 
     def _clear_tokens(self) -> None:
         """Clear all local token state and keyring entries."""

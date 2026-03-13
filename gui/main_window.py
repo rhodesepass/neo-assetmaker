@@ -7,7 +7,11 @@ from gui.widgets.timeline import TimelineWidget
 from gui.widgets.transition_preview import TransitionPreviewWidget
 from gui.widgets.video_preview import VideoPreviewWidget
 from gui.widgets.config_panel import ConfigPanel
-from config.constants import APP_NAME, APP_VERSION, get_resolution_spec
+from config.constants import (
+    APP_NAME, APP_VERSION, get_resolution_spec,
+    SUPPORTED_VIDEO_FORMATS, SUPPORTED_IMAGE_FORMATS
+)
+from gui.widgets.drop_overlay import DropOverlayWidget
 from config.epconfig import EPConfig
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, ToolButton,
@@ -83,9 +87,6 @@ class MainWindow(QMainWindow):
         self._recent_files = []
         self._max_recent_files = 10  # 最多保留10个最近文件
 
-        # 导出质量（独立于UI控件，避免延迟创建的combo box导致导出报错）
-        self._export_quality = "高"
-
         self._setup_ui()
         self._setup_menu()
         self._setup_shortcuts()
@@ -123,6 +124,10 @@ class MainWindow(QMainWindow):
 
         logger.info("主窗口初始化完成")
         self._initializing = False  # 初始化完成
+
+        # QSS 热重载（QSS_DEV=1 时激活）
+        from gui.qss_hot_reload import QSSHotReloader
+        self._qss_reloader = QSSHotReloader.try_attach(self)
 
     def _setup_icon(self):
         """设置窗口图标"""
@@ -171,7 +176,7 @@ class MainWindow(QMainWindow):
         self.header_bar = QWidget()
         self.header_bar.setObjectName("header_bar")
         self.header_bar.setStyleSheet("""
-            QWidget { background-color: rgba(40, 40, 40, 0.7); color: white; border-bottom-right-radius: 16px; }
+            QWidget { background-color: rgba(40, 40, 40, 0.7); color: white; border-top-right-radius: 16px; }
             QLabel { font-weight: bold; font-size: 16px; }
         """)
         header_layout = QHBoxLayout(self.header_bar)
@@ -469,7 +474,8 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.config_container)
 
         # === 中间: 视频预览标签页 + 时间轴（深色预览区，剪映风格）===
-        preview_container = QWidget()
+        self.preview_container = QWidget()
+        preview_container = self.preview_container
         preview_container.setObjectName("preview_container")
         setCustomStyleSheet(
             preview_container,
@@ -548,6 +554,9 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪")
+
+        # 拖放支持
+        self._setup_drop_support()
 
     def _setup_menu(self):
         """设置菜单"""
@@ -737,9 +746,6 @@ class MainWindow(QMainWindow):
                 with open(config_file, "r", encoding="utf-8") as f:
                     settings = json.load(f)
 
-                # 同步导出质量到实例变量（独立于设置页面UI）
-                self._export_quality = settings.get('export_quality', '高')
-
                 # 应用主题设置
                 theme_name = settings.get('theme', '默认')
                 self._apply_theme_change(theme_name)
@@ -889,8 +895,8 @@ class MainWindow(QMainWindow):
         <ul>
             <li><strong>主题设置</strong>：可选择默认主题或自定义主题图片</li>
             <li><strong>界面设置</strong>：调整字体大小、界面缩放等</li>
-            <li><strong>视频设置</strong>：设置预览质量和硬件加速</li>
-            <li><strong>导出设置</strong>：调整导出质量和线程数</li>
+            <li><strong>视频设置</strong>：设置硬件加速</li>
+            <li><strong>导出设置</strong>：调整导出线程数</li>
             <li><strong>网络设置</strong>：配置GitHub加速等网络选项</li>
         </ul>
 
@@ -1407,7 +1413,6 @@ class MainWindow(QMainWindow):
         )
 
         # 启动导出
-        export_quality = self._export_quality
         self._export_service.export_all(
             output_dir=dir_path,
             epconfig=self._config,
@@ -1416,7 +1421,6 @@ class MainWindow(QMainWindow):
             loop_video_params=export_data.get('loop_video_params'),
             intro_video_params=export_data.get('intro_video_params'),
             loop_image_path=export_data.get('loop_image_path'),
-            quality=export_quality
         )
 
         # 显示进度对话框
@@ -1759,9 +1763,26 @@ class MainWindow(QMainWindow):
             self._flasher_widget.setVisible(False)
 
         if not hasattr(self, '_market_widget'):
-            from _mext.ui.widget import MaterialMarketWidget
-            self._market_widget = MaterialMarketWidget(parent=self)
-            self.content_layout.addWidget(self._market_widget)
+            try:
+                from _mext.ui.widget import MaterialMarketWidget
+                self._market_widget = MaterialMarketWidget(parent=self)
+                self.content_layout.addWidget(self._market_widget)
+            except ImportError:
+                logger.error("素材商城模块加载失败，缺少必要依赖", exc_info=True)
+                QMessageBox.warning(
+                    self, "模块加载失败",
+                    "素材商城所需的依赖库缺失，请检查安装是否完整。\n\n"
+                    "可能缺少: httpx, keyring, platformdirs 等包。")
+                self._on_sidebar_material()
+                return
+            except Exception as exc:
+                logger.error("素材商城初始化失败: %s", exc, exc_info=True)
+                QMessageBox.warning(
+                    self, "初始化失败",
+                    f"素材商城初始化时发生错误:\n{exc}\n\n"
+                    "请查看日志文件获取详细信息。")
+                self._on_sidebar_material()
+                return
 
         self._market_widget.setVisible(True)
         self.status_bar.showMessage("素材商城模式")
@@ -2315,10 +2336,6 @@ class MainWindow(QMainWindow):
         """SettingsPage 发射的统一设置变更处理器"""
         logger.info(f"应用设置: {setting_name} = {value}")
 
-        # 同步导出质量到实例变量
-        if setting_name == 'export_quality':
-            self._export_quality = value
-
         try:
             import json
             config_dir = os.path.join(
@@ -2363,9 +2380,6 @@ class MainWindow(QMainWindow):
         elif setting_name == 'theme_image':
             if value:
                 self._apply_theme_image(value)
-
-        elif setting_name == 'font_size':
-            logger.info(f"字体大小已设置为: {value}")
 
         elif setting_name == 'scale':
             logger.info(f"界面缩放已设置为: {value}")
@@ -2424,12 +2438,12 @@ class MainWindow(QMainWindow):
         """应用主题颜色到界面"""
         # 应用主题颜色到标题栏（纯色，与颜色选择器保持一致，添加圆角）
         if hasattr(self, 'header_bar'):
-            style = f"QWidget {{ background-color: {color_hex}; color: white; border-bottom-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
+            style = f"QWidget {{ background-color: {color_hex}; color: white; border-top-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
             self.header_bar.setStyleSheet(style)
         
         # 应用主题颜色到侧边栏（纯色，与顶部栏保持一致）
         if hasattr(self, 'sidebar'):
-            sidebar_style = f"QWidget {{ background-color: {color_hex}; }}"
+            sidebar_style = f"QWidget {{ background-color: {color_hex}; border-bottom-right-radius: 16px; }}"
             self.sidebar.setStyleSheet(sidebar_style)
 
         # 应用主题颜色到导航按钮（如果存在）
@@ -2507,7 +2521,7 @@ class MainWindow(QMainWindow):
 
                 QWidget#header_bar {
                     background-color: %s;
-                    border-bottom-right-radius: 16px;
+                    border-top-right-radius: 16px;
                 }
 
                 QWidget#sidebar {
@@ -2562,7 +2576,7 @@ class MainWindow(QMainWindow):
         except TypeError:
             pass
         try:
-            self.timeline.rotation_clicked.disconnect()
+            self.timeline.rotation_value_changed.disconnect()
         except TypeError:
             pass
 
@@ -2576,7 +2590,7 @@ class MainWindow(QMainWindow):
         self.timeline.goto_end_clicked.connect(
             lambda: preview.seek_to_frame(preview.total_frames - 1)
         )
-        self.timeline.rotation_clicked.connect(preview.rotate_clockwise)
+        self.timeline.rotation_value_changed.connect(preview.set_rotation)
 
         # 记录当前连接的预览器
         self._timeline_preview = preview
@@ -2607,18 +2621,13 @@ class MainWindow(QMainWindow):
             source_preview = self._current_video_preview
             frame = source_preview.current_frame
             if frame is not None:
-                import cv2
+                from gui.widgets.video_preview import VideoPreviewWidget
                 # 应用旋转变换
                 frame = frame.copy()
                 rotation = source_preview.get_rotation()
-                if rotation == 90:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                elif rotation == 180:
-                    frame = cv2.rotate(frame, cv2.ROTATE_180)
-                elif rotation == 270:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                # 更新截取帧编辑页面的图片
-                self.frame_capture_preview.load_static_image_from_array(frame)
+                frame = VideoPreviewWidget.apply_rotation_to_frame(frame, rotation)
+                # 更新截取帧编辑页面的图片（保留用户已调整的 cropbox）
+                self.frame_capture_preview.update_static_frame(frame)
                 logger.info(
                     f"更新截取帧编辑页面，帧: {source_preview.current_frame_index}")
 
@@ -2663,6 +2672,10 @@ class MainWindow(QMainWindow):
             self.timeline.set_out_point(self._loop_in_out[1])
             self.timeline.show()
             logger.debug("切换到循环视频预览")
+
+        # 更新拖放上下文
+        if hasattr(self, '_drop_overlay'):
+            self._update_drop_context()
 
     def _on_intro_video_loaded(self, total_frames: int, fps: float):
         """入场视频加载完成"""
@@ -2719,52 +2732,21 @@ class MainWindow(QMainWindow):
         logger.debug(f"设置出点: {current_frame}")
 
     def _load_loop_image(self, path: str):
-        """加载循环图片到预览器"""
-        import cv2
-        from PyQt6.QtGui import QImage, QPixmap
-
+        """加载循环图片到预览器（以循环视频方式预览）"""
         self._loop_image_path = path
         logger.info(f"加载循环图片: {path}")
 
-        # 加载图片
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        if img is None:
+        if self.video_preview.load_image_as_loop(path):
+            self.status_bar.showMessage(
+                f"图片已加载为循环视频: "
+                f"{self.video_preview.video_width}x"
+                f"{self.video_preview.video_height}"
+            )
+            # 连接时间轴
+            self._connect_timeline_to_preview(self.video_preview)
+        else:
             logger.error(f"无法加载图片: {path}")
             self.video_preview.video_label.setText(f"无法加载图片: {path}")
-            return
-
-        # 显示图片尺寸信息
-        h, w = img.shape[:2]
-        self.status_bar.showMessage(f"图片已加载: {w}x{h}")
-
-        # 转换为RGB显示
-        if len(img.shape) == 2:
-            # 灰度图转换为RGB
-            display_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        elif img.shape[2] == 4:
-            # BGRA转换为RGB
-            display_img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
-        else:
-            # BGR转换为RGB
-            display_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # 创建QPixmap并显示
-        h, w, ch = display_img.shape
-        q_image = QImage(display_img.data, w, h, ch *
-                         w, QImage.Format.Format_RGB888)
-        pixmap = QPixmap.fromImage(q_image)
-
-        # 缩放到预览区域大小
-        label_size = self.video_preview.video_label.size()
-        scaled_pixmap = pixmap.scaled(
-            label_size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
-        self.video_preview.video_label.setPixmap(scaled_pixmap)
-
-        # 更新信息标签
-        self.video_preview.info_label.setText(f"图片模式: {w}x{h}")
 
     def _on_loop_mode_changed(self, is_image: bool):
         """循环模式切换"""
@@ -2781,6 +2763,111 @@ class MainWindow(QMainWindow):
         self._loop_in_out = (0, 0)
 
         logger.info(f"循环模式切换为: {'图片' if is_image else '视频'}")
+
+        # 更新拖放上下文
+        if hasattr(self, '_drop_overlay'):
+            self._update_drop_context()
+
+    def _get_active_config_panel(self):
+        """获取当前活动的配置面板（基础或高级）"""
+        if hasattr(self, 'basic_config_panel') and \
+                self.basic_config_panel.isVisible():
+            return self.basic_config_panel
+        return self.advanced_config_panel
+
+    # ---- 拖放支持 ----
+
+    def _setup_drop_support(self):
+        """初始化拖放支持"""
+        self._drop_overlay = DropOverlayWidget(self.preview_container)
+        self._drop_overlay.file_dropped.connect(self._on_file_dropped)
+        self._update_drop_context()
+
+    def _update_drop_context(self):
+        """根据当前标签页更新拖放接受的文件类型和提示文字"""
+        tab_index = self.preview_tabs.currentIndex()
+
+        if tab_index == 3:  # 循环视频/图片 — 始终接受两种格式
+            self._drop_overlay.set_context(
+                SUPPORTED_VIDEO_FORMATS + SUPPORTED_IMAGE_FORMATS,
+                "释放以导入循环素材"
+            )
+        elif tab_index == 0:  # 入场视频
+            self._drop_overlay.set_context(
+                SUPPORTED_VIDEO_FORMATS,
+                "释放以导入入场视频"
+            )
+        elif tab_index == 2:  # 过渡图片
+            self._drop_overlay.set_context(
+                SUPPORTED_IMAGE_FORMATS,
+                "释放以导入过渡图片"
+            )
+        else:  # Tab 1 截取帧编辑等
+            self._drop_overlay.set_context(
+                SUPPORTED_VIDEO_FORMATS + SUPPORTED_IMAGE_FORMATS,
+                "释放以导入文件"
+            )
+
+    def _on_file_dropped(self, file_path: str, drop_pos):
+        """处理拖放文件 — 根据上下文分发到对应处理逻辑"""
+        tab_index = self.preview_tabs.currentIndex()
+        logger.info(f"文件拖放: {file_path}, 标签页: {tab_index}")
+
+        if tab_index == 3:  # 循环视频/图片
+            self._handle_drop_loop(file_path)
+        elif tab_index == 0:  # 入场视频
+            self._handle_drop_intro(file_path)
+        elif tab_index == 2:  # 过渡图片
+            self._handle_drop_transition(file_path, drop_pos)
+        else:
+            # Tab 1 等：按循环视频处理
+            self._handle_drop_loop(file_path)
+
+    def _handle_drop_loop(self, file_path: str):
+        """处理拖放到循环视频/图片标签页"""
+        ext = os.path.splitext(file_path)[1].lower()
+        is_image = ext in SUPPORTED_IMAGE_FORMATS
+
+        # 获取活动的配置面板
+        config_panel = self._get_active_config_panel()
+
+        # 自动切换循环模式（同步 radio 按钮状态）
+        if hasattr(config_panel, 'radio_loop_image'):
+            if is_image and not config_panel.radio_loop_image.isChecked():
+                config_panel.radio_loop_image.setChecked(True)
+            elif not is_image and hasattr(
+                    config_panel, 'radio_loop_video'
+            ) and not config_panel.radio_loop_video.isChecked():
+                config_panel.radio_loop_video.setChecked(True)
+
+        # 复制到项目目录
+        rel_path = config_panel._copy_to_project_dir(file_path, "loop")
+        config_panel.edit_loop_file.setText(rel_path or file_path)
+
+        # 发射信号
+        if is_image and hasattr(config_panel, 'loop_image_selected'):
+            config_panel.loop_image_selected.emit(file_path)
+        else:
+            # 基础模式无 loop_image_selected，图片也走 video_file_selected
+            config_panel.video_file_selected.emit(file_path)
+
+    def _handle_drop_intro(self, file_path: str):
+        """处理拖放到入场视频标签页"""
+        config_panel = self.advanced_config_panel
+        rel_path = config_panel._copy_to_project_dir(file_path, "intro")
+        config_panel.edit_intro_file.setText(rel_path or file_path)
+        config_panel.intro_video_selected.emit(file_path)
+
+    def _handle_drop_transition(self, file_path: str, drop_pos):
+        """处理拖放到过渡图片标签页"""
+        # 根据鼠标释放位置判断是进入过渡(左半)还是循环过渡(右半)
+        mapped_pos = self.transition_preview.mapFrom(
+            self.preview_container, drop_pos)
+        mid_x = self.transition_preview.width() // 2
+        trans_type = "in" if mapped_pos.x() < mid_x else "loop"
+        logger.info(f"过渡图片拖放: type={trans_type}, pos={mapped_pos.x()}")
+        self.advanced_config_panel._process_transition_image(
+            file_path, trans_type)
 
     def _on_transition_image_changed(self, trans_type: str, abs_path: str):
         """过渡图片变更"""
@@ -2901,19 +2988,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先加载视频")
             return
 
-        import cv2
+        from gui.widgets.video_preview import VideoPreviewWidget
 
         # 应用旋转变换（不裁切，交给用户在截取帧编辑标签页中操作）
         frame = frame.copy()
         rotation = source_preview.get_rotation()
         logger.info(f"旋转变换: {rotation}度")
-
-        if rotation == 90:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        elif rotation == 180:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-        elif rotation == 270:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        frame = VideoPreviewWidget.apply_rotation_to_frame(frame, rotation)
 
         # 加载到截取帧编辑预览
         logger.info(f"加载到截取帧编辑预览，帧尺寸: {frame.shape}")

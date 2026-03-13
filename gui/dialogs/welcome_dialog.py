@@ -18,7 +18,7 @@ class WelcomeDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("欢迎使用明日方舟通行证素材制作器")
+        self.setWindowTitle("欢迎使用明日方舟通行证素材工具箱")
         self.setMinimumWidth(500)
         self.setModal(True)
         self._setup_ui()

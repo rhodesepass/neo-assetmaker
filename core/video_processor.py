@@ -26,12 +26,6 @@ X264_PARAMS = (
     ":deblock=0,0:psy-rd=0.5,0.12"
 )
 
-QUALITY_PRESETS: Dict[str, Dict[str, Any]] = {
-    "低": {"crf": 23, "preset": "fast"},
-    "中": {"crf": 21, "preset": "medium"},
-    "高": {"crf": 19, "preset": "medium"},
-}
-
 
 def find_ffmpeg() -> str:
     """查找安装目录中的ffmpeg（仅限应用自带，避免多版本冲突）"""
