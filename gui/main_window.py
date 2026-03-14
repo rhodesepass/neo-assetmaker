@@ -3294,6 +3294,13 @@ class MainWindow(QMainWindow):
                 if os.path.exists(intro_path):
                     try:
                         import av
+                    except ImportError:
+                        logger.warning("PyAV 不可用，跳过片头视频元数据读取")
+                        av = None
+
+                    try:
+                        if av is None:
+                            raise RuntimeError("PyAV unavailable")
                         container = av.open(intro_path)
                         stream = container.streams.video[0]
                         fps = float(stream.average_rate) if stream.average_rate else 30.0

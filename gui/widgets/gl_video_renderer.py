@@ -34,6 +34,16 @@ try:
 except ImportError:
     HAS_OPENGL = False
 
+# 模块级单次导入 PyOpenGL — 避免在13个方法中重复 from OpenGL import GL
+# PyOpenGL 使用插件系统 (plugins.importByName) 动态加载 FormatHandler，
+# cx_Freeze 无法跟踪 __import__ 字符串形式的动态导入，需要在 build.py includes 中显式声明
+try:
+    from OpenGL import GL as _GL
+    HAS_PYOPENGL = True
+except Exception:
+    _GL = None
+    HAS_PYOPENGL = False
+
 logger = logging.getLogger(__name__)
 
 # ── Shader 源码 ──
@@ -129,7 +139,7 @@ QUAD_VERTICES = np.array([
 
 def _check_opengl_available() -> bool:
     """检查 OpenGL 模块是否可用"""
-    return HAS_OPENGL
+    return HAS_OPENGL and HAS_PYOPENGL
 
 
 class GLVideoWidget(QOpenGLWidget):
@@ -203,20 +213,12 @@ class GLVideoWidget(QOpenGLWidget):
 
     def initializeGL(self):
         """初始化 OpenGL 资源"""
-        try:
-            from OpenGL import GL
-            self._gl = GL
-        except ImportError:
-            # PyOpenGL 不可用，使用 ctypes fallback
-            try:
-                from ctypes import cdll
-                import sys
-                if sys.platform == 'win32':
-                    self._gl = cdll.opengl32
-                else:
-                    self._gl = None
-            except Exception:
-                self._gl = None
+        if not HAS_PYOPENGL or _GL is None:
+            logger.warning("PyOpenGL 不可用，跳过 GL 初始化")
+            self._gl_failed = True
+            return
+
+        self._gl = _GL
 
         # 使用 PyQt6 内置的 OpenGL 函数
         ctx = self.context()
@@ -256,34 +258,35 @@ class GLVideoWidget(QOpenGLWidget):
 
         # 创建 VAO/VBO
         self._create_quad_buffers()
+        if self._gl_failed:
+            return
         self._create_cropbox_buffers()
+        if self._gl_failed:
+            return
 
         # 创建纹理
         self._create_textures()
 
         # GL 状态
-        from OpenGL import GL
-        GL.glClearColor(0.0, 0.0, 0.0, 1.0)
-        GL.glDisable(GL.GL_DEPTH_TEST)
+        _GL.glClearColor(0.0, 0.0, 0.0, 1.0)
+        _GL.glDisable(__GL.GL_DEPTH_TEST)
 
         self._gl_initialized = True
         logger.info("GLVideoWidget OpenGL 初始化成功")
 
     def resizeGL(self, w: int, h: int):
         """窗口大小变化"""
-        if self._gl_failed:
+        if self._gl_failed or _GL is None:
             return
-        from OpenGL import GL
-        GL.glViewport(0, 0, w, h)
+        _GL.glViewport(0, 0, w, h)
         self._update_display_rect()
 
     def paintGL(self):
         """绘制帧"""
-        if self._gl_failed or not self._gl_initialized:
+        if self._gl_failed or not self._gl_initialized or _GL is None:
             return
 
-        from OpenGL import GL
-        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        _GL.glClear(__GL.GL_COLOR_BUFFER_BIT)
 
         # 上传新帧数据
         if self._frame_dirty:
@@ -464,87 +467,87 @@ class GLVideoWidget(QOpenGLWidget):
 
     def _create_quad_buffers(self):
         """创建全屏四边形 VAO/VBO"""
-        from OpenGL import GL
+        self._quad_vao = _GL.glGenVertexArrays(1)
+        self._quad_vbo = _GL.glGenBuffers(1)
+        if not self._quad_vao or not self._quad_vbo:
+            logger.error("glGenVertexArrays/glGenBuffers 失败 (quad)")
+            self._gl_failed = True
+            return
 
-        self._quad_vao = GL.glGenVertexArrays(1)
-        self._quad_vbo = GL.glGenBuffers(1)
-
-        GL.glBindVertexArray(self._quad_vao)
-        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._quad_vbo)
-        GL.glBufferData(GL.GL_ARRAY_BUFFER, QUAD_VERTICES.nbytes,
-                        QUAD_VERTICES, GL.GL_STATIC_DRAW)
+        _GL.glBindVertexArray(self._quad_vao)
+        _GL.glBindBuffer(__GL.GL_ARRAY_BUFFER, self._quad_vbo)
+        _GL.glBufferData(__GL.GL_ARRAY_BUFFER, QUAD_VERTICES.nbytes,
+                         QUAD_VERTICES, __GL.GL_STATIC_DRAW)
 
         # position (location=0)
-        GL.glEnableVertexAttribArray(0)
-        GL.glVertexAttribPointer(
-            0, 2, GL.GL_FLOAT, GL.GL_FALSE, 16,
+        _GL.glEnableVertexAttribArray(0)
+        _GL.glVertexAttribPointer(
+            0, 2, __GL.GL_FLOAT, __GL.GL_FALSE, 16,
             ctypes.c_void_p(0))
         # texcoord (location=1)
-        GL.glEnableVertexAttribArray(1)
-        GL.glVertexAttribPointer(
-            1, 2, GL.GL_FLOAT, GL.GL_FALSE, 16,
+        _GL.glEnableVertexAttribArray(1)
+        _GL.glVertexAttribPointer(
+            1, 2, __GL.GL_FLOAT, __GL.GL_FALSE, 16,
             ctypes.c_void_p(8))
 
-        GL.glBindVertexArray(0)
+        _GL.glBindVertexArray(0)
 
     def _create_cropbox_buffers(self):
         """创建 cropbox 线框 VAO/VBO"""
-        from OpenGL import GL
+        self._cropbox_vao = _GL.glGenVertexArrays(1)
+        self._cropbox_vbo = _GL.glGenBuffers(1)
+        if not self._cropbox_vao or not self._cropbox_vbo:
+            logger.error("glGenVertexArrays/glGenBuffers 失败 (cropbox)")
+            self._gl_failed = True
+            return
 
-        self._cropbox_vao = GL.glGenVertexArrays(1)
-        self._cropbox_vbo = GL.glGenBuffers(1)
-
-        GL.glBindVertexArray(self._cropbox_vao)
-        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._cropbox_vbo)
+        _GL.glBindVertexArray(self._cropbox_vao)
+        _GL.glBindBuffer(__GL.GL_ARRAY_BUFFER, self._cropbox_vbo)
         # 预分配空间 (4 条边 + 4 个手柄 = 最多 40 个顶点)
-        GL.glBufferData(GL.GL_ARRAY_BUFFER, 40 * 2 * 4,
-                        None, GL.GL_DYNAMIC_DRAW)
+        _GL.glBufferData(__GL.GL_ARRAY_BUFFER, 40 * 2 * 4,
+                         None, __GL.GL_DYNAMIC_DRAW)
 
-        GL.glEnableVertexAttribArray(0)
-        GL.glVertexAttribPointer(
-            0, 2, GL.GL_FLOAT, GL.GL_FALSE, 8,
+        _GL.glEnableVertexAttribArray(0)
+        _GL.glVertexAttribPointer(
+            0, 2, __GL.GL_FLOAT, __GL.GL_FALSE, 8,
             ctypes.c_void_p(0))
 
-        GL.glBindVertexArray(0)
+        _GL.glBindVertexArray(0)
 
     def _create_textures(self):
         """创建纹理对象"""
-        from OpenGL import GL
-
         # YUV 纹理
-        self._tex_y = GL.glGenTextures(1)
-        self._tex_u = GL.glGenTextures(1)
-        self._tex_v = GL.glGenTextures(1)
+        self._tex_y = _GL.glGenTextures(1)
+        self._tex_u = _GL.glGenTextures(1)
+        self._tex_v = _GL.glGenTextures(1)
 
         for tex in [self._tex_y, self._tex_u, self._tex_v]:
-            GL.glBindTexture(GL.GL_TEXTURE_2D, tex)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                               GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                               GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                               GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                               GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
+            _GL.glBindTexture(__GL.GL_TEXTURE_2D, tex)
+            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                                __GL.GL_TEXTURE_MIN_FILTER, __GL.GL_LINEAR)
+            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                                __GL.GL_TEXTURE_MAG_FILTER, __GL.GL_LINEAR)
+            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                                __GL.GL_TEXTURE_WRAP_S, __GL.GL_CLAMP_TO_EDGE)
+            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                                __GL.GL_TEXTURE_WRAP_T, __GL.GL_CLAMP_TO_EDGE)
 
         # RGB 纹理
-        self._tex_rgb = GL.glGenTextures(1)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_rgb)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                           GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                           GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                           GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D,
-                           GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
+        self._tex_rgb = _GL.glGenTextures(1)
+        _GL.glBindTexture(__GL.GL_TEXTURE_2D, self._tex_rgb)
+        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                            __GL.GL_TEXTURE_MIN_FILTER, __GL.GL_LINEAR)
+        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                            __GL.GL_TEXTURE_MAG_FILTER, __GL.GL_LINEAR)
+        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                            __GL.GL_TEXTURE_WRAP_S, __GL.GL_CLAMP_TO_EDGE)
+        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
+                            __GL.GL_TEXTURE_WRAP_T, __GL.GL_CLAMP_TO_EDGE)
 
-        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+        _GL.glBindTexture(__GL.GL_TEXTURE_2D, 0)
 
     def _upload_yuv_textures(self):
         """上传 YUV420P 帧数据到 GPU"""
-        from OpenGL import GL
-
         y_data, u_data, v_data, w, h = self._yuv_data
         need_recreate = (w != self._tex_width or h != self._tex_height)
         self._tex_width = w
@@ -553,67 +556,63 @@ class GLVideoWidget(QOpenGLWidget):
         uw, uh = w // 2, h // 2
 
         # Y 平面
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_y)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_y)
         if need_recreate:
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_R8,
-                            w, h, 0, GL.GL_RED, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexImage2D(_GL.GL_TEXTURE_2D, 0, _GL.GL_R8,
+                            w, h, 0, _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
                             y_data)
         else:
-            GL.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, 0, 0,
-                               w, h, GL.GL_RED, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexSubImage2D(_GL.GL_TEXTURE_2D, 0, 0, 0,
+                               w, h, _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
                                y_data)
 
         # U 平面
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_u)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_u)
         if need_recreate:
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_R8,
-                            uw, uh, 0, GL.GL_RED, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexImage2D(_GL.GL_TEXTURE_2D, 0, _GL.GL_R8,
+                            uw, uh, 0, _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
                             u_data)
         else:
-            GL.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, 0, 0,
-                               uw, uh, GL.GL_RED, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexSubImage2D(_GL.GL_TEXTURE_2D, 0, 0, 0,
+                               uw, uh, _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
                                u_data)
 
         # V 平面
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_v)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_v)
         if need_recreate:
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_R8,
-                            uw, uh, 0, GL.GL_RED, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexImage2D(_GL.GL_TEXTURE_2D, 0, _GL.GL_R8,
+                            uw, uh, 0, _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
                             v_data)
         else:
-            GL.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, 0, 0,
-                               uw, uh, GL.GL_RED, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexSubImage2D(_GL.GL_TEXTURE_2D, 0, 0, 0,
+                               uw, uh, _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
                                v_data)
 
-        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, 0)
 
     def _upload_rgb_texture(self):
         """上传 RGB 帧数据到 GPU"""
-        from OpenGL import GL
-
         rgb, w, h = self._rgb_data
         need_recreate = (w != self._tex_width or h != self._tex_height)
         self._tex_width = w
         self._tex_height = h
 
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_rgb)
-        GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_rgb)
+        _GL.glPixelStorei(_GL.GL_UNPACK_ALIGNMENT, 1)
 
         if need_recreate:
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGB8,
-                            w, h, 0, GL.GL_RGB, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexImage2D(_GL.GL_TEXTURE_2D, 0, _GL.GL_RGB8,
+                            w, h, 0, _GL.GL_RGB, _GL.GL_UNSIGNED_BYTE,
                             rgb)
         else:
-            GL.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, 0, 0,
-                               w, h, GL.GL_RGB, GL.GL_UNSIGNED_BYTE,
+            _GL.glTexSubImage2D(_GL.GL_TEXTURE_2D, 0, 0, 0,
+                               w, h, _GL.GL_RGB, _GL.GL_UNSIGNED_BYTE,
                                rgb)
 
-        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, 0)
 
     def _draw_yuv_frame(self):
         """绘制 YUV 帧"""
-        from OpenGL import GL
-
         self._yuv_program.bind()
 
         # 设置 MVP 矩阵
@@ -621,45 +620,43 @@ class GLVideoWidget(QOpenGLWidget):
         self._yuv_program.setUniformValue(mvp_loc, self._mvp_matrix)
 
         # 绑定 YUV 纹理
-        GL.glActiveTexture(GL.GL_TEXTURE0)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_y)
+        _GL.glActiveTexture(_GL.GL_TEXTURE0)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_y)
         self._yuv_program.setUniformValue(
             self._yuv_program.uniformLocation("tex_y"), 0)
 
-        GL.glActiveTexture(GL.GL_TEXTURE1)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_u)
+        _GL.glActiveTexture(_GL.GL_TEXTURE1)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_u)
         self._yuv_program.setUniformValue(
             self._yuv_program.uniformLocation("tex_u"), 1)
 
-        GL.glActiveTexture(GL.GL_TEXTURE2)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_v)
+        _GL.glActiveTexture(_GL.GL_TEXTURE2)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_v)
         self._yuv_program.setUniformValue(
             self._yuv_program.uniformLocation("tex_v"), 2)
 
         # 绘制
-        GL.glBindVertexArray(self._quad_vao)
-        GL.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4)
-        GL.glBindVertexArray(0)
+        _GL.glBindVertexArray(self._quad_vao)
+        _GL.glDrawArrays(_GL.GL_TRIANGLE_STRIP, 0, 4)
+        _GL.glBindVertexArray(0)
 
         self._yuv_program.release()
 
     def _draw_rgb_frame(self):
         """绘制 RGB 帧"""
-        from OpenGL import GL
-
         self._rgb_program.bind()
 
         mvp_loc = self._rgb_program.uniformLocation("u_mvp")
         self._rgb_program.setUniformValue(mvp_loc, self._mvp_matrix)
 
-        GL.glActiveTexture(GL.GL_TEXTURE0)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex_rgb)
+        _GL.glActiveTexture(_GL.GL_TEXTURE0)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_rgb)
         self._rgb_program.setUniformValue(
             self._rgb_program.uniformLocation("tex_rgb"), 0)
 
-        GL.glBindVertexArray(self._quad_vao)
-        GL.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4)
-        GL.glBindVertexArray(0)
+        _GL.glBindVertexArray(self._quad_vao)
+        _GL.glDrawArrays(_GL.GL_TRIANGLE_STRIP, 0, 4)
+        _GL.glBindVertexArray(0)
 
         self._rgb_program.release()
 
@@ -669,8 +666,6 @@ class GLVideoWidget(QOpenGLWidget):
         cropbox 坐标在旋转后视频坐标系中，映射到 display_rect 屏幕区域，
         然后转换为 NDC。使用 identity MVP 绘制。
         """
-        from OpenGL import GL
-
         cx, cy, cw, ch = self._cropbox
         if cw <= 0 or ch <= 0:
             return
@@ -719,13 +714,13 @@ class GLVideoWidget(QOpenGLWidget):
         self._cropbox_program.setUniformValue(
             color_loc, 0.0, 1.0, 0.0, 1.0)
 
-        GL.glBindVertexArray(self._cropbox_vao)
-        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._cropbox_vbo)
-        GL.glBufferSubData(GL.GL_ARRAY_BUFFER, 0,
+        _GL.glBindVertexArray(self._cropbox_vao)
+        _GL.glBindBuffer(_GL.GL_ARRAY_BUFFER, self._cropbox_vbo)
+        _GL.glBufferSubData(_GL.GL_ARRAY_BUFFER, 0,
                            line_vertices.nbytes, line_vertices)
 
-        GL.glLineWidth(2.0)
-        GL.glDrawArrays(GL.GL_LINES, 0, 8)
+        _GL.glLineWidth(2.0)
+        _GL.glDrawArrays(_GL.GL_LINES, 0, 8)
 
         # 绘制角落手柄 (4 个小正方形)
         hs_x = 8.0 / ww * 2.0
@@ -748,11 +743,11 @@ class GLVideoWidget(QOpenGLWidget):
         self._cropbox_program.setUniformValue(
             color_loc, 0.0, 0.78, 1.0, 1.0)
 
-        GL.glBufferSubData(GL.GL_ARRAY_BUFFER, 0,
+        _GL.glBufferSubData(_GL.GL_ARRAY_BUFFER, 0,
                            handle_array.nbytes, handle_array)
-        GL.glDrawArrays(GL.GL_TRIANGLES, 0, 24)
+        _GL.glDrawArrays(_GL.GL_TRIANGLES, 0, 24)
 
-        GL.glBindVertexArray(0)
+        _GL.glBindVertexArray(0)
         self._cropbox_program.release()
 
     def _update_mvp(self):
@@ -863,18 +858,19 @@ class GLVideoWidget(QOpenGLWidget):
             return
         self.makeCurrent()
         try:
-            from OpenGL import GL
+            if _GL is None:
+                return
             if self._tex_y:
-                GL.glDeleteTextures([self._tex_y, self._tex_u,
+                _GL.glDeleteTextures([self._tex_y, self._tex_u,
                                      self._tex_v, self._tex_rgb])
             if self._quad_vbo:
-                GL.glDeleteBuffers(1, [self._quad_vbo])
+                _GL.glDeleteBuffers(1, [self._quad_vbo])
             if self._quad_vao:
-                GL.glDeleteVertexArrays(1, [self._quad_vao])
+                _GL.glDeleteVertexArrays(1, [self._quad_vao])
             if self._cropbox_vbo:
-                GL.glDeleteBuffers(1, [self._cropbox_vbo])
+                _GL.glDeleteBuffers(1, [self._cropbox_vbo])
             if self._cropbox_vao:
-                GL.glDeleteVertexArrays(1, [self._cropbox_vao])
+                _GL.glDeleteVertexArrays(1, [self._cropbox_vao])
         except Exception:
             pass
         self.doneCurrent()

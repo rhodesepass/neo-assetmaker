@@ -15,6 +15,22 @@ if getattr(sys, 'frozen', False):
     plugin_path = os.path.join(APP_DIR, 'lib', 'PyQt6', 'Qt6', 'plugins')
     if os.path.exists(plugin_path):
         os.environ['QT_PLUGIN_PATH'] = plugin_path
+
+    # 修复 GUI 模式下 stdout/stderr 为 None（base="gui" 隐藏控制台）
+    import io
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
+
+    # 启用 faulthandler — 捕获 segfault 的 Python traceback
+    import faulthandler
+    try:
+        _crash_log_path = os.path.join(APP_DIR, 'crash.log')
+        _crash_log_file = open(_crash_log_path, 'w')
+        faulthandler.enable(file=_crash_log_file)
+    except Exception:
+        faulthandler.enable()
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -68,8 +84,8 @@ def check_dependencies():
         sys.exit(1)
 
 
-def main():
-    """应用程序入口"""
+def _main_inner():
+    """应用程序实际入口"""
     check_dependencies()
 
     # 禁用QFluentWidgets启动提示（必须在导入QFluentWidgets之前设置）
@@ -126,6 +142,32 @@ def main():
     exit_code = app.exec()
     logger.info(f"应用程序退出，退出码: {exit_code}")
     sys.exit(exit_code)
+
+
+def main():
+    """应用程序入口 — 包裹全局异常处理"""
+    try:
+        _main_inner()
+    except Exception:
+        import traceback
+        error_text = traceback.format_exc()
+        # 写入崩溃日志
+        try:
+            log_path = os.path.join(
+                os.environ.get('TEMP', '.'),
+                'ArknightsPassMaker_crash.log')
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write(error_text)
+        except Exception:
+            pass
+        # 尝试显示错误对话框
+        try:
+            from PyQt6.QtWidgets import QApplication, QMessageBox
+            app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.critical(None, "致命错误", error_text[:1000])
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":

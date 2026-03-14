@@ -206,7 +206,11 @@ def run_cxfreeze(skip_flasher=False):
 
     packages = [
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
+        "PyQt6.QtOpenGLWidgets", "PyQt6.QtOpenGL",
         "qfluentwidgets",
+        "av", "OpenGL", "OpenGL.GL",
+        "OpenGL.GL.VERSION", "OpenGL.raw", "OpenGL.raw.GL",
+        "OpenGL.platform", "OpenGL.arrays",
         "cv2", "PIL", "numpy", "jsonschema", "thefuzz",
         "logging", "json", "uuid", "dataclasses",
         "qtpy", "httpx", "httpcore", "httpx._transports",
@@ -218,7 +222,31 @@ def run_cxfreeze(skip_flasher=False):
         "gui", "core", "config", "utils", "_mext",
     ]
 
-    includes = []
+    includes = [
+        # PyOpenGL 平台模块 — 通过 plugins.importByName() 动态加载
+        # cx_Freeze 无法跟踪 __import__ 字符串形式的动态导入
+        "OpenGL.platform.win32",
+        "OpenGL.platform.ctypesloader",
+        "OpenGL.platform.baseplatform",
+        "OpenGL._configflags",
+        "OpenGL.plugins",
+        # OpenGL.arrays — FormatHandler 插件动态加载
+        # 将 numpy array 转换为 C 指针的关键模块
+        "OpenGL.arrays.numpymodule",
+        "OpenGL.arrays.ctypesarrays",
+        "OpenGL.arrays.ctypesparameters",
+        "OpenGL.arrays.ctypespointers",
+        "OpenGL.arrays.lists",
+        "OpenGL.arrays.nones",
+        "OpenGL.arrays.numbers",
+        "OpenGL.arrays.strings",
+        "OpenGL.arrays.buffers",
+        "OpenGL.arrays.arraydatatype",
+        "OpenGL.arrays.formathandler",
+        "OpenGL.converters",
+        # OpenGL.raw — GL 常量和原始函数绑定
+        "OpenGL.raw.GL",
+    ]
 
     excludes = [
         "tkinter", "unittest", "test", "tests", "pytest", "IPython",
