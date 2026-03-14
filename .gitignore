@@ -42,3 +42,6 @@ config/user_settings.json
 
 # Temporary update directory
 temp_update/
+ffmpeg
+ffplay
+ffprobe

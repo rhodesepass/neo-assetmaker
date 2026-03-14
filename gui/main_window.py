@@ -388,50 +388,85 @@ class MainWindow(QMainWindow):
         self.btn_operations.setFixedHeight(34)
 
         operations_menu = RoundMenu(parent=self)
+        # Ensure the menu is wide enough so long shortcut labels aren't truncated
+        operations_menu.setFixedWidth(500)
 
         # 文件操作
         operations_menu.addAction(
-            Action(FluentIcon.DOCUMENT, "新建项目\tCtrl+N",
-                   triggered=self._on_new_project))
+            Action(
+                FluentIcon.DOCUMENT,
+                "新建项目",
+                shortcut="Ctrl+N",
+                triggered=self._on_new_project
+            )
+        )
         operations_menu.addAction(
-            Action(FluentIcon.FOLDER, "打开项目\tCtrl+O",
-                   triggered=self._on_open_project))
+            Action(
+                FluentIcon.FOLDER,
+                "打开项目",
+                shortcut="Ctrl+O",
+                triggered=self._on_open_project
+            )
+        )
         operations_menu.addAction(
-            Action(FluentIcon.SAVE, "保存\tCtrl+S",
-                   triggered=self._on_save_project))
+            Action(
+                FluentIcon.SAVE,
+                "保存",
+                shortcut="Ctrl+S",
+                triggered=self._on_save_project
+            )
+        )
         operations_menu.addAction(
-            Action(FluentIcon.SAVE_AS, "另存为\tCtrl+Shift+S",
-                   triggered=self._on_save_as))
+            Action(
+                FluentIcon.SAVE_AS,
+                "另存为",
+                shortcut="Ctrl+Shift+S",
+                triggered=self._on_save_as
+            )
+        )
 
         operations_menu.addSeparator()
 
         # 编辑操作
         self.menu_action_undo = Action(
-            FluentIcon.RETURN, "撤销\tCtrl+Z",
-            triggered=self._on_undo)
+            FluentIcon.RETURN,
+            "撤销",
+            shortcut="Ctrl+Z",
+            triggered=self._on_undo
+        )
         self.menu_action_undo.setEnabled(False)
         operations_menu.addAction(self.menu_action_undo)
 
         self.menu_action_redo = Action(
-            FluentIcon.RIGHT_ARROW, "重做\tCtrl+Shift+Z",
-            triggered=self._on_redo)
+            FluentIcon.RIGHT_ARROW,
+            "重做",
+            shortcut="Ctrl+Shift+Z",
+            triggered=self._on_redo
+        )
         self.menu_action_redo.setEnabled(False)
         operations_menu.addAction(self.menu_action_redo)
-
         operations_menu.addSeparator()
 
         # 帮助
         operations_menu.addAction(
-            Action(FluentIcon.HELP, "快捷键帮助\tF1",
-                   triggered=self._on_shortcuts))
-
+            Action(
+                FluentIcon.HELP,
+                "快捷键帮助",
+                shortcut="F1",
+                triggered=self._on_shortcuts
+            )
+        )
         operations_menu.addSeparator()
 
         # 退出
         operations_menu.addAction(
-            Action(FluentIcon.POWER_BUTTON, "退出\tCtrl+Q",
-                   triggered=self.close))
-
+            Action(
+                FluentIcon.POWER_BUTTON,
+                "退出",
+                shortcut="Ctrl+Q",
+                triggered=self.close
+            )
+        )
         self.btn_operations.setMenu(operations_menu)
         toolbar_layout.addWidget(self.btn_operations)
 
@@ -659,14 +694,15 @@ class MainWindow(QMainWindow):
             self._on_capture_frame)
         self.advanced_config_panel.transition_image_changed.connect(
             self._on_transition_image_changed)
-
+        self.advanced_config_panel.ssh_upload_requested.connect(self._on_ssh_upload)
+        
         # 基础配置面板信号
         self.basic_config_panel.config_changed.connect(self._on_config_changed)
         self.basic_config_panel.video_file_selected.connect(
             self._on_video_file_selected)
         self.basic_config_panel.validate_requested.connect(self._on_validate)
         self.basic_config_panel.export_requested.connect(self._on_export)
-
+        self.basic_config_panel.ssh_upload_requested.connect(self._on_ssh_upload)
         # 截取帧编辑 - 保存图标按钮
         self.btn_save_icon.clicked.connect(self._on_save_captured_icon)
 
@@ -708,6 +744,74 @@ class MainWindow(QMainWindow):
         # 入点/出点设置
         self.timeline.set_in_point_clicked.connect(self._on_set_in_point)
         self.timeline.set_out_point_clicked.connect(self._on_set_out_point)
+
+    def _on_ssh_upload(self):
+        """SSH 上传"""
+        try:
+            result = self._on_export()
+            if not result:
+                return
+            export_dialog, dir_path = result
+
+            # 仅在导出成功后才继续上传
+            if not getattr(export_dialog, '_is_completed', False) or \
+                    export_dialog.label_status.text() != "导出完成!":
+                print("导出失败，取消SSH上传")
+                return
+
+            if not os.path.exists(dir_path):
+                print("导出目录不存在，取消SSH上传")
+                return
+
+            settings = self._read_user_settings()
+            host = settings.get('ssh_ip_address', "192.168.137.2")
+            port = settings.get('ssh_port', 22)
+            user = settings.get('ssh_user', "root")
+            password = settings.get('ssh_password', "toor")
+            remote_path = settings.get('ssh_default_upload_path', "/assets/")
+            enableRestart = settings.get('ssh_auto_restart_program', True)
+
+            from core.ssh_upload_service import SshUploadWorker
+            from gui.dialogs.ssh_upload_progress_dialog import SshUploadProgressDialog
+
+            self._ssh_upload_worker = SshUploadWorker(self)
+            self._ssh_upload_dialog = SshUploadProgressDialog(self)
+
+            self._ssh_upload_worker.progress_updated.connect(
+                self._ssh_upload_dialog.update_progress
+            )
+            self._ssh_upload_worker.upload_completed.connect(
+                lambda msg: self._on_ssh_upload_completed(True, msg)
+            )
+            self._ssh_upload_worker.upload_failed.connect(
+                lambda msg: self._on_ssh_upload_completed(False, msg)
+            )
+            self._ssh_upload_dialog.cancel_requested.connect(
+                self._ssh_upload_worker.cancel
+            )
+
+            self._ssh_upload_worker.setup(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                local_path=dir_path,
+                remote_path=remote_path,
+                enable_restart=enableRestart,
+            )
+            self._ssh_upload_worker.start()
+
+            self._ssh_upload_dialog.exec()
+
+            # 如果用户取消了对话框，让后台线程尽快结束
+            if self._ssh_upload_worker.isRunning():
+                self._ssh_upload_worker.cancel()
+                self._ssh_upload_worker.wait(2000)
+
+        except Exception as e:
+            print("发生错误:", e)
+            return
+        return
 
     def _load_settings(self):
         """加载设置"""
@@ -1408,6 +1512,7 @@ class MainWindow(QMainWindow):
 
         # 显示进度对话框
         self._export_dialog.exec()
+        return self._export_dialog, dir_path
 
     def _on_simulator(self):
         """打开模拟器预览"""
@@ -3319,6 +3424,18 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage("导出失败")
             logger.error(f"导出失败: {message}")
+
+    def _on_ssh_upload_completed(self, success: bool, message: str):
+        """SSH 上传完成回调"""
+        if hasattr(self, '_ssh_upload_dialog') and self._ssh_upload_dialog:
+            self._ssh_upload_dialog.set_completed(success, message)
+
+        if success:
+            self.status_bar.showMessage(message)
+            logger.info(f"SSH 上传成功: {message}")
+        else:
+            self.status_bar.showMessage("SSH 上传失败")
+            logger.error(f"SSH 上传失败: {message}")
 
     def _check_save(self) -> bool:
         """检查是否需要保存"""

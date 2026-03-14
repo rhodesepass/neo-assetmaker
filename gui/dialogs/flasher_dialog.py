@@ -908,7 +908,10 @@ class FirmwareUpdateWorker(QThread):
                     shutil.rmtree(backup_bin)
                 shutil.copytree(current_bin, backup_bin)
                 self.progress_updated.emit("备份完成", 20)
-            
+            else:
+                # ./bin不存在时会报错
+                self.status_updated.emit("当前bin目录不存在，跳过备份")
+                os.mkdir(current_bin)
             # 克隆最新版本（带重试机制）
             self.status_updated.emit("正在从GitHub下载最新版本...")
             temp_path = os.path.join(os.path.dirname(self.flasher_dir), 'epass_flasher_temp')

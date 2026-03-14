@@ -45,6 +45,8 @@ class BasicConfigPanel(QWidget):
     video_file_selected = pyqtSignal(str)  # 视频文件选择信号
     validate_requested = pyqtSignal()  # 验证配置请求信号
     export_requested = pyqtSignal()  # 导出素材请求信号
+    ssh_upload_requested = pyqtSignal()  # SSH上传请求信号
+
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -176,6 +178,9 @@ class BasicConfigPanel(QWidget):
         self.btn_export = PrimaryPushButton("导出素材")
         actions_layout.addWidget(self.btn_export)
 
+        self.btn_sshUpload = PrimaryPushButton("一键上传")
+        actions_layout.addWidget(self.btn_sshUpload)
+
         layout.addWidget(group_actions)
 
         layout.addStretch()
@@ -193,6 +198,7 @@ class BasicConfigPanel(QWidget):
 
         self.btn_validate.clicked.connect(self.validate_requested.emit)
         self.btn_export.clicked.connect(self.export_requested.emit)
+        self.btn_sshUpload.clicked.connect(self.ssh_upload_requested.emit)
 
     def _on_operator_name_changed(self, text: str):
         """干员名称变更处理"""

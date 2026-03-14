@@ -1,20 +1,14 @@
 """
-导出进度对话框
+SSH 上传进度对话框 
 """
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel
-)
+
+from PyQt6.QtWidgets import QDialog, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
-from qfluentwidgets import (
-    PushButton, SubtitleLabel, BodyLabel, ProgressBar
-)
+from qfluentwidgets import PushButton, SubtitleLabel, BodyLabel, ProgressBar
 
 
-class ExportProgressDialog(QDialog):
-    """导出进度对话框"""
-
-    # 导出成功的信号
-    export_success_signal = pyqtSignal(bool)
+class SshUploadProgressDialog(QDialog):
+    """SSH 上传进度对话框"""
 
     cancel_requested = pyqtSignal()
 
@@ -25,7 +19,7 @@ class ExportProgressDialog(QDialog):
 
     def _setup_ui(self):
         """设置UI"""
-        self.setWindowTitle("导出素材")
+        self.setWindowTitle("SSH 上传")
         self.setMinimumSize(400, 150)
         self.setModal(True)
         # 禁用关闭按钮
@@ -37,23 +31,19 @@ class ExportProgressDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # 状态标签 - 使用Fluent SubtitleLabel
-        self.label_status = SubtitleLabel("准备导出...")
+        self.label_status = SubtitleLabel("准备上传...")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_status)
 
-        # 进度条 - 使用Fluent ProgressBar
         self.progress_bar = ProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
 
-        # 详细信息标签 - 使用Fluent BodyLabel
         self.label_detail = BodyLabel("")
         self.label_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_detail)
 
-        # 按钮 - 使用Fluent PushButton
         self.btn_action = PushButton("取消")
         self.btn_action.clicked.connect(self._on_action_clicked)
         layout.addWidget(self.btn_action)
@@ -64,16 +54,15 @@ class ExportProgressDialog(QDialog):
         self.label_detail.setText(message)
 
     def set_completed(self, success: bool, message: str):
-        """设置完成状态"""
+        """完成"""
         self._is_completed = True
         self.progress_bar.setValue(100 if success else self.progress_bar.value())
-        self.label_status.setText("导出完成!" if success else "导出失败")
+        self.label_status.setText("上传完成!" if success else "上传失败")
         self.label_detail.setText(message)
         self.btn_action.setText("确定")
 
         if success:
             self.label_status.setStyleSheet("color: green;")
-            self.export_success_signal.emit(success)
         else:
             self.label_status.setStyleSheet("color: red;")
 
@@ -82,7 +71,6 @@ class ExportProgressDialog(QDialog):
         if self._is_completed:
             self.accept()
         else:
-            # 请求取消
             self.cancel_requested.emit()
             self.label_status.setText("正在取消...")
             self.btn_action.setEnabled(False)
@@ -92,4 +80,4 @@ class ExportProgressDialog(QDialog):
         if self._is_completed:
             event.accept()
         else:
-            event.ignore()  # 导出过程中禁止关闭
+            event.ignore()  # 上传过程中禁止关闭

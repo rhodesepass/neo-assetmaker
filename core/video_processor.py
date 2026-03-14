@@ -30,12 +30,19 @@ X264_PARAMS = (
 def find_ffmpeg() -> str:
     """查找安装目录中的ffmpeg（仅限应用自带，避免多版本冲突）"""
     # 1. 在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
-    app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+    if sys.platform == 'win32':
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+    else:
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg")
+
     if os.path.isfile(app_ffmpeg):
         return app_ffmpeg
 
     # 2. 在 ffmpeg 子目录中查找
-    ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
+    if sys.platform == 'win32':
+        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
+    else:
+        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg")
     if os.path.isfile(ffmpeg_dir_ffmpeg):
         return ffmpeg_dir_ffmpeg
 
