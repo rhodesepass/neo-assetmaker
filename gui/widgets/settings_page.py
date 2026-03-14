@@ -6,7 +6,7 @@ import logging
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
-from qfluentwidgets import ScrollArea, FluentIcon, SubtitleLabel
+from qfluentwidgets import ScrollArea, FluentIcon, SubtitleLabel, LineEdit
 from qfluentwidgets.components.settings import (
     SettingCard, SwitchSettingCard,
     PushSettingCard, PrimaryPushSettingCard,
@@ -142,7 +142,51 @@ class SettingsPage(QWidget):
         self.networkGroup.addSettingCards([
             self.githubAccelCard, self.proxyCard])
 
-        # ---------- 6. 关于 ----------
+        # ---------- 6. 自动上传 ----------
+        self.autoUploadGroup = SettingCardGroup("自动上传", self.scrollWidget)
+        self.sshIpAddressCard = LineEditSettingCard(
+            FluentIcon.EDIT,
+            "通行证SSH地址",
+            "",
+            defaultText="192.168.137.2",
+            parent=self.autoUploadGroup
+        )
+        self.sshPortCard = LineEditSettingCard(
+            FluentIcon.EDIT,
+            "通行证SSH端口",
+            "",
+            defaultText="22",
+            parent=self.autoUploadGroup
+        )
+        self.sshUser = LineEditSettingCard(
+            FluentIcon.EDIT,
+            "通行证SSH用户",
+            "",
+            defaultText="root",
+            parent=self.autoUploadGroup
+        )
+        self.sshPassword = LineEditSettingCard(
+            FluentIcon.EDIT,
+            "通行证SSH密码",
+            "",
+            defaultText="toor",
+            parent=self.autoUploadGroup
+        )
+        self.sshDefaultUploadPath = LineEditSettingCard(
+            FluentIcon.FOLDER,
+            "通行证SSH上传路径",
+            "",
+            defaultText="/assets/",
+            parent=self.autoUploadGroup
+        )
+        self.sshAutoRestartProgram = SwitchSettingCard(
+            FluentIcon.SYNC,
+            "上传完毕后自动重启通行证程序",
+            parent=self.autoUploadGroup)
+        self.autoUploadGroup.addSettingCards([self.sshIpAddressCard, self.sshPortCard, self.sshUser, 
+                                              self.sshPassword, self.sshDefaultUploadPath, self.sshAutoRestartProgram])
+
+        # ---------- 7. 关于 ----------
         self.aboutGroup = SettingCardGroup("关于", self.scrollWidget)
 
         self.shortcutsCard = PushSettingCard(
@@ -165,7 +209,7 @@ class SettingsPage(QWidget):
 
         # ---------- 添加到滚动布局 ----------
         for group in [self.appGroup, self.uiGroup, self.personalGroup,
-                      self.videoGroup, self.networkGroup, self.aboutGroup]:
+                      self.videoGroup, self.networkGroup, self.autoUploadGroup, self.aboutGroup]:
             self.scrollLayout.addWidget(group)
 
         self.scrollLayout.addStretch(1)
@@ -217,6 +261,20 @@ class SettingsPage(QWidget):
         self.proxyCard.checkedChanged.connect(
             lambda v: self._emit('use_proxy', v))
 
+        # SSH 自动上传
+        self.sshIpAddressCard.textChanged.connect(
+            lambda v: self._emit('ssh_ip_address', v))
+        self.sshPortCard.textChanged.connect(
+            lambda v: self._emit('ssh_port', v))
+        self.sshUser.textChanged.connect(
+            lambda v: self._emit('ssh_user', v))
+        self.sshPassword.textChanged.connect(
+            lambda v: self._emit('ssh_password', v))
+        self.sshDefaultUploadPath.textChanged.connect(
+            lambda v: self._emit('ssh_default_upload_path', v))
+        self.sshAutoRestartProgram.checkedChanged.connect(
+            lambda v: self._emit('ssh_auto_restart_program', v))
+
         # 关于
         self.shortcutsCard.clicked.connect(self.show_shortcuts_requested)
         self.updateCard.clicked.connect(self.check_update_requested)
@@ -258,6 +316,9 @@ class SettingsPage(QWidget):
             self.autoSaveCard.setChecked(
                 settings.get('auto_save', False))
 
+            self.autoUpdateCard.setChecked(
+                settings.get('auto_update', True))
+
             self.hwAccelCard.setChecked(
                 settings.get('hardware_acceleration', True))
             self.exportThreadsCard.setValue(
@@ -267,5 +328,60 @@ class SettingsPage(QWidget):
                 settings.get('github_acceleration', True))
             self.proxyCard.setChecked(
                 settings.get('use_proxy', False))
+            
+            # SSH 自动上传设置
+            self.sshIpAddressCard.setText(
+                settings.get('ssh_ip_address',"192.168.137.2")
+            )
+            self.sshPortCard.setText(
+                settings.get('ssh_port', "22")
+            )
+            self.sshUser.setText(
+                settings.get('ssh_user', "root")
+            )
+            self.sshPassword.setText(
+                settings.get('ssh_password', "toor")
+            )
+            self.sshDefaultUploadPath.setText(
+                settings.get('ssh_default_upload_path', "/assets/")
+            )
+            self.sshAutoRestartProgram.setChecked(
+                settings.get('ssh_auto_restart_program', True)
+            )
         finally:
             self._loading = False
+
+
+# 一个包含输入框的设置卡
+class LineEditSettingCard(SettingCard):
+
+    textChanged = pyqtSignal(str)
+
+    def __init__(
+        self,
+        icon,
+        title,
+        content=None,
+        defaultText="",
+        placeholder="",
+        parent=None
+    ):
+        super().__init__(icon, title, content, parent)
+
+        self.lineEdit = LineEdit(self)
+        self.lineEdit.setFixedWidth(200)
+        if defaultText:
+            self.lineEdit.setText(defaultText)
+        if placeholder:
+            self.lineEdit.setPlaceholderText(placeholder)
+        self.lineEdit.textChanged.connect(self.textChanged.emit)
+        # 右边距 12px
+        l, t, r, b = self.hBoxLayout.getContentsMargins()
+        self.hBoxLayout.setContentsMargins(l, t, 12, b)
+        self.hBoxLayout.addWidget(self.lineEdit)
+
+    def text(self):
+        return self.lineEdit.text()
+
+    def setText(self, text):
+        self.lineEdit.setText(text)
