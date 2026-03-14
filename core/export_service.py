@@ -20,6 +20,13 @@ try:
 except ImportError:
     HAS_CV2 = False
 
+# PyAV 用于视频解码，替代 cv2.VideoCapture
+try:
+    import av
+    HAS_AV = True
+except ImportError:
+    HAS_AV = False
+
 from PyQt6.QtCore import QThread, pyqtSignal, QObject
 
 from config.constants import get_resolution_spec
@@ -212,6 +219,9 @@ class ExportWorker(QThread):
         if not HAS_CV2:
             raise RuntimeError("未安装opencv-python，无法处理视频")
 
+        if not HAS_AV:
+            raise RuntimeError("未安装PyAV，无法解码视频")
+
         # 图片模式：从单张图片生成1秒循环视频
         if params.is_image:
             self._export_video_from_image(output_path, params, base_progress, total_tasks)
@@ -229,28 +239,20 @@ class ExportWorker(QThread):
         os.makedirs(temp_dir, exist_ok=True)
 
         try:
-            cap = cv2.VideoCapture(params.video_path)
-            if not cap.isOpened():
-                raise RuntimeError(f"无法打开视频: {params.video_path}")
+            # 使用 PyAV 解码视频，替代 cv2.VideoCapture
+            # 参考: https://pyav.org/docs/stable/api/container.html
+            container = av.open(params.video_path)
+            stream = container.streams.video[0]
+            # 启用多线程解码以提升性能
+            stream.thread_type = "AUTO"
 
-            cap.set(cv2.CAP_PROP_POS_FRAMES, params.start_frame)
             total_frames = params.end_frame - params.start_frame
 
-            # 预计算旋转后的裁剪框坐标
-            orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            # 从 stream 元数据获取视频原始尺寸
+            orig_w = stream.width
+            orig_h = stream.height
             x, y, w, h = params.cropbox
             rotation = params.rotation
-
-            # 将cropbox从原始坐标变换到旋转后坐标
-            if rotation == 90:
-                rx, ry, rw, rh = (orig_h - y - h, x, h, w)
-            elif rotation == 180:
-                rx, ry, rw, rh = (orig_w - x - w, orig_h - y - h, w, h)
-            elif rotation == 270:
-                rx, ry, rw, rh = (y, orig_w - x - w, h, w)
-            else:
-                rx, ry, rw, rh = (x, y, w, h)
 
             # 任意角度旋转：预计算旋转矩阵（循环外计算，所有帧复用）
             rot_matrix = None
@@ -265,16 +267,66 @@ class ExportWorker(QThread):
                 rot_matrix[1, 2] += (nh - orig_h) / 2.0
                 rotated_size = (nw, nh)
 
+            # 将cropbox从原始坐标变换到旋转后坐标
+            if rotation == 90:
+                rx, ry, rw, rh = (orig_h - y - h, x, h, w)
+            elif rotation == 180:
+                rx, ry, rw, rh = (orig_w - x - w, orig_h - y - h, w, h)
+            elif rotation == 270:
+                rx, ry, rw, rh = (y, orig_w - x - w, h, w)
+            elif rotation == 0:
+                rx, ry, rw, rh = (x, y, w, h)
+            else:
+                # 非正交角度：仿射正向变换
+                corners = np.array(
+                    [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+                    dtype=np.float64)
+                rotated_corners = np.array(
+                    [rot_matrix[:, :2] @ c + rot_matrix[:, 2]
+                     for c in corners])
+                rx = max(0, int(np.floor(rotated_corners[:, 0].min())))
+                ry = max(0, int(np.floor(rotated_corners[:, 1].min())))
+                rx1 = min(rotated_size[0],
+                          int(np.ceil(rotated_corners[:, 0].max())))
+                ry1 = min(rotated_size[1],
+                          int(np.ceil(rotated_corners[:, 1].max())))
+                rw, rh = rx1 - rx, ry1 - ry
+
+            # 精确 seek 到起始帧
+            # 参考: https://pyav.org/docs/stable/api/container.html#av.container.InputContainer.seek
+            fps = float(stream.average_rate) if stream.average_rate else params.fps
+            time_base = stream.time_base
+            if params.start_frame > 0 and time_base and fps > 0:
+                target_sec = params.start_frame / fps
+                target_pts = int(target_sec / time_base)
+                container.seek(target_pts, stream=stream, backward=True)
+
+            # 解码帧并处理
             frames_written = 0
-            for frame_idx in range(total_frames):
+            frame_idx = 0
+            for av_frame in container.decode(stream):
                 if self._cancelled:
                     raise InterruptedError("导出已取消")
 
-                ret, frame = cap.read()
-                if not ret:
+                # 计算当前帧在视频中的实际索引
+                if av_frame.pts is not None and time_base and fps > 0:
+                    current_sec = float(av_frame.pts * time_base)
+                    current_idx = int(current_sec * fps)
+                else:
+                    current_idx = frame_idx
+
+                # 跳过 seek 后尚未到达起始帧的帧
+                if current_idx < params.start_frame:
+                    continue
+
+                # 超出结束帧则停止
+                if current_idx >= params.end_frame:
                     break
 
-                # 应用用户设置的旋转
+                # 将 PyAV 帧转换为 BGR numpy 数组（与 cv2 兼容）
+                frame = av_frame.to_ndarray(format='bgr24')
+
+                # 应用用户设置的旋转（保留 cv2 图像处理调用）
                 if rotation == 90:
                     frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                 elif rotation == 180:
@@ -295,18 +347,22 @@ class ExportWorker(QThread):
                 if rotate_180:
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
 
-                frame_path = os.path.join(temp_dir, f"frame_{frame_idx:06d}.png").replace("\\", "/")
+                # 写入帧序号基于已写入数量，确保文件名连续
+                frame_path = os.path.join(temp_dir, f"frame_{frames_written:06d}.png").replace("\\", "/")
                 success, encoded = cv2.imencode('.png', frame)
                 if success:
                     with open(frame_path, 'wb') as f:
                         f.write(encoded.tobytes())
                     frames_written += 1
 
-                if frame_idx % 10 == 0:
-                    progress = base_progress + int((frame_idx / total_frames) * 50 / total_tasks)
-                    self.progress_updated.emit(progress, f"处理帧 {frame_idx}/{total_frames}")
+                if frames_written % 10 == 0:
+                    progress = base_progress + int((frames_written / total_frames) * 50 / total_tasks)
+                    self.progress_updated.emit(progress, f"处理帧 {frames_written}/{total_frames}")
 
-            cap.release()
+                frame_idx += 1
+
+            # 关闭 PyAV 容器（替代 cap.release()）
+            container.close()
 
             if frames_written == 0:
                 raise RuntimeError("没有成功写入任何视频帧")

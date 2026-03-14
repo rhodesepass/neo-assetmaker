@@ -15,13 +15,19 @@ from typing import Optional, Tuple, TYPE_CHECKING
 import numpy as np
 
 try:
+    import av
+    HAS_AV = True
+except ImportError:
+    HAS_AV = False
+
+try:
     import cv2
     HAS_CV2 = True
 except ImportError:
     HAS_CV2 = False
 
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QSizePolicy
+    QWidget, QLabel, QVBoxLayout, QSizePolicy, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt6.QtGui import QImage, QPixmap, QMouseEvent, QKeyEvent
@@ -105,6 +111,10 @@ class VideoPreviewWidget(QWidget):
         # 图片循环模式（load_image_as_loop 设置）
         self._loop_frame: Optional[np.ndarray] = None
 
+        # GL 渲染模式（_setup_ui 中初始化）
+        self._use_gl: bool = False
+        self._gl_renderer = None
+
         self._setup_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -114,10 +124,17 @@ class VideoPreviewWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
 
-        # 视频显示标签 — 始终深色背景（剪映/CapCut 风格）
+        # 显示容器（QLabel 和 GLVideoWidget 切换）
+        self._display_stack = QStackedWidget()
+        self._display_stack.setMinimumSize(320, 180)
+        self._display_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._display_stack.setMouseTracking(True)
+
+        # 页面 0: QLabel — 状态文本 / 软件渲染回退
         self.video_label = QLabel()
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_label.setMinimumSize(320, 180)
         setCustomStyleSheet(
             self.video_label,
             "background-color: #1a1a1a; border: none; border-radius: 8px; color: #888; font-size: 14px; font-weight: 500;",
@@ -129,7 +146,25 @@ class VideoPreviewWidget(QWidget):
         self.video_label.setText("未加载视频")
         self.video_label.setMouseTracking(True)
         self.video_label.setToolTip("视频预览区域\nWASD移动裁剪框，空格播放/暂停")
-        layout.addWidget(self.video_label)
+        self._display_stack.addWidget(self.video_label)
+
+        # 页面 1: GLVideoWidget — GPU 加速渲染
+        try:
+            from gui.widgets.gl_video_renderer import (
+                GLVideoWidget, _check_opengl_available
+            )
+            if _check_opengl_available():
+                self._gl_renderer = GLVideoWidget(self)
+                self._gl_renderer.setMouseTracking(True)
+                self._gl_renderer.setToolTip(
+                    "视频预览区域\nWASD移动裁剪框，空格播放/暂停")
+                self._display_stack.addWidget(self._gl_renderer)
+                self._use_gl = True
+                logger.info("GLVideoWidget 已创建，等待 OpenGL 初始化")
+        except Exception as e:
+            logger.warning(f"GLVideoWidget 创建失败，使用 QLabel 回退: {e}")
+
+        layout.addWidget(self._display_stack)
 
         # 信息标签 — 透明背景，浮于深色预览区上方
         self.info_label = CaptionLabel("帧: 0/0 | 裁剪: (0, 0, 0, 0)")
@@ -174,22 +209,67 @@ class VideoPreviewWidget(QWidget):
         self._sync_state_to_reader()
         self.video_loaded.emit(total_frames, fps)
 
+        # GL 模式：切换到 GPU 渲染页面
+        if self._use_gl and self._gl_renderer:
+            self._display_stack.setCurrentIndex(1)
+
     def _on_video_open_failed(self, error_msg: str):
         """视频打开失败的回调"""
         logger.error(f"视频加载失败: {error_msg}")
+        self._display_stack.setCurrentIndex(0)
         self.video_label.setText(f"加载失败: {error_msg}")
         self._has_video = False
+
+    def _on_yuv_frame_ready(self, frame_index: int, y_data: bytes,
+                            u_data: bytes, v_data: bytes,
+                            width: int, height: int):
+        """YUV 帧就绪回调 — GL 编辑模式：直传 GPU，零 CPU 处理
+
+        仅在 GL 编辑模式下调用（工作线程 _gl_mode=True 且非预览模式）。
+        """
+        if not (self._use_gl and self._gl_renderer
+                and not self._gl_renderer.gl_failed):
+            return  # GL 不可用，由 frame_ready 处理
+
+        self._gl_renderer.upload_yuv_frame(
+            y_data, u_data, v_data, width, height)
+        self._gl_renderer.set_rotation(self._rotation)
+        rotated_w, rotated_h = self._get_rotated_video_size()
+        self._gl_renderer.set_cropbox(
+            *self.cropbox, rotated_w, rotated_h)
+        self._gl_renderer.set_show_cropbox(not self._preview_mode)
 
     def _on_frame_ready(self, frame_index: int, qimage: QImage,
                         raw_frame: object):
         """后台线程帧就绪回调（主线程执行 — Qt QueuedConnection 保证）
 
-        主线程仅做 QPixmap.fromImage() + setPixmap()，非常轻量。
+        GL 编辑模式：仅存储 raw_frame（显示由 _on_yuv_frame_ready 处理）
+        GL 预览模式：CPU 处理后上传 BGR 到 GPU
+        QLabel 模式：QImage → QPixmap.scaled() → setPixmap()
         """
         self.current_frame_index = frame_index
         self.current_frame = raw_frame  # 保存原始帧，供 cropbox 交互即时重绘
 
-        # QImage → QPixmap（必须在主线程）
+        # GL 模式
+        if self._use_gl and self._gl_renderer:
+            if self._gl_renderer.gl_failed:
+                # GL 初始化失败，永久回退到 QLabel
+                self._use_gl = False
+                self._display_stack.setCurrentIndex(0)
+                logger.warning("OpenGL 初始化失败，回退到 QLabel 软件渲染")
+            elif not self._preview_mode:
+                # GL 编辑模式：YUV 帧由 _on_yuv_frame_ready 处理显示
+                self.frame_changed.emit(frame_index)
+                self._update_info_label()
+                return
+            else:
+                # GL 预览模式：CPU 处理后上传
+                self._display_frame(raw_frame)
+                self.frame_changed.emit(frame_index)
+                self._update_info_label()
+                return
+
+        # QLabel 模式：QImage → QPixmap（必须在主线程）
         label_size = self.video_label.size()
         pixmap = QPixmap.fromImage(qimage).scaled(
             label_size,
@@ -223,13 +303,15 @@ class VideoPreviewWidget(QWidget):
 
     def set_target_resolution(self, width: int, height: int):
         """设置目标裁剪分辨率"""
+        if self.target_width == width and self.target_height == height:
+            return
         self.target_width = width
         self.target_height = height
         self.target_aspect_ratio = width / height
         if self.current_frame is not None:
             self._init_cropbox()
             self._sync_state_to_reader()
-            self._display_frame(self.current_frame)
+            self._refresh_display()
 
     def load_video(self, path: str) -> bool:
         """加载视频（异步，不阻塞 UI）
@@ -239,9 +321,9 @@ class VideoPreviewWidget(QWidget):
         """
         logger.info(f"尝试加载视频: {path}")
 
-        if not HAS_CV2:
-            logger.error("OpenCV 未安装")
-            self.video_label.setText("未安装 opencv-python")
+        if not HAS_AV:
+            logger.error("PyAV (FFmpeg) 未安装")
+            self.video_label.setText("未安装 PyAV (FFmpeg)")
             return False
 
         import os
@@ -256,6 +338,7 @@ class VideoPreviewWidget(QWidget):
         self._loop_frame = None  # 清除图片循环状态
 
         self.video_path = path
+        self._display_stack.setCurrentIndex(0)  # 显示 QLabel 加载提示
         self.video_label.setText("正在加载视频...")
 
         # 创建并启动后台帧读取线程
@@ -264,10 +347,14 @@ class VideoPreviewWidget(QWidget):
         self._reader_thread.video_opened.connect(self._on_video_opened)
         self._reader_thread.video_open_failed.connect(self._on_video_open_failed)
         self._reader_thread.frame_ready.connect(self._on_frame_ready)
+        self._reader_thread.yuv_frame_ready.connect(self._on_yuv_frame_ready)
         self._reader_thread.start()
 
         # 同步当前状态到新线程，然后请求打开视频
         self._sync_state_to_reader()
+        # GL 模式：通知工作线程发射 YUV 帧
+        if self._use_gl and self._gl_renderer:
+            self._reader_thread.request_set_gl_mode(True)
         self._reader_thread.request_open(path)
 
         return True
@@ -361,6 +448,9 @@ class VideoPreviewWidget(QWidget):
         self.current_frame_index = 0
 
         self._init_cropbox()
+        # GL 模式：切换到 GPU 渲染页面
+        if self._use_gl and self._gl_renderer:
+            self._display_stack.setCurrentIndex(1)
         self._display_frame(frame)
 
     def _init_cropbox(self):
@@ -422,28 +512,70 @@ class VideoPreviewWidget(QWidget):
             f"裁剪: ({x}, {y}, {w}, {h}){rotation_str}"
         )
 
+    def _refresh_display(self):
+        """刷新显示（cropbox/旋转/预览模式变化时调用，不重新上传帧纹理）
+
+        GL 编辑模式：仅更新 GPU 渲染参数（旋转、cropbox），帧纹理不变
+        GL 预览模式/QLabel：需要 CPU 重新处理，回退 _display_frame
+        """
+        if (self._use_gl and self._gl_renderer
+                and not self._gl_renderer.gl_failed
+                and not self._preview_mode):
+            # GL 编辑模式：帧纹理已在 GPU，只需更新渲染参数
+            rotated_w, rotated_h = self._get_rotated_video_size()
+            self._gl_renderer.set_rotation(self._rotation)
+            self._gl_renderer.set_cropbox(
+                *self.cropbox, rotated_w, rotated_h)
+            self._gl_renderer.set_show_cropbox(True)
+            self._gl_renderer.update()
+            return
+
+        # 其他模式需要完整重绘
+        if self.current_frame is not None:
+            self._display_frame(self.current_frame)
+
     def _display_frame(self, frame):
-        """显示帧（仅用于 cropbox 交互/静态图片的即时重绘，不涉及视频 I/O）"""
+        """显示帧（静态图片/预览模式/QLabel 回退）
+
+        GL 编辑模式：上传原始 BGR 到 GPU，GPU 负责旋转+cropbox
+        GL 预览模式：CPU 裁剪+overlay → 上传合成帧到 GPU
+        QLabel 模式：CPU 全部处理 → QImage → QPixmap → setPixmap
+        """
         if frame is None or not HAS_CV2:
             return
 
-        # 应用旋转
-        rotated_frame = self._apply_rotation(frame)
+        # GL 模式
+        if self._use_gl and self._gl_renderer and not self._gl_renderer.gl_failed:
+            if self._preview_mode:
+                # GL 预览模式：CPU 旋转+裁剪+overlay → 上传合成帧
+                rotated_frame = self._apply_rotation(frame)
+                display_frame = self._render_preview_frame(rotated_frame)
+                self._gl_renderer.upload_bgr_frame(display_frame)
+                self._gl_renderer.set_rotation(0)  # 已在 CPU 处理旋转
+                self._gl_renderer.set_show_cropbox(False)
+            else:
+                # GL 编辑模式：上传原始帧，GPU 处理旋转+cropbox
+                self._gl_renderer.upload_bgr_frame(frame)
+                rotated_w, rotated_h = self._get_rotated_video_size()
+                self._gl_renderer.set_rotation(self._rotation)
+                self._gl_renderer.set_cropbox(
+                    *self.cropbox, rotated_w, rotated_h)
+                self._gl_renderer.set_show_cropbox(True)
+            self._gl_renderer.update()
+            return
 
+        # QLabel 模式：CPU 全部处理
+        rotated_frame = self._apply_rotation(frame)
         x, y, w, h = self.cropbox
 
         if self._preview_mode:
-            # 预览模式：显示裁剪后的最终效果
             display_frame = self._render_preview_frame(rotated_frame)
         else:
-            # 编辑模式：显示完整帧+裁剪框
             display_frame = rotated_frame.copy()
 
-            # cropbox 已经在旋转后坐标系中，直接使用
             cv2.rectangle(
                 display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            # 绘制角落手柄
             hs = 8
             handle_color = (0, 200, 255)
             for px, py in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]:
@@ -453,7 +585,6 @@ class VideoPreviewWidget(QWidget):
                     handle_color, -1
                 )
 
-            # 信息叠加
             cv2.putText(
                 display_frame,
                 f"Frame: {self.current_frame_index}/{self.total_frames}",
@@ -465,7 +596,6 @@ class VideoPreviewWidget(QWidget):
                 (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1
             )
 
-        # 转换为QPixmap
         rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
         h_frame, w_frame, ch = rgb_frame.shape
         q_image = QImage(
@@ -480,9 +610,7 @@ class VideoPreviewWidget(QWidget):
             Qt.TransformationMode.SmoothTransformation
         )
 
-        # 更新显示参数（仅编辑模式需要用于坐标转换）
         if not self._preview_mode:
-            # 使用旋转后的帧宽度计算缩放比例
             rotated_width, _ = self._get_rotated_video_size()
             self.display_scale = (
                 pixmap.width() / rotated_width if rotated_width > 0 else 1.0)
@@ -636,6 +764,38 @@ class VideoPreviewWidget(QWidget):
         y1 = min(oh, int(np.ceil(orig[:, 1].max())))
         return (x0, y0, x1 - x0, y1 - y0)
 
+    def _original_to_rotated_coords(
+        self, x: int, y: int, w: int, h: int
+    ) -> Tuple[int, int, int, int]:
+        """将 cropbox 从原始视频坐标系正变换到当前旋转后坐标系"""
+        if self._rotation == 0:
+            return (x, y, w, h)
+        elif self._rotation == 90:
+            return (self.video_height - y - h, x, h, w)
+        elif self._rotation == 180:
+            return (self.video_width - x - w, self.video_height - y - h, w, h)
+        elif self._rotation == 270:
+            return (y, self.video_width - x - w, h, w)
+        # 任意角度：仿射正变换
+        ow, oh = self.video_width, self.video_height
+        M = cv2.getRotationMatrix2D(
+            (ow / 2.0, oh / 2.0), -self._rotation, 1.0)
+        cos_a, sin_a = abs(M[0, 0]), abs(M[0, 1])
+        nw = int(ow * cos_a + oh * sin_a)
+        nh = int(ow * sin_a + oh * cos_a)
+        M[0, 2] += (nw - ow) / 2.0
+        M[1, 2] += (nh - oh) / 2.0
+        corners = np.array(
+            [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+            dtype=np.float64)
+        rotated = np.array(
+            [M[:, :2] @ c + M[:, 2] for c in corners])
+        rx0 = max(0, int(np.floor(rotated[:, 0].min())))
+        ry0 = max(0, int(np.floor(rotated[:, 1].min())))
+        rx1 = min(nw, int(np.ceil(rotated[:, 0].max())))
+        ry1 = min(nh, int(np.ceil(rotated[:, 1].max())))
+        return (rx0, ry0, rx1 - rx0, ry1 - ry0)
+
     def get_cropbox_for_export(self) -> Tuple[int, int, int, int]:
         """获取导出用的 cropbox（原始坐标系）"""
         x, y, w, h = self.cropbox
@@ -649,8 +809,7 @@ class VideoPreviewWidget(QWidget):
         # 同步到工作线程
         if self._reader_thread is not None:
             self._reader_thread.request_set_cropbox(self.cropbox)
-        if self.current_frame is not None:
-            self._display_frame(self.current_frame)
+        self._refresh_display()
 
     def get_video_info(self) -> Tuple[float, int, int, int]:
         """获取视频信息 (fps, total_frames, width, height)"""
@@ -665,12 +824,36 @@ class VideoPreviewWidget(QWidget):
             self._reader_thread.request_set_preview_params(
                 enabled, self.target_width, self.target_height,
                 self._epconfig, self._overlay_renderer)
-        if self.current_frame is not None:
-            self._display_frame(self.current_frame)
+        self._refresh_display()
 
     def is_preview_mode(self) -> bool:
         """获取预览模式状态"""
         return self._preview_mode
+
+    def set_use_gl(self, enabled: bool):
+        """切换 GL/QLabel 渲染模式（硬件加速开关）"""
+        if enabled == self._use_gl:
+            return
+
+        if enabled and self._gl_renderer is None:
+            logger.warning("GLVideoWidget 不可用，无法启用硬件加速")
+            return
+
+        if enabled and self._gl_renderer and self._gl_renderer.gl_failed:
+            logger.warning("OpenGL 初始化失败，无法启用硬件加速")
+            return
+
+        self._use_gl = enabled
+        logger.info(f"渲染模式切换: {'GL 硬件加速' if enabled else 'QLabel 软件渲染'}")
+
+        if self.current_frame is not None:
+            if enabled:
+                self._display_stack.setCurrentIndex(1)
+            else:
+                self._display_stack.setCurrentIndex(0)
+            self._display_frame(self.current_frame)
+        else:
+            self._display_stack.setCurrentIndex(0)
 
     def set_rotation(self, degrees: int):
         """设置视频旋转角度（0-359 任意角度）"""
@@ -678,33 +861,37 @@ class VideoPreviewWidget(QWidget):
         if self._rotation != degrees:
             old_orthogonal = self._rotation in (0, 90, 180, 270)
             new_orthogonal = degrees in (0, 90, 180, 270)
-            self._rotation = degrees
+
+            if (old_orthogonal and new_orthogonal
+                    and self.video_width > 0 and self.video_height > 0):
+                # 正交角度间切换：变换 cropbox 坐标以跟踪相同内容
+                # Step 1: 旧旋转空间 → 原始坐标（self._rotation 仍为旧值）
+                ox, oy, ow, oh = self._cropbox_to_original_coords(
+                    *self.cropbox)
+                # Step 2: 更新旋转角度
+                self._rotation = degrees
+                # Step 3: 原始坐标 → 新旋转空间
+                self.cropbox = list(
+                    self._original_to_rotated_coords(ox, oy, ow, oh))
+                self._bound_cropbox()
+            else:
+                self._rotation = degrees
+                if self.video_width > 0 and self.video_height > 0:
+                    self._init_cropbox()
+
             self.rotation_changed.emit(degrees)
-            # 同步到工作线程
             if self._reader_thread is not None:
                 self._reader_thread.request_set_rotation(degrees)
             if self.video_width > 0 and self.video_height > 0:
-                if old_orthogonal and new_orthogonal:
-                    self._bound_cropbox()  # 正交角度间切换：只验证边界
-                else:
-                    self._init_cropbox()  # 涉及非正交角度：重新初始化
-                # 同步 cropbox 到工作线程
                 if self._reader_thread is not None:
                     self._reader_thread.request_set_cropbox(self.cropbox)
             if self.current_frame is not None:
-                self._display_frame(self.current_frame)
+                self._refresh_display()
 
     def get_rotation(self) -> int:
         """获取视频旋转角度"""
         return self._rotation
 
-    def rotate_clockwise(self):
-        """顺时针旋转1度"""
-        self.set_rotation((self._rotation + 1) % 360)
-
-    def rotate_counterclockwise(self):
-        """逆时针旋转1度"""
-        self.set_rotation((self._rotation - 1) % 360)
 
     def _apply_rotation(self, frame: np.ndarray) -> np.ndarray:
         """应用旋转到帧（支持任意角度）"""
@@ -781,10 +968,22 @@ class VideoPreviewWidget(QWidget):
                 self._preview_mode, self.target_width, self.target_height,
                 self._epconfig, self._overlay_renderer)
         if self.current_frame is not None:
-            self._display_frame(self.current_frame)
+            self._refresh_display()
 
     def _display_to_rotated_coords(self, pos: QPoint) -> Tuple[int, int]:
         """将显示坐标转换为旋转后视频坐标"""
+        # GL 模式：使用 GL 渲染器的 display_rect 计算坐标
+        if self._use_gl and self._gl_renderer and not self._gl_renderer.gl_failed:
+            gl_pos = self._gl_renderer.mapFrom(self, pos)
+            dx, dy, dw, dh = self._gl_renderer._display_rect
+            if dw <= 0 or dh <= 0:
+                return (0, 0)
+            rotated_w, rotated_h = self._get_rotated_video_size()
+            vx = int((gl_pos.x() - dx) / dw * rotated_w)
+            vy = int((gl_pos.y() - dy) / dh * rotated_h)
+            return (max(0, vx), max(0, vy))
+
+        # QLabel 模式
         label_pos = self.video_label.mapFrom(self, pos)
         rx = (int((label_pos.x() - self.display_offset_x) / self.display_scale)
               if self.display_scale > 0 else 0)
@@ -854,7 +1053,7 @@ class VideoPreviewWidget(QWidget):
             if self._reader_thread is not None:
                 self._reader_thread.request_set_cropbox(self.cropbox)
             if self.current_frame is not None:
-                self._display_frame(self.current_frame)
+                self._refresh_display()
 
         elif self.current_frame is not None:
             rx, ry = self._display_to_rotated_coords(event.pos())
@@ -919,11 +1118,14 @@ class VideoPreviewWidget(QWidget):
         if self._reader_thread is not None:
             self._reader_thread.request_set_cropbox(self.cropbox)
         if self.current_frame is not None:
-            self._display_frame(self.current_frame)
+            self._refresh_display()
 
     def resizeEvent(self, event):
         """窗口大小变化时重绘当前帧"""
         super().resizeEvent(event)
+        if self._use_gl and self._gl_renderer and not self._gl_renderer.gl_failed:
+            # GL 模式: resizeGL 自动更新视口，纹理数据不变无需重新上传
+            return
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
@@ -931,6 +1133,8 @@ class VideoPreviewWidget(QWidget):
         """关闭事件"""
         self.pause()
         self._stop_reader_thread()
+        if self._gl_renderer is not None:
+            self._gl_renderer.cleanup()
         super().closeEvent(event)
 
     def clear(self):
@@ -942,6 +1146,7 @@ class VideoPreviewWidget(QWidget):
         self.total_frames = 0
         self.current_frame_index = 0
         self.current_frame = None
+        self._display_stack.setCurrentIndex(0)
         self.video_label.clear()
         self.video_label.setText("未加载视频")
         self.info_label.setText("帧: 0/0 | 裁剪: (0, 0, 0, 0)")

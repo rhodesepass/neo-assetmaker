@@ -837,6 +837,12 @@ class MainWindow(QMainWindow):
                 theme_name = settings.get('theme', '默认')
                 self._apply_theme_change(theme_name)
 
+                # 应用硬件加速设置
+                hw_accel = settings.get('hardware_acceleration', True)
+                if not hw_accel:
+                    self._apply_instant_settings(
+                        'hardware_acceleration', False)
+
                 logger.info("已加载用户设置")
         except Exception as e:
             logger.error(f"加载用户设置失败: {e}")
@@ -2502,6 +2508,12 @@ class MainWindow(QMainWindow):
             if value:
                 self._apply_theme_image(value)
 
+        elif setting_name == 'hardware_acceleration':
+            for preview in [self.video_preview, self.intro_preview,
+                            self.frame_capture_preview]:
+                if hasattr(preview, 'set_use_gl'):
+                    preview.set_use_gl(bool(value))
+
         elif setting_name == 'scale':
             logger.info(f"界面缩放已设置为: {value}")
 
@@ -3280,14 +3292,20 @@ class MainWindow(QMainWindow):
                     intro_path = os.path.join(self._base_dir, intro_path)
 
                 if os.path.exists(intro_path):
-                    import cv2
-                    cap = cv2.VideoCapture(intro_path)
-                    if cap.isOpened():
-                        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-                        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                        cap.release()
+                    try:
+                        import av
+                        container = av.open(intro_path)
+                        stream = container.streams.video[0]
+                        fps = float(stream.average_rate) if stream.average_rate else 30.0
+                        width = stream.width
+                        height = stream.height
+                        total_frames = stream.frames
+                        if total_frames == 0 and stream.duration and stream.time_base:
+                            total_frames = max(1, int(
+                                float(stream.duration * stream.time_base) * fps))
+                        if total_frames == 0:
+                            total_frames = 1
+                        container.close()
 
                         data['intro_video_params'] = VideoExportParams(
                             video_path=intro_path,
@@ -3298,6 +3316,8 @@ class MainWindow(QMainWindow):
                             resolution=self._config.screen.value,
                             rotation=0
                         )
+                    except Exception as e:
+                        logger.warning(f"无法读取片头视频元数据: {e}")
 
         # 收集 ImageOverlay 图片
         from config.epconfig import OverlayType

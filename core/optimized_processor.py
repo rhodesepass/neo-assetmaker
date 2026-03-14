@@ -1,5 +1,6 @@
 """
 优化的视频处理器 - 支持多线程、缓存、流式处理
+使用 PyAV 进行视频解码，替代 cv2.VideoCapture
 """
 import os
 import cv2
@@ -9,6 +10,13 @@ from concurrent.futures import ThreadPoolExecutor, Future
 from functools import lru_cache
 from threading import Lock
 import logging
+
+# PyAV 用于视频解码，替代 cv2.VideoCapture
+try:
+    import av
+    HAS_AV = True
+except ImportError:
+    HAS_AV = False
 
 logger = logging.getLogger(__name__)
 
@@ -69,27 +77,25 @@ class OptimizedVideoProcessor:
         """
         def process():
             try:
-                cap = cv2.VideoCapture(video_path)
-                if not cap.isOpened():
-                    logger.error(f"无法打开视频: {video_path}")
-                    callback([])
-                    return
+                # 使用 PyAV 解码视频
+                container = av.open(video_path)
+                stream = container.streams.video[0]
+                stream.thread_type = "AUTO"  # 启用多线程解码
 
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                # 从 stream 元数据获取总帧数
+                total_frames = stream.frames if stream.frames else 0
                 frames = []
 
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-
+                for av_frame in container.decode(stream):
+                    # 转换为 BGR numpy 数组（与 cv2 兼容）
+                    frame = av_frame.to_ndarray(format='bgr24')
                     frames.append(frame)
 
                     # 进度回调
                     if progress_callback:
                         progress_callback(len(frames), total_frames)
 
-                cap.release()
+                container.close()
                 callback(frames)
 
             except Exception as e:
@@ -116,13 +122,37 @@ class OptimizedVideoProcessor:
             Future对象
         """
         def extract_single_frame(index: int) -> Tuple[int, Optional[np.ndarray]]:
+            """使用 PyAV seek + decode 提取单帧，避免每次创建新容器"""
             try:
-                cap = cv2.VideoCapture(video_path)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, index)
-                ret, frame = cap.read()
-                cap.release()
+                container = av.open(video_path)
+                stream = container.streams.video[0]
+                stream.thread_type = "AUTO"
 
-                if ret:
+                # 精确 seek 到目标帧
+                fps = float(stream.average_rate) if stream.average_rate else 30.0
+                time_base = stream.time_base
+
+                if time_base and fps > 0:
+                    target_sec = index / fps
+                    target_pts = int(target_sec / time_base)
+                    container.seek(target_pts, stream=stream, backward=True)
+
+                # 解码并跳过到目标帧
+                frame = None
+                for av_frame in container.decode(stream):
+                    if av_frame.pts is not None and time_base and fps > 0:
+                        current_sec = float(av_frame.pts * time_base)
+                        current_idx = int(current_sec * fps)
+                    else:
+                        current_idx = 0
+
+                    if current_idx >= index:
+                        frame = av_frame.to_ndarray(format='bgr24')
+                        break
+
+                container.close()
+
+                if frame is not None:
                     return (index, frame)
                 else:
                     return (index, None)
@@ -165,18 +195,18 @@ class OptimizedVideoProcessor:
             progress_callback: 进度回调函数
         """
         try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                logger.error(f"无法打开视频: {video_path}")
-                return
+            # 使用 PyAV 解码视频
+            container = av.open(video_path)
+            stream = container.streams.video[0]
+            stream.thread_type = "AUTO"  # 启用多线程解码
 
-            # 获取视频属性
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            # 从 stream 元数据获取视频属性
+            fps = float(stream.average_rate) if stream.average_rate else 30.0
+            width = stream.width
+            height = stream.height
+            total_frames = stream.frames if stream.frames else 0
 
-            # 创建视频写入器
+            # 创建视频写入器（仍使用 cv2.VideoWriter）
             writer = None
             if output_path:
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -184,10 +214,9 @@ class OptimizedVideoProcessor:
 
             frame_count = 0
 
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            for av_frame in container.decode(stream):
+                # 转换为 BGR numpy 数组
+                frame = av_frame.to_ndarray(format='bgr24')
 
                 # 处理帧
                 processed_frame = frame_processor(frame)
@@ -203,7 +232,7 @@ class OptimizedVideoProcessor:
                     progress_callback(frame_count, total_frames)
 
             # 清理
-            cap.release()
+            container.close()
             if writer:
                 writer.release()
 
@@ -267,20 +296,31 @@ class OptimizedVideoProcessor:
                 return self._cache[cache_key]
 
         try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                logger.error(f"无法打开视频: {video_path}")
-                return {}
+            # 使用 PyAV 获取视频元数据
+            container = av.open(video_path)
+            stream = container.streams.video[0]
+
+            fps = float(stream.average_rate) if stream.average_rate else 30.0
+            frame_count = stream.frames if stream.frames else 0
+            width = stream.width
+            height = stream.height
+            # 计算时长：若帧数已知则用帧数/fps，否则用 stream.duration
+            if frame_count > 0 and fps > 0:
+                duration = frame_count / fps
+            elif stream.duration and stream.time_base:
+                duration = float(stream.duration * stream.time_base)
+            else:
+                duration = 0.0
 
             info = {
-                'fps': cap.get(cv2.CAP_PROP_FPS),
-                'frame_count': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
-                'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                'duration': cap.get(cv2.CAP_PROP_FRAME_COUNT) / cap.get(cv2.CAP_PROP_FPS)
+                'fps': fps,
+                'frame_count': frame_count,
+                'width': width,
+                'height': height,
+                'duration': duration
             }
 
-            cap.release()
+            container.close()
 
             # 缓存结果
             with self._lock:

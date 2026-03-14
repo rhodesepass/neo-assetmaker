@@ -301,7 +301,7 @@ class TimelineWidget(QWidget):
         self.btn_rotate_ccw = ToolButton()
         self.btn_rotate_ccw.setText("↺")
         self.btn_rotate_ccw.setFixedWidth(32)
-        self.btn_rotate_ccw.setToolTip("逆时针旋转 1°")
+        self.btn_rotate_ccw.setToolTip("逆时针旋转 90°")
         control_layout.addWidget(self.btn_rotate_ccw)
 
         self.spin_rotation = SpinBox()
@@ -316,7 +316,7 @@ class TimelineWidget(QWidget):
         self.btn_rotate_cw = ToolButton()
         self.btn_rotate_cw.setText("↻")
         self.btn_rotate_cw.setFixedWidth(32)
-        self.btn_rotate_cw.setToolTip("顺时针旋转 1°")
+        self.btn_rotate_cw.setToolTip("顺时针旋转 90°")
         control_layout.addWidget(self.btn_rotate_cw)
 
         control_layout.addStretch()
@@ -347,8 +347,8 @@ class TimelineWidget(QWidget):
         self.btn_set_out.clicked.connect(self.set_out_point_clicked.emit)
         self.timeline_slider.seek_requested.connect(self.seek_requested.emit)
         self.btn_preview.clicked.connect(self.simulator_requested.emit)
-        self.btn_rotate_ccw.clicked.connect(lambda: self._step_rotation(-1))
-        self.btn_rotate_cw.clicked.connect(lambda: self._step_rotation(1))
+        self.btn_rotate_ccw.clicked.connect(lambda: self._step_rotation(-90))
+        self.btn_rotate_cw.clicked.connect(lambda: self._step_rotation(90))
         self.spin_rotation.valueChanged.connect(self._on_spin_changed)
 
     def set_total_frames(self, count: int):
