@@ -746,24 +746,68 @@ class MainWindow(QMainWindow):
         self.timeline.set_out_point_clicked.connect(self._on_set_out_point)
 
     def _on_ssh_upload(self):
-        """SSH上传"""
+        """SSH 上传"""
         try:
-            _export_dialog, dir_path = self._on_export()
-            if not _export_dialog.export_success_signal:
+            result = self._on_export()
+            if not result:
+                return
+            export_dialog, dir_path = result
+
+            # 仅在导出成功后才继续上传
+            if not getattr(export_dialog, '_is_completed', False) or \
+                    export_dialog.label_status.text() != "导出完成!":
                 print("导出失败，取消SSH上传")
                 return
+
             if not os.path.exists(dir_path):
                 print("导出目录不存在，取消SSH上传")
                 return
+
             settings = self._read_user_settings()
-            host = settings.get('ssh_ip_address',"192.168.137.2")
+            host = settings.get('ssh_ip_address', "192.168.137.2")
             port = settings.get('ssh_port', 22)
             user = settings.get('ssh_user', "root")
             password = settings.get('ssh_password', "toor")
             remote_path = settings.get('ssh_default_upload_path', "/assets/")
             enableRestart = settings.get('ssh_auto_restart_program', True)
-            from core.sshAutoUpload import ssh_auto_upload
-            ssh_auto_upload(host, port, user, password, dir_path, remote_path, enableRestart)
+
+            from core.ssh_upload_service import SshUploadWorker
+            from gui.dialogs.ssh_upload_progress_dialog import SshUploadProgressDialog
+
+            self._ssh_upload_worker = SshUploadWorker(self)
+            self._ssh_upload_dialog = SshUploadProgressDialog(self)
+
+            self._ssh_upload_worker.progress_updated.connect(
+                self._ssh_upload_dialog.update_progress
+            )
+            self._ssh_upload_worker.upload_completed.connect(
+                lambda msg: self._on_ssh_upload_completed(True, msg)
+            )
+            self._ssh_upload_worker.upload_failed.connect(
+                lambda msg: self._on_ssh_upload_completed(False, msg)
+            )
+            self._ssh_upload_dialog.cancel_requested.connect(
+                self._ssh_upload_worker.cancel
+            )
+
+            self._ssh_upload_worker.setup(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                local_path=dir_path,
+                remote_path=remote_path,
+                enable_restart=enableRestart,
+            )
+            self._ssh_upload_worker.start()
+
+            self._ssh_upload_dialog.exec()
+
+            # 如果用户取消了对话框，让后台线程尽快结束
+            if self._ssh_upload_worker.isRunning():
+                self._ssh_upload_worker.cancel()
+                self._ssh_upload_worker.wait(2000)
+
         except Exception as e:
             print("发生错误:", e)
             return
@@ -3380,6 +3424,18 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage("导出失败")
             logger.error(f"导出失败: {message}")
+
+    def _on_ssh_upload_completed(self, success: bool, message: str):
+        """SSH 上传完成回调"""
+        if hasattr(self, '_ssh_upload_dialog') and self._ssh_upload_dialog:
+            self._ssh_upload_dialog.set_completed(success, message)
+
+        if success:
+            self.status_bar.showMessage(message)
+            logger.info(f"SSH 上传成功: {message}")
+        else:
+            self.status_bar.showMessage("SSH 上传失败")
+            logger.error(f"SSH 上传失败: {message}")
 
     def _check_save(self) -> bool:
         """检查是否需要保存"""
