@@ -305,7 +305,7 @@ impl VideoDecoder {
             }
         } else {
             // No final scaler, use rotated data directly (shouldn't happen normally)
-            RgbImage::from_raw(rotated_w, rotated_h, rotated_data)
+            RgbImage::from_raw(final_w, final_h, final_data)
         }
     }
 
