@@ -99,6 +99,21 @@ def find_inno_setup():
 
 
 
+def _clean_pycache(base_dir='.'):
+    """清理项目源码的 __pycache__ 目录
+
+    跳过 .venv/ 等无关目录（避免删除第三方包字节码）
+    """
+    skip_dirs = {'.venv', 'venv', '.git', 'simulator', 'node_modules', BUILD_DIR, DIST_DIR}
+    for root, dirs, files in os.walk(base_dir):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        if '__pycache__' in dirs:
+            cache_path = os.path.join(root, '__pycache__')
+            shutil.rmtree(cache_path)
+            print(f"  Cleared: {cache_path}")
+            dirs.remove('__pycache__')
+
+
 def _diagnose_build_env():
     """打印构建环境诊断信息，便于 CI 调试"""
     import importlib.util
@@ -114,11 +129,82 @@ def _diagnose_build_env():
     for i, p in enumerate(sys.path):
         print(f"    [{i}] {p}")
     # 关键包定位
-    for pkg in ("OpenGL", "PyQt6", "cx_Freeze"):
+    for pkg in ("OpenGL", "av", "cv2", "PyQt6", "cx_Freeze", "numpy"):
         spec = importlib.util.find_spec(pkg)
         status = spec.origin if spec else "NOT FOUND"
         print(f"  {pkg}: {status}")
     print("--- End ---\n")
+
+
+def _verify_modules(search_paths, project_root):
+    """统一验证所有关键模块可被 PathFinder 发现
+
+    cx_Freeze finder.py:382-383 使用 importlib.machinery.PathFinder.find_spec(name, path)
+    而非 importlib.util.find_spec（后者使用 sys.meta_path hooks，结果可能不同）。
+    本函数同时检查本地项目模块和第三方包，并在 PathFinder 失败时使用
+    importlib.util.find_spec 作为 fallback 定位包路径。
+    """
+    import importlib.machinery
+    import importlib.util as _ilu
+
+    # ── 本地项目模块检查 ──
+    gui_path = os.path.join(project_root, "gui")
+    local_modules = [
+        ("gui", [project_root]),
+        ("gui.main_window", [gui_path]),
+        ("core", [project_root]),
+        ("config", [project_root]),
+    ]
+    for mod_name, mod_path in local_modules:
+        importlib.machinery.PathFinder.invalidate_caches()
+        spec = importlib.machinery.PathFinder.find_spec(mod_name, mod_path)
+        if spec is None:
+            print(f"  FATAL: PathFinder cannot find {mod_name} in {mod_path}")
+            print(f"  Directory listing: {os.listdir(mod_path[0])}")
+            return False
+        print(f"  PathFinder check: {mod_name} -> {spec.origin}")
+
+    # ── 第三方包检查（含 fallback 路径发现）──
+    # importlib.util.find_spec 使用完整的 sys.meta_path（包括 uv 的自定义 finder）
+    # PathFinder.find_spec 只搜索给定的 path 列表
+    pip_names = {"OpenGL": "PyOpenGL", "cv2": "opencv-python"}
+    critical_packages = ["OpenGL", "av", "cv2", "PyQt6"]
+    missing = []
+
+    for pkg_name in critical_packages:
+        importlib.machinery.PathFinder.invalidate_caches()
+        pf_spec = importlib.machinery.PathFinder.find_spec(pkg_name, search_paths)
+        if pf_spec:
+            print(f"  PathFinder check: {pkg_name} -> {pf_spec.origin}")
+            continue
+
+        # fallback: 使用 importlib.util.find_spec 定位并添加路径
+        util_spec = _ilu.find_spec(pkg_name)
+        if util_spec is None:
+            pip_name = pip_names.get(pkg_name, pkg_name)
+            print(f"  FATAL: {pkg_name} is NOT INSTALLED")
+            print(f"         Run: uv pip install {pip_name}")
+            missing.append(pkg_name)
+            continue
+
+        # 从 util_spec 提取父目录添加到搜索路径
+        parent = None
+        if util_spec.submodule_search_locations:
+            parent = os.path.dirname(util_spec.submodule_search_locations[0])
+        elif util_spec.origin:
+            parent = os.path.dirname(os.path.dirname(util_spec.origin))
+        if parent and parent not in search_paths:
+            search_paths.insert(1, parent)
+            print(f"  Fallback: added {parent} for {pkg_name}")
+        print(f"  WARNING: PathFinder cannot find {pkg_name}, "
+              f"but importlib.util found it at {util_spec.origin}")
+
+    if missing:
+        print(f"\n  Cannot proceed without: {', '.join(missing)}")
+        print(f"  This usually means 'uv sync' did not install these packages.")
+        return False
+
+    return True
 
 
 def check_requirements():
@@ -156,17 +242,8 @@ def clean_build():
             shutil.rmtree(d)
             print(f"  Removed: {d}")
 
-    # 清理项目源码的 __pycache__ 目录，确保使用最新源代码
-    # 跳过 .venv/ 等无关目录（避免删除第三方包字节码）
-    skip_dirs = {'.venv', 'venv', '.git', 'simulator', 'node_modules', BUILD_DIR, DIST_DIR}
     print("Cleaning __pycache__ directories...")
-    for root, dirs, files in os.walk('.'):
-        dirs[:] = [d for d in dirs if d not in skip_dirs]
-        if '__pycache__' in dirs:
-            cache_path = os.path.join(root, '__pycache__')
-            shutil.rmtree(cache_path)
-            print(f"  Removed cache: {cache_path}")
-            dirs.remove('__pycache__')
+    _clean_pycache()
 
 
 def run_cxfreeze(skip_flasher=False):
@@ -181,26 +258,6 @@ def run_cxfreeze(skip_flasher=False):
     # 输出构建环境诊断信息
     _diagnose_build_env()
 
-    # 验证关键模块可被发现 — 使用 PathFinder（cx_Freeze 使用的机制）
-    # cx_Freeze finder.py:382-383 使用 importlib.machinery.PathFinder.find_spec(name, path)
-    # 而非 importlib.util.find_spec（后者使用 sys.meta_path hooks，结果可能不同）
-    import importlib.machinery
-    gui_path = os.path.join(project_root, "gui")
-    check_pairs = [
-        ("gui", [project_root]),
-        ("gui.main_window", [gui_path]),
-        ("core", [project_root]),
-        ("config", [project_root]),
-    ]
-    for mod_name, search_path in check_pairs:
-        importlib.machinery.PathFinder.invalidate_caches()
-        spec = importlib.machinery.PathFinder.find_spec(mod_name, search_path)
-        if spec is None:
-            print(f"  FATAL: PathFinder cannot find {mod_name} in {search_path}")
-            print(f"  Directory listing: {os.listdir(search_path[0])}")
-            return False
-        print(f"  PathFinder check: {mod_name} -> {spec.origin}")
-
     # ── 构建 cx_Freeze 模块搜索路径 ──
     # cx_Freeze 只使用 PathFinder（finder.py:382-383），不使用 sys.meta_path。
     # 必须显式包含 site-packages，否则 uv/conda 等环境中第三方包可能找不到。
@@ -211,45 +268,8 @@ def run_cxfreeze(skip_flasher=False):
             search_paths.insert(1, extra)
             print(f"  Added site-packages to search path: {extra}")
 
-    # 最终防御：用 importlib.util.find_spec 定位关键包
-    # importlib.util.find_spec 使用完整的 sys.meta_path（包括 uv 的自定义 finder）
-    # PathFinder.find_spec 只搜索给定的 path 列表
-    import importlib.util as _ilu
-    for pkg_name in ("OpenGL",):
-        _pf_spec = importlib.machinery.PathFinder.find_spec(pkg_name, search_paths)
-        if _pf_spec is None:
-            _util_spec = _ilu.find_spec(pkg_name)
-            if _util_spec and _util_spec.submodule_search_locations:
-                _parent = os.path.dirname(_util_spec.submodule_search_locations[0])
-                if _parent not in search_paths:
-                    search_paths.insert(1, _parent)
-                    print(f"  Fallback: added {_parent} for {pkg_name}")
-            elif _util_spec and _util_spec.origin:
-                _parent = os.path.dirname(os.path.dirname(_util_spec.origin))
-                if _parent not in search_paths:
-                    search_paths.insert(1, _parent)
-                    print(f"  Fallback: added {_parent} for {pkg_name}")
-
-    # 验证关键第三方包可被 PathFinder 发现（与 cx_Freeze 相同的机制）
-    _missing_critical = []
-    for pkg_name in ("OpenGL", "PyQt6"):
-        importlib.machinery.PathFinder.invalidate_caches()
-        pf_spec = importlib.machinery.PathFinder.find_spec(pkg_name, search_paths)
-        if pf_spec:
-            print(f"  PathFinder check: {pkg_name} -> {pf_spec.origin}")
-        else:
-            _fallback = _ilu.find_spec(pkg_name)
-            if _fallback is None:
-                _pip_name = "PyOpenGL" if pkg_name == "OpenGL" else pkg_name
-                print(f"  FATAL: {pkg_name} is NOT INSTALLED")
-                print(f"         Run: uv pip install {_pip_name}")
-                _missing_critical.append(pkg_name)
-            else:
-                print(f"  WARNING: PathFinder cannot find {pkg_name}, "
-                      f"but importlib.util found it at {_fallback.origin}")
-    if _missing_critical:
-        print(f"\n  Cannot proceed without: {', '.join(_missing_critical)}")
-        print(f"  This usually means 'uv sync' did not install these packages.")
+    # 统一验证本地模块和第三方包
+    if not _verify_modules(search_paths, project_root):
         return False
 
     # 预编译检查：使用与 cx_Freeze 相同的 optimize 级别（finder.py:446-448）
@@ -262,17 +282,9 @@ def run_cxfreeze(skip_flasher=False):
         print(f"  FATAL: gui/main_window.py compile error: {e}")
         return False
 
-    # 强制清理项目源码的 __pycache__，确保使用最新源代码编译
-    # 跳过 .venv/（第三方包字节码）、simulator/（Rust 编译产物）等无关目录
-    skip_dirs = {'.venv', 'venv', '.git', 'simulator', 'node_modules', BUILD_DIR, DIST_DIR}
+    # 清理 __pycache__，确保使用最新源代码编译
     print("Clearing __pycache__ before build...")
-    for root, dirs, files in os.walk('.'):
-        dirs[:] = [d for d in dirs if d not in skip_dirs]
-        if '__pycache__' in dirs:
-            cache_path = os.path.join(root, '__pycache__')
-            shutil.rmtree(cache_path)
-            print(f"  Cleared: {cache_path}")
-            dirs.remove('__pycache__')
+    _clean_pycache()
 
     os.environ["QT_API"] = "pyqt6"
 
@@ -284,7 +296,9 @@ def run_cxfreeze(skip_flasher=False):
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
         "PyQt6.QtOpenGLWidgets", "PyQt6.QtOpenGL",
         "qfluentwidgets",
-        "av",
+        # av (PyAV) 不放在 packages 中 — cx_Freeze 7.2.10 的 PathFinder.find_spec
+        # 无法定位 PyAV 17+ 的 abi3 C 扩展包（finder.py:383 返回 None）。
+        # 改为通过 include_files 手动复制 av/ 和 av.libs/ 目录。
         # PyOpenGL 不放在 packages 中 — packages 会触发 cx_Freeze 的
         # _import_all_sub_modules() 递归扫描整个 OpenGL/ 目录(2800+ 文件),
         # 任何子模块加载失败都会导致 ImportError 中止构建。
@@ -358,6 +372,21 @@ def run_cxfreeze(skip_flasher=False):
         include_files.append(("ffmpeg.exe", "ffmpeg.exe"))
     if os.path.exists("ffprobe.exe"):
         include_files.append(("ffprobe.exe", "ffprobe.exe"))
+
+    # av (PyAV): 手动包含，绕过 cx_Freeze PathFinder（参见 packages 列表中的注释）
+    # include_files 在 freezer.py:117 process_path_specs 中处理，直接复制目录，
+    # 不经过 PathFinder.find_spec，冻结应用的 lib/ 目录在运行时会被加入 sys.path。
+    av_pkg_dir = os.path.join(site_packages, "av")
+    if os.path.isdir(av_pkg_dir):
+        include_files.append((av_pkg_dir, "lib/av"))
+        print(f"  Including av package: {av_pkg_dir}")
+    else:
+        print(f"  WARNING: av package not found at {av_pkg_dir}")
+    # av.libs 包含 FFmpeg DLL（Windows delvewheel 打包，cx_Freeze hooks/av.py:26 原本处理）
+    av_libs_dir = os.path.join(site_packages, "av.libs")
+    if os.path.isdir(av_libs_dir):
+        include_files.append((av_libs_dir, "lib/av.libs"))
+        print(f"  Including av.libs: {av_libs_dir}")
 
     # 添加 Rust 模拟器
     simulator_exe = os.path.join("simulator", "target", "release", "arknights_pass_simulator.exe")
