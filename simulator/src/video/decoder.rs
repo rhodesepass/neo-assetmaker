@@ -34,7 +34,7 @@ pub struct VideoDecoder {
     fps: f64,
     /// Packet iterator state
     packet_iter_exhausted: bool,
-    /// Cropbox (x, y, w, h) in source video coordinates
+    /// Cropbox (x, y, w, h) in rotated video coordinates
     cropbox: Option<(u32, u32, u32, u32)>,
     /// Rotation in degrees (0, 90, 180, 270)
     rotation: i32,
@@ -51,7 +51,7 @@ impl VideoDecoder {
     /// * `path` - Path to the video file
     /// * `target_width` - Target width for frame resize
     /// * `target_height` - Target height for frame resize
-    /// * `cropbox` - Optional cropbox (x, y, w, h) in source video coordinates
+    /// * `cropbox` - Optional cropbox (x, y, w, h) in rotated video coordinates
     /// * `rotation` - Rotation in degrees (0, 90, 180, 270)
     pub fn open(
         path: &str,
@@ -115,26 +115,24 @@ impl VideoDecoder {
         ).context("Failed to create RGB scaler")?;
 
         // Calculate final scaler dimensions based on cropbox and rotation
+        // Processing order: rotate full frame → crop from rotated frame
+        // cropbox is in rotated-space coordinates, so its dimensions are the final input size
         let final_scaler = if cropbox.is_some() || rotation != 0 {
-            // Get the size after crop and rotation
-            let (crop_w, crop_h) = if let Some((_, _, w, h)) = cropbox {
+            let (final_w, final_h) = if let Some((_, _, w, h)) = cropbox {
+                // cropbox dimensions are already in rotated space
                 (w, h)
+            } else if rotation == 90 || rotation == 270 {
+                // No cropbox, but rotation swaps dimensions
+                (src_height, src_width)
             } else {
                 (src_width, src_height)
             };
 
-            // After rotation, dimensions may swap
-            let (rotated_w, rotated_h) = if rotation == 90 || rotation == 270 {
-                (crop_h, crop_w)
-            } else {
-                (crop_w, crop_h)
-            };
-
-            // Create final scaler from rotated size to target size
+            // Create final scaler from crop size to target size
             Some(Scaler::get(
                 Pixel::RGB24,
-                rotated_w,
-                rotated_h,
+                final_w,
+                final_h,
                 Pixel::RGB24,
                 target_width,
                 target_height,
@@ -248,32 +246,33 @@ impl VideoDecoder {
             rgb_data.extend_from_slice(&data[row_start..row_end]);
         }
 
-        // Step 2: Apply crop if needed
-        let (cropped_data, crop_w, crop_h) = if let Some((cx, cy, cw, ch)) = self.cropbox {
-            let cropped = self.crop_frame(&rgb_data, src_width as u32, cx, cy, cw, ch);
+        // Step 2: Apply rotation FIRST (on full frame, isotropic space)
+        let (rotated_data, rotated_w, rotated_h) =
+            self.rotate_frame(&rgb_data, self.src_width, self.src_height, self.rotation);
+
+        // Step 3: Apply crop from rotated frame (rotated-space coordinates)
+        let (final_data, final_w, final_h) = if let Some((cx, cy, cw, ch)) = self.cropbox {
+            let cropped = self.crop_frame(&rotated_data, rotated_w, cx, cy, cw, ch);
             (cropped, cw, ch)
         } else {
-            (rgb_data, self.src_width, self.src_height)
+            (rotated_data, rotated_w, rotated_h)
         };
-
-        // Step 3: Apply rotation if needed
-        let (rotated_data, rotated_w, rotated_h) = self.rotate_frame(&cropped_data, crop_w, crop_h, self.rotation);
 
         // Step 4: Scale to target size using the final scaler
         if let Some(ref mut final_scaler) = self.final_scaler {
-            // Create a VideoFrame from our rotated data
-            let mut src_frame = VideoFrame::new(Pixel::RGB24, rotated_w, rotated_h);
+            // Create a VideoFrame from our cropped data
+            let mut src_frame = VideoFrame::new(Pixel::RGB24, final_w, final_h);
 
             // Copy data into the frame
             // Get stride first (immutable borrow), then get mutable data
             let frame_stride = src_frame.stride(0);
             let frame_data = src_frame.data_mut(0);
 
-            for y in 0..rotated_h as usize {
-                let src_start = y * (rotated_w as usize) * 3;
+            for y in 0..final_h as usize {
+                let src_start = y * (final_w as usize) * 3;
                 let dst_start = y * frame_stride;
-                let row_len = (rotated_w as usize) * 3;
-                frame_data[dst_start..dst_start + row_len].copy_from_slice(&rotated_data[src_start..src_start + row_len]);
+                let row_len = (final_w as usize) * 3;
+                frame_data[dst_start..dst_start + row_len].copy_from_slice(&final_data[src_start..src_start + row_len]);
             }
 
             // Scale to target size

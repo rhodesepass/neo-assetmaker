@@ -44,7 +44,7 @@ struct Args {
     #[arg(long)]
     stdio: bool,
 
-    /// Cropbox in format "x,y,w,h" (original video coordinates)
+    /// Cropbox in format "x,y,w,h" (rotated video coordinates)
     #[arg(long)]
     cropbox: Option<String>,
 

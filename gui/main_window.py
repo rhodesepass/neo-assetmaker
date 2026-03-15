@@ -1400,7 +1400,7 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            cropbox = self.video_preview.get_cropbox_for_export()
+            cropbox = self.video_preview.get_cropbox_in_rotated_space()
             rotation = self.video_preview.get_rotation()
 
             popen_kwargs = {}
