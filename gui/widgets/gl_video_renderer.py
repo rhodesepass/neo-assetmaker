@@ -175,6 +175,16 @@ class GLVideoWidget(QOpenGLWidget):
         self._tex_width: int = 0
         self._tex_height: int = 0
 
+        # PBO 双缓冲 — 异步纹理上传
+        # OpenGL 2.1 GL_PIXEL_UNPACK_BUFFER: 纹理上传改为异步 DMA 传输
+        self._pbo_supported: bool = False
+        self._pbo_index: int = 0  # front/back 轮换 (0 或 1)
+        self._pbo_y: list = [0, 0]  # Y 平面 [front, back]
+        self._pbo_u: list = [0, 0]  # U 平面
+        self._pbo_v: list = [0, 0]  # V 平面
+        self._pbo_width: int = 0
+        self._pbo_height: int = 0
+
         # VBO/VAO
         self._quad_vbo: int = 0
         self._quad_vao: int = 0
@@ -267,12 +277,16 @@ class GLVideoWidget(QOpenGLWidget):
         # 创建纹理
         self._create_textures()
 
+        # 创建 PBO 双缓冲（用于异步纹理上传）
+        self._create_pbos()
+
         # GL 状态
         _GL.glClearColor(0.0, 0.0, 0.0, 1.0)
-        _GL.glDisable(__GL.GL_DEPTH_TEST)
+        _GL.glDisable(_GL.GL_DEPTH_TEST)
 
         self._gl_initialized = True
-        logger.info("GLVideoWidget OpenGL 初始化成功")
+        pbo_status = " (PBO 双缓冲已启用)" if self._pbo_supported else ""
+        logger.info(f"GLVideoWidget OpenGL 初始化成功{pbo_status}")
 
     def resizeGL(self, w: int, h: int):
         """窗口大小变化"""
@@ -286,25 +300,29 @@ class GLVideoWidget(QOpenGLWidget):
         if self._gl_failed or not self._gl_initialized or _GL is None:
             return
 
-        _GL.glClear(__GL.GL_COLOR_BUFFER_BIT)
+        try:
+            _GL.glClear(_GL.GL_COLOR_BUFFER_BIT)
 
-        # 上传新帧数据
-        if self._frame_dirty:
-            if self._use_yuv and self._yuv_data is not None:
-                self._upload_yuv_textures()
-            elif not self._use_yuv and self._rgb_data is not None:
-                self._upload_rgb_texture()
-            self._frame_dirty = False
+            # 上传新帧数据
+            if self._frame_dirty:
+                if self._use_yuv and self._yuv_data is not None:
+                    self._upload_yuv_textures()
+                elif not self._use_yuv and self._rgb_data is not None:
+                    self._upload_rgb_texture()
+                self._frame_dirty = False
 
-        # 绘制视频帧
-        if self._use_yuv and self._tex_y:
-            self._draw_yuv_frame()
-        elif not self._use_yuv and self._tex_rgb:
-            self._draw_rgb_frame()
+            # 绘制视频帧
+            if self._use_yuv and self._tex_y:
+                self._draw_yuv_frame()
+            elif not self._use_yuv and self._tex_rgb:
+                self._draw_rgb_frame()
 
-        # 绘制 cropbox
-        if self._show_cropbox and self._video_width > 0:
-            self._draw_cropbox()
+            # 绘制 cropbox
+            if self._show_cropbox and self._video_width > 0:
+                self._draw_cropbox()
+        except Exception as e:
+            logger.error(f"paintGL 异常: {e}", exc_info=True)
+            self._gl_failed = True
 
     # ── 公共方法 ──
 
@@ -475,19 +493,19 @@ class GLVideoWidget(QOpenGLWidget):
             return
 
         _GL.glBindVertexArray(self._quad_vao)
-        _GL.glBindBuffer(__GL.GL_ARRAY_BUFFER, self._quad_vbo)
-        _GL.glBufferData(__GL.GL_ARRAY_BUFFER, QUAD_VERTICES.nbytes,
-                         QUAD_VERTICES, __GL.GL_STATIC_DRAW)
+        _GL.glBindBuffer(_GL.GL_ARRAY_BUFFER, self._quad_vbo)
+        _GL.glBufferData(_GL.GL_ARRAY_BUFFER, QUAD_VERTICES.nbytes,
+                         QUAD_VERTICES, _GL.GL_STATIC_DRAW)
 
         # position (location=0)
         _GL.glEnableVertexAttribArray(0)
         _GL.glVertexAttribPointer(
-            0, 2, __GL.GL_FLOAT, __GL.GL_FALSE, 16,
+            0, 2, _GL.GL_FLOAT, _GL.GL_FALSE, 16,
             ctypes.c_void_p(0))
         # texcoord (location=1)
         _GL.glEnableVertexAttribArray(1)
         _GL.glVertexAttribPointer(
-            1, 2, __GL.GL_FLOAT, __GL.GL_FALSE, 16,
+            1, 2, _GL.GL_FLOAT, _GL.GL_FALSE, 16,
             ctypes.c_void_p(8))
 
         _GL.glBindVertexArray(0)
@@ -502,14 +520,14 @@ class GLVideoWidget(QOpenGLWidget):
             return
 
         _GL.glBindVertexArray(self._cropbox_vao)
-        _GL.glBindBuffer(__GL.GL_ARRAY_BUFFER, self._cropbox_vbo)
+        _GL.glBindBuffer(_GL.GL_ARRAY_BUFFER, self._cropbox_vbo)
         # 预分配空间 (4 条边 + 4 个手柄 = 最多 40 个顶点)
-        _GL.glBufferData(__GL.GL_ARRAY_BUFFER, 40 * 2 * 4,
-                         None, __GL.GL_DYNAMIC_DRAW)
+        _GL.glBufferData(_GL.GL_ARRAY_BUFFER, 40 * 2 * 4,
+                         None, _GL.GL_DYNAMIC_DRAW)
 
         _GL.glEnableVertexAttribArray(0)
         _GL.glVertexAttribPointer(
-            0, 2, __GL.GL_FLOAT, __GL.GL_FALSE, 8,
+            0, 2, _GL.GL_FLOAT, _GL.GL_FALSE, 8,
             ctypes.c_void_p(0))
 
         _GL.glBindVertexArray(0)
@@ -522,32 +540,43 @@ class GLVideoWidget(QOpenGLWidget):
         self._tex_v = _GL.glGenTextures(1)
 
         for tex in [self._tex_y, self._tex_u, self._tex_v]:
-            _GL.glBindTexture(__GL.GL_TEXTURE_2D, tex)
-            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                                __GL.GL_TEXTURE_MIN_FILTER, __GL.GL_LINEAR)
-            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                                __GL.GL_TEXTURE_MAG_FILTER, __GL.GL_LINEAR)
-            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                                __GL.GL_TEXTURE_WRAP_S, __GL.GL_CLAMP_TO_EDGE)
-            _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                                __GL.GL_TEXTURE_WRAP_T, __GL.GL_CLAMP_TO_EDGE)
+            _GL.glBindTexture(_GL.GL_TEXTURE_2D, tex)
+            _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                                _GL.GL_TEXTURE_MIN_FILTER, _GL.GL_LINEAR)
+            _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                                _GL.GL_TEXTURE_MAG_FILTER, _GL.GL_LINEAR)
+            _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                                _GL.GL_TEXTURE_WRAP_S, _GL.GL_CLAMP_TO_EDGE)
+            _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                                _GL.GL_TEXTURE_WRAP_T, _GL.GL_CLAMP_TO_EDGE)
 
         # RGB 纹理
         self._tex_rgb = _GL.glGenTextures(1)
-        _GL.glBindTexture(__GL.GL_TEXTURE_2D, self._tex_rgb)
-        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                            __GL.GL_TEXTURE_MIN_FILTER, __GL.GL_LINEAR)
-        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                            __GL.GL_TEXTURE_MAG_FILTER, __GL.GL_LINEAR)
-        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                            __GL.GL_TEXTURE_WRAP_S, __GL.GL_CLAMP_TO_EDGE)
-        _GL.glTexParameteri(__GL.GL_TEXTURE_2D,
-                            __GL.GL_TEXTURE_WRAP_T, __GL.GL_CLAMP_TO_EDGE)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, self._tex_rgb)
+        _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                            _GL.GL_TEXTURE_MIN_FILTER, _GL.GL_LINEAR)
+        _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                            _GL.GL_TEXTURE_MAG_FILTER, _GL.GL_LINEAR)
+        _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                            _GL.GL_TEXTURE_WRAP_S, _GL.GL_CLAMP_TO_EDGE)
+        _GL.glTexParameteri(_GL.GL_TEXTURE_2D,
+                            _GL.GL_TEXTURE_WRAP_T, _GL.GL_CLAMP_TO_EDGE)
 
-        _GL.glBindTexture(__GL.GL_TEXTURE_2D, 0)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, 0)
 
     def _upload_yuv_textures(self):
-        """上传 YUV420P 帧数据到 GPU"""
+        """上传 YUV420P 帧数据到 GPU — 自动选择 PBO 或直接路径"""
+        if self._pbo_supported:
+            try:
+                self._upload_yuv_textures_pbo()
+                return
+            except Exception as e:
+                logger.warning(f"PBO 上传失败，永久回退到直接上传: {e}")
+                self._pbo_supported = False
+        self._upload_yuv_textures_direct()
+
+    def _upload_yuv_textures_direct(self):
+        """直接上传 YUV 帧（原有实现，无 PBO）"""
         y_data, u_data, v_data, w, h = self._yuv_data
         need_recreate = (w != self._tex_width or h != self._tex_height)
         self._tex_width = w
@@ -589,6 +618,143 @@ class GLVideoWidget(QOpenGLWidget):
                                v_data)
 
         _GL.glBindTexture(_GL.GL_TEXTURE_2D, 0)
+
+    # ── PBO 双缓冲纹理上传 ──
+    #
+    # OpenGL 依据:
+    # - GL_PIXEL_UNPACK_BUFFER (OpenGL 2.1): glTexSubImage2D 变为异步 DMA
+    # - glMapBufferRange (OpenGL 3.0): 精确映射 + invalidate 避免同步停顿
+    # - GL_STREAM_DRAW + orphaning: 丢弃旧 buffer 内容，驱动分配新存储
+    # - 双缓冲: front PBO → GPU 纹理; back PBO ← CPU 填充; 每帧交换
+
+    def _create_pbos(self):
+        """创建 PBO 双缓冲对象 (6 个: 3 平面 × 2 双缓冲)"""
+        try:
+            for i in range(2):
+                self._pbo_y[i] = _GL.glGenBuffers(1)
+                self._pbo_u[i] = _GL.glGenBuffers(1)
+                self._pbo_v[i] = _GL.glGenBuffers(1)
+            self._pbo_supported = True
+            logger.info("PBO 双缓冲创建成功 (6 个 PBO)")
+        except Exception as e:
+            logger.warning(f"PBO 创建失败，回退到直接上传: {e}")
+            self._pbo_supported = False
+
+    def _ensure_pbo_storage(self, w: int, h: int):
+        """确保 PBO 存储空间匹配当前分辨率"""
+        if w == self._pbo_width and h == self._pbo_height:
+            return
+
+        uw, uh = w // 2, h // 2
+        y_size = w * h
+        uv_size = uw * uh
+
+        for i in range(2):
+            _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, self._pbo_y[i])
+            _GL.glBufferData(_GL.GL_PIXEL_UNPACK_BUFFER, y_size,
+                             None, _GL.GL_STREAM_DRAW)
+
+            _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, self._pbo_u[i])
+            _GL.glBufferData(_GL.GL_PIXEL_UNPACK_BUFFER, uv_size,
+                             None, _GL.GL_STREAM_DRAW)
+
+            _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, self._pbo_v[i])
+            _GL.glBufferData(_GL.GL_PIXEL_UNPACK_BUFFER, uv_size,
+                             None, _GL.GL_STREAM_DRAW)
+
+        _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, 0)
+
+        self._pbo_width = w
+        self._pbo_height = h
+        total_mb = (y_size + uv_size * 2) * 2 / 1024 / 1024
+        logger.debug(f"PBO 存储已分配: {w}x{h}, 总计 {total_mb:.1f} MB")
+
+    def _upload_yuv_textures_pbo(self):
+        """使用 PBO 双缓冲异步上传 YUV420P 帧"""
+        y_data, u_data, v_data, w, h = self._yuv_data
+        need_recreate = (w != self._tex_width or h != self._tex_height)
+
+        if need_recreate:
+            self._tex_width = w
+            self._tex_height = h
+            self._ensure_pbo_storage(w, h)
+            # 重新分配纹理存储（只分配，不上传数据）
+            uw, uh = w // 2, h // 2
+            for tex, tw, th in [(self._tex_y, w, h),
+                                (self._tex_u, uw, uh),
+                                (self._tex_v, uw, uh)]:
+                _GL.glBindTexture(_GL.GL_TEXTURE_2D, tex)
+                _GL.glTexImage2D(_GL.GL_TEXTURE_2D, 0, _GL.GL_R8,
+                                 tw, th, 0, _GL.GL_RED,
+                                 _GL.GL_UNSIGNED_BYTE, None)
+            _GL.glBindTexture(_GL.GL_TEXTURE_2D, 0)
+
+            # 首帧/分辨率变化：直接填充 front PBO 并上传（不走流水线）
+            front = self._pbo_index
+            self._pbo_fill(self._pbo_y[front], y_data, w * h)
+            self._pbo_fill(self._pbo_u[front], u_data, uw * uh)
+            self._pbo_fill(self._pbo_v[front], v_data, uw * uh)
+
+            self._pbo_tex_upload(self._tex_y, self._pbo_y[front], w, h)
+            self._pbo_tex_upload(self._tex_u, self._pbo_u[front], uw, uh)
+            self._pbo_tex_upload(self._tex_v, self._pbo_v[front], uw, uh)
+            return
+
+        # 正常双缓冲流水线（后续帧）
+        uw, uh = w // 2, h // 2
+        front = self._pbo_index
+        back = 1 - front
+
+        # 阶段 1: front PBO → 纹理 (GPU 异步 DMA)
+        self._pbo_tex_upload(self._tex_y, self._pbo_y[front], w, h)
+        self._pbo_tex_upload(self._tex_u, self._pbo_u[front], uw, uh)
+        self._pbo_tex_upload(self._tex_v, self._pbo_v[front], uw, uh)
+
+        # 阶段 2: CPU 填充 back PBO (orphaning 避免等待)
+        self._pbo_fill(self._pbo_y[back], y_data, w * h)
+        self._pbo_fill(self._pbo_u[back], u_data, uw * uh)
+        self._pbo_fill(self._pbo_v[back], v_data, uw * uh)
+
+        # 交换 front/back
+        self._pbo_index = back
+
+    def _pbo_tex_upload(self, tex_id: int, pbo_id: int,
+                        w: int, h: int):
+        """从 PBO 异步上传到纹理（单平面）"""
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, tex_id)
+        _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, pbo_id)
+        # data=ctypes.c_void_p(0) → PBO 内偏移 0
+        _GL.glTexSubImage2D(
+            _GL.GL_TEXTURE_2D, 0, 0, 0, w, h,
+            _GL.GL_RED, _GL.GL_UNSIGNED_BYTE,
+            ctypes.c_void_p(0)
+        )
+        _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, 0)
+        _GL.glBindTexture(_GL.GL_TEXTURE_2D, 0)
+
+    def _pbo_fill(self, pbo_id: int, data: bytes, size: int):
+        """CPU 填充 PBO (orphaning + map 避免同步等待)"""
+        _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, pbo_id)
+
+        # Orphaning: glBufferData(NULL) 丢弃旧数据
+        # 即使 GPU 仍在读取旧 PBO，驱动也会分配新存储
+        _GL.glBufferData(_GL.GL_PIXEL_UNPACK_BUFFER, size,
+                         None, _GL.GL_STREAM_DRAW)
+
+        # 映射 PBO 到 CPU 地址空间
+        ptr = _GL.glMapBufferRange(
+            _GL.GL_PIXEL_UNPACK_BUFFER, 0, size,
+            _GL.GL_MAP_WRITE_BIT | _GL.GL_MAP_INVALIDATE_BUFFER_BIT
+        )
+
+        if ptr:
+            ctypes.memmove(ptr, data, size)
+            _GL.glUnmapBuffer(_GL.GL_PIXEL_UNPACK_BUFFER)
+        else:
+            # 映射失败，回退到 glBufferSubData
+            _GL.glBufferSubData(_GL.GL_PIXEL_UNPACK_BUFFER, 0, size, data)
+
+        _GL.glBindBuffer(_GL.GL_PIXEL_UNPACK_BUFFER, 0)
 
     def _upload_rgb_texture(self):
         """上传 RGB 帧数据到 GPU"""
@@ -860,6 +1026,13 @@ class GLVideoWidget(QOpenGLWidget):
         try:
             if _GL is None:
                 return
+            # 清理 PBO
+            if self._pbo_supported:
+                pbo_list = self._pbo_y + self._pbo_u + self._pbo_v
+                valid_pbos = [p for p in pbo_list if p]
+                if valid_pbos:
+                    _GL.glDeleteBuffers(len(valid_pbos), valid_pbos)
+            # 清理纹理
             if self._tex_y:
                 _GL.glDeleteTextures([self._tex_y, self._tex_u,
                                      self._tex_v, self._tex_rgb])

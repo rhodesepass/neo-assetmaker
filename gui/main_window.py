@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QMenuBar, QMenu, QStatusBar,
     QFileDialog, QMessageBox, QLabel, QScrollArea,
     QGroupBox, QCheckBox, QComboBox, QDoubleSpinBox,
-    QSpinBox, QLineEdit, QTabWidget
+    QSpinBox, QLineEdit, QTabWidget, QDialog
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QUrl, QCoreApplication
 import os
@@ -55,6 +55,10 @@ class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        # 应用根目录（兼容冻结环境和开发环境）
+        from utils.file_utils import get_app_dir
+        self._app_dir = get_app_dir()
+
         self._config: Optional[EPConfig] = None
         self._project_path: str = ""
         self._base_dir: str = ""
@@ -72,7 +76,7 @@ class MainWindow(QMainWindow):
         self._auto_save_service = AutoSaveService()
         self._crash_recovery_service = CrashRecoveryService()
         self._crash_recovery_service.initialize(
-            os.path.join(os.path.dirname(__file__), "..", ".recovery"))
+            os.path.join(self._app_dir, ".recovery"))
 
         # 初始化错误处理器
         self._error_handler = ErrorHandler()
@@ -102,8 +106,7 @@ class MainWindow(QMainWindow):
         auto_create = True
         try:
             import json
-            config_dir = os.path.join(
-                os.path.dirname(__file__), "..", "config")
+            config_dir = os.path.join(self._app_dir, "config")
             config_file = os.path.join(config_dir, "user_settings.json")
             if os.path.exists(config_file):
                 with open(config_file, "r", encoding="utf-8") as f:
@@ -132,8 +135,7 @@ class MainWindow(QMainWindow):
     def _setup_icon(self):
         """设置窗口图标"""
         icon_path = os.path.join(
-            os.path.dirname(__file__),
-            '..',
+            self._app_dir,
             'resources',
             'icons',
             'favicon.ico')
@@ -825,8 +827,7 @@ class MainWindow(QMainWindow):
         """加载用户设置（启动时调用）"""
         try:
             import json
-            config_dir = os.path.join(
-                os.path.dirname(__file__), "..", "config")
+            config_dir = os.path.join(self._app_dir, "config")
             config_file = os.path.join(config_dir, "user_settings.json")
 
             if os.path.exists(config_file):
@@ -850,8 +851,7 @@ class MainWindow(QMainWindow):
     def _read_user_settings(self) -> dict:
         """读取 user_settings.json 并返回 dict"""
         import json
-        config_dir = os.path.join(
-            os.path.dirname(__file__), "..", "config")
+        config_dir = os.path.join(self._app_dir, "config")
         config_file = os.path.join(config_dir, "user_settings.json")
         if os.path.exists(config_file):
             with open(config_file, "r", encoding="utf-8") as f:
@@ -874,8 +874,7 @@ class MainWindow(QMainWindow):
             show_welcome = True
             try:
                 import json
-                config_dir = os.path.join(
-                    os.path.dirname(__file__), "..", "config")
+                config_dir = os.path.join(self._app_dir, "config")
                 config_file = os.path.join(config_dir, "user_settings.json")
                 if os.path.exists(config_file):
                     with open(config_file, "r", encoding="utf-8") as f:
@@ -911,8 +910,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowIcon(
             QIcon(
                 os.path.join(
-                    os.path.dirname(__file__),
-                    '..',
+                    self._app_dir,
                     'resources',
                     'icons',
                     'favicon.ico')))
@@ -1538,16 +1536,8 @@ class MainWindow(QMainWindow):
             return
 
         # 查找 Rust 模拟器可执行文件
-        # 检测是否为打包后的环境
-        if getattr(sys, 'frozen', False):
-            # 打包后：exe 所在目录是安装目录
-            app_dir = os.path.dirname(sys.executable)
-        else:
-            # 开发环境：从 gui 目录向上找到项目根目录
-            app_dir = os.path.dirname(os.path.dirname(__file__))
-
         simulator_path = os.path.join(
-            app_dir,
+            self._app_dir,
             "simulator", "target", "release", "arknights_pass_simulator.exe"
         )
 
@@ -2258,54 +2248,60 @@ class MainWindow(QMainWindow):
 
     def _check_update_on_startup(self):
         """启动时后台检查更新"""
-        from datetime import datetime, timedelta
-        from config.constants import UPDATE_CHECK_INTERVAL_HOURS
-
-        settings = QSettings("ArknightsPassMaker", "MainWindow")
-
-        # 检查是否启用自动更新（默认启用）
-        auto_check_enabled = settings.value(
-            "auto_check_updates", True, type=bool)
-
-        # 从用户设置文件中获取自动更新设置
         try:
-            import json
-            config_dir = os.path.join(
-                os.path.dirname(__file__), "..", "config")
-            config_file = os.path.join(config_dir, "user_settings.json")
-            if os.path.exists(config_file):
-                with open(config_file, "r", encoding="utf-8") as f:
-                    user_settings = json.load(f)
-                    auto_check_enabled = user_settings.get('auto_update', True)
-        except Exception:
-            pass
+            from datetime import datetime, timedelta
+            from config.constants import UPDATE_CHECK_INTERVAL_HOURS
 
-        if not auto_check_enabled:
-            return
+            settings = QSettings("ArknightsPassMaker", "MainWindow")
 
-        # 检查上次检查时间（避免频繁检查）
-        last_check = settings.value("last_update_check", "")
-        if last_check:
+            # 检查是否启用自动更新（默认启用）
+            auto_check_enabled = settings.value(
+                "auto_check_updates", True, type=bool)
+
+            # 从用户设置文件中获取自动更新设置
             try:
-                last_check_time = datetime.fromisoformat(last_check)
-                if datetime.now() - last_check_time < timedelta(hours=UPDATE_CHECK_INTERVAL_HOURS):
-                    logger.debug("跳过更新检查（24小时内已检查）")
-                    return
-            except ValueError:
+                import json
+                config_dir = os.path.join(self._app_dir, "config")
+                config_file = os.path.join(config_dir, "user_settings.json")
+                if os.path.exists(config_file):
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        user_settings = json.load(f)
+                        auto_check_enabled = user_settings.get(
+                            'auto_update', True)
+            except Exception:
                 pass
 
-        # 创建更新服务进行后台检查
-        from core.update_service import UpdateService
+            if not auto_check_enabled:
+                return
 
-        self._startup_update_service = UpdateService(APP_VERSION, self)
-        self._startup_update_service.check_completed.connect(
-            self._on_startup_update_check_completed)
-        self._startup_update_service.check_failed.connect(
-            self._on_startup_update_check_failed)
-        self._startup_update_service.check_for_updates()
+            # 检查上次检查时间（避免频繁检查）
+            last_check = settings.value("last_update_check", "")
+            if last_check:
+                try:
+                    last_check_time = datetime.fromisoformat(last_check)
+                    if datetime.now() - last_check_time < timedelta(
+                            hours=UPDATE_CHECK_INTERVAL_HOURS):
+                        logger.debug("跳过更新检查（24小时内已检查）")
+                        return
+                except ValueError:
+                    pass
 
-        # 记录检查时间
-        settings.setValue("last_update_check", datetime.now().isoformat())
+            # 创建更新服务进行后台检查
+            from core.update_service import UpdateService
+
+            self._startup_update_service = UpdateService(APP_VERSION, self)
+            self._startup_update_service.check_completed.connect(
+                self._on_startup_update_check_completed)
+            self._startup_update_service.check_failed.connect(
+                self._on_startup_update_check_failed)
+            self._startup_update_service.check_for_updates()
+
+            # 记录检查时间
+            settings.setValue(
+                "last_update_check", datetime.now().isoformat())
+
+        except Exception as e:
+            logger.error(f"启动时更新检查失败: {e}", exc_info=True)
 
     def _check_crash_recovery(self):
         """启动时检查崩溃恢复"""
@@ -2466,7 +2462,7 @@ class MainWindow(QMainWindow):
         try:
             import json
             config_dir = os.path.join(
-                os.path.dirname(__file__), "..", "config")
+                self._app_dir, "config")
             config_file = os.path.join(config_dir, "user_settings.json")
 
             settings = {}
@@ -2524,7 +2520,7 @@ class MainWindow(QMainWindow):
         try:
             import json
             config_dir = os.path.join(
-                os.path.dirname(__file__), "..", "config")
+                self._app_dir, "config")
             config_file = os.path.join(config_dir, "user_settings.json")
 
             settings = {}
@@ -2612,7 +2608,7 @@ class MainWindow(QMainWindow):
         try:
             import json
             config_dir = os.path.join(
-                os.path.dirname(__file__), "..", "config")
+                self._app_dir, "config")
             config_file = os.path.join(config_dir, "user_settings.json")
             
             if os.path.exists(config_file):

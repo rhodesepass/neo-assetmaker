@@ -14,7 +14,10 @@ Qt 6 官方文档依据：
 """
 import logging
 import queue
-from typing import Optional
+import threading
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -46,6 +49,87 @@ CMD_SET_GL_MODE = "set_gl_mode"
 CMD_STOP = "stop"
 
 
+# ── 帧缓冲区数据结构 ──
+
+@dataclass
+class BufferedFrame:
+    """缓冲区中的帧条目"""
+    frame_index: int
+    # GL 编辑模式的 YUV 平面数据
+    yuv_data: Optional[Tuple[bytes, bytes, bytes, int, int]] = None
+    # QImage 模式的显示帧
+    qimage: Optional[QImage] = None
+    # 原始 BGR 帧（供 cropbox 交互）
+    raw_frame: Optional['np.ndarray'] = None
+    # 参数版本号（用于失效检测）
+    params_version: int = 0
+
+
+class FrameRingBuffer:
+    """线程安全的帧环形缓冲区
+
+    消费端（主线程 timer tick）不阻塞 — 空则跳帧。
+
+    collections.deque 文档依据:
+    https://docs.python.org/3/library/collections.html#collections.deque
+    "Deques support thread-safe, memory efficient appends and pops
+     from either side of the deque with approximately the same O(1)
+     performance in either direction."
+
+    threading.Lock 文档依据:
+    https://docs.python.org/3/library/threading.html#lock-objects
+    deque 单操作线程安全，但复合操作（检查长度+操作）需要 Lock。
+    """
+
+    def __init__(self, max_size: int = 5):
+        self._buffer: deque = deque(maxlen=max_size)
+        self._lock = threading.Lock()
+        self._max_size = max_size
+
+    def put(self, frame: 'BufferedFrame') -> bool:
+        """生产者：放入一帧。缓冲区满时返回 False。"""
+        with self._lock:
+            if len(self._buffer) >= self._max_size:
+                return False
+            self._buffer.append(frame)
+            return True
+
+    def get(self) -> Optional['BufferedFrame']:
+        """消费者：取出最早一帧。缓冲区空时返回 None（不阻塞）。"""
+        with self._lock:
+            if len(self._buffer) == 0:
+                return None
+            return self._buffer.popleft()
+
+    def clear(self):
+        """清空缓冲区"""
+        with self._lock:
+            self._buffer.clear()
+
+    def size(self) -> int:
+        with self._lock:
+            return len(self._buffer)
+
+    def is_full(self) -> bool:
+        with self._lock:
+            return len(self._buffer) >= self._max_size
+
+    def is_empty(self) -> bool:
+        with self._lock:
+            return len(self._buffer) == 0
+
+    @property
+    def max_size(self) -> int:
+        return self._max_size
+
+    @max_size.setter
+    def max_size(self, value: int):
+        with self._lock:
+            self._max_size = value
+            # 用现有数据重建 deque（新 maxlen）
+            self._buffer = deque(self._buffer, maxlen=value)
+
+
 class FrameReaderThread(QThread):
     """后台视频帧读取线程
 
@@ -65,6 +149,23 @@ class FrameReaderThread(QThread):
         super().__init__(parent)
         self._command_queue: queue.Queue = queue.Queue()
 
+        # 预读帧缓冲区（工作线程写入，主线程读取）
+        self._frame_buffer = FrameRingBuffer(max_size=5)
+
+        # 参数版本号 — 旋转/cropbox/模式变更时递增，用于缓冲区帧失效检测
+        # CPython GIL 保证 int 单次读写原子性
+        self._params_version: int = 0
+
+        # 预读控制事件 — play() 时 set(), pause() 时 clear()
+        self._prefetch_enabled = threading.Event()
+
+        # 解码状态（从 run() 局部变量提升为实例变量，供 _drain_commands 访问）
+        self._container = None
+        self._stream = None
+        self._fps: float = 30.0
+        self._current_frame_index: int = 0
+        self._total_frames: int = 0
+
         # 工作线程内部状态（仅在 run() 中访问）
         self._rotation: int = 0
         self._cropbox: list = [0, 0, 360, 640]
@@ -76,31 +177,58 @@ class FrameReaderThread(QThread):
         self._target_aspect_ratio: float = 360 / 640
         self._gl_mode: bool = False  # GL 模式：发射 YUV 平面数据
 
-    # ── 公共方法（主线程调用，往队列塞命令） ──
+    # ── 公共方法（主线程调用） ──
+
+    @property
+    def frame_buffer(self) -> FrameRingBuffer:
+        """帧缓冲区引用 — 主线程直接消费"""
+        return self._frame_buffer
+
+    @property
+    def params_version(self) -> int:
+        return self._params_version
+
+    def start_prefetch(self):
+        """启动预读循环（play 时调用）"""
+        self._prefetch_enabled.set()
+
+    def stop_prefetch(self):
+        """停止预读循环（pause 时调用，节省 CPU）"""
+        self._prefetch_enabled.clear()
 
     def request_open(self, path: str):
         self._command_queue.put((CMD_OPEN, path))
 
     def request_read_next(self):
+        """向后兼容 — 在预读模式下此命令被忽略"""
         self._command_queue.put((CMD_READ_NEXT, None))
 
     def request_seek(self, frame_index: int):
+        self._frame_buffer.clear()  # 立即清空（线程安全）
         self._command_queue.put((CMD_SEEK, frame_index))
 
     def request_set_rotation(self, degrees: int):
+        self._frame_buffer.clear()
+        self._params_version += 1
         self._command_queue.put((CMD_SET_ROTATION, degrees))
 
     def request_set_cropbox(self, cropbox: list):
+        self._frame_buffer.clear()
+        self._params_version += 1
         self._command_queue.put((CMD_SET_CROPBOX, cropbox.copy()))
 
     def request_set_preview_params(self, preview_mode: bool, target_w: int,
                                    target_h: int, epconfig=None,
                                    overlay_renderer=None):
+        self._frame_buffer.clear()
+        self._params_version += 1
         self._command_queue.put((CMD_SET_PREVIEW_PARAMS, (
             preview_mode, target_w, target_h, epconfig, overlay_renderer
         )))
 
     def request_set_gl_mode(self, enabled: bool):
+        self._frame_buffer.clear()
+        self._params_version += 1
         self._command_queue.put((CMD_SET_GL_MODE, enabled))
 
     def request_stop(self):
@@ -109,70 +237,117 @@ class FrameReaderThread(QThread):
     # ── 工作线程主循环 ──
 
     def run(self):
-        container = None
-        stream = None
-        fps: float = 30.0
-        current_frame_index: int = 0
-        total_frames: int = 0
+        """双阶段主循环：命令处理 + 预读填充
 
+        阶段 1: 非阻塞 drain 所有待处理命令 (open/seek/stop/参数变更)
+        阶段 2: 缓冲区未满且预读启用 → 解码下一帧放入缓冲区
+        """
+        while True:
+            # 阶段 1: 处理所有待处理命令
+            if self._drain_commands():
+                break  # CMD_STOP
+
+            # 阶段 2: 预读填充缓冲区
+            if (self._container is not None
+                    and self._prefetch_enabled.is_set()
+                    and not self._frame_buffer.is_full()):
+                self._prefetch_next_frame()
+            else:
+                # 缓冲区满或未在预读模式 — 短暂等待避免 CPU 空转
+                # 仍需快速响应命令，所以用 Event.wait 带超时
+                self._prefetch_enabled.wait(timeout=0.005)
+
+        # 线程结束，释放资源
+        if self._container is not None:
+            try:
+                self._container.close()
+            except Exception:
+                pass
+        logger.debug("FrameReaderThread 已退出")
+
+    def _drain_commands(self) -> bool:
+        """非阻塞处理所有待处理命令。返回 True 表示收到 CMD_STOP。"""
         while True:
             try:
-                cmd, args = self._command_queue.get(timeout=0.05)
+                cmd, args = self._command_queue.get_nowait()
             except queue.Empty:
-                continue
+                return False
 
             if cmd == CMD_STOP:
-                break
+                return True
 
             elif cmd == CMD_OPEN:
                 path = args
-                if container is not None:
+                if self._container is not None:
                     try:
-                        container.close()
+                        self._container.close()
                     except Exception:
                         pass
-                    container = None
-                    stream = None
+                    self._container = None
+                    self._stream = None
                 result = self._open_video(path)
-                container = result[0]
-                stream = result[1]
-                fps = result[2]
-                current_frame_index = result[3]
-                total_frames = result[4]
+                self._container = result[0]
+                self._stream = result[1]
+                self._fps = result[2]
+                self._current_frame_index = result[3]
+                self._total_frames = result[4]
 
             elif cmd == CMD_READ_NEXT:
-                if container is None:
-                    continue
-                # 丢帧策略：队列中有多个 READ_NEXT 时只处理最后一个
-                while not self._command_queue.empty():
-                    try:
-                        peek_cmd, peek_args = self._command_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    if peek_cmd == CMD_READ_NEXT:
+                # 向后兼容：预读模式下忽略此命令
+                # 非预读模式（prefetch 未 set）时仍执行
+                if not self._prefetch_enabled.is_set():
+                    if self._container is None:
                         continue
-                    else:
-                        self._command_queue.put((peek_cmd, peek_args))
-                        break
+                    # 丢帧策略
+                    while not self._command_queue.empty():
+                        try:
+                            peek_cmd, peek_args = (
+                                self._command_queue.get_nowait())
+                        except queue.Empty:
+                            break
+                        if peek_cmd == CMD_READ_NEXT:
+                            continue
+                        else:
+                            self._command_queue.put((peek_cmd, peek_args))
+                            break
 
-                current_frame_index += 1
-                if current_frame_index >= total_frames:
-                    # 循环回到开头
-                    current_frame_index = 0
-                    try:
-                        container.seek(0, stream=stream)
-                    except Exception:
-                        pass
+                    self._current_frame_index += 1
+                    if self._current_frame_index >= self._total_frames:
+                        self._current_frame_index = 0
+                        try:
+                            self._container.seek(0, stream=self._stream)
+                        except Exception:
+                            pass
 
-                self._read_and_emit(container, stream, current_frame_index)
+                    self._read_and_emit(
+                        self._container, self._stream,
+                        self._current_frame_index)
 
             elif cmd == CMD_SEEK:
-                if container is None:
+                if self._container is None:
                     continue
-                frame_index = max(0, min(args, total_frames - 1))
-                current_frame_index = frame_index
-                self._seek_and_emit(container, stream, fps,
-                                    current_frame_index)
+                # 合并连续 seek — 只执行最后一个
+                latest_seek = args
+                while True:
+                    try:
+                        next_cmd, next_args = (
+                            self._command_queue.get_nowait())
+                    except queue.Empty:
+                        break
+                    if next_cmd == CMD_SEEK:
+                        latest_seek = next_args
+                    elif next_cmd == CMD_STOP:
+                        return True
+                    else:
+                        self._command_queue.put((next_cmd, next_args))
+                        break
+                frame_index = max(
+                    0, min(latest_seek, self._total_frames - 1))
+                self._current_frame_index = frame_index
+                self._frame_buffer.clear()
+                self._seek_and_emit(
+                    self._container, self._stream, self._fps,
+                    self._current_frame_index)
 
             elif cmd == CMD_SET_ROTATION:
                 self._rotation = args % 360
@@ -191,13 +366,70 @@ class FrameReaderThread(QThread):
             elif cmd == CMD_SET_GL_MODE:
                 self._gl_mode = args
 
-        # 线程结束，释放资源
-        if container is not None:
+        return False
+
+    def _prefetch_next_frame(self):
+        """预读下一帧并放入缓冲区"""
+        self._current_frame_index += 1
+        if self._current_frame_index >= self._total_frames:
+            self._current_frame_index = 0
             try:
-                container.close()
+                self._container.seek(0, stream=self._stream)
             except Exception:
                 pass
-        logger.debug("FrameReaderThread 已退出")
+
+        bf = self._decode_one_frame(
+            self._container, self._stream, self._current_frame_index)
+        if bf is not None:
+            bf.params_version = self._params_version
+            self._frame_buffer.put(bf)
+
+    def _decode_one_frame(self, container, stream,
+                          frame_index: int) -> Optional[BufferedFrame]:
+        """解码一帧并返回 BufferedFrame"""
+        try:
+            for av_frame in container.decode(stream):
+                return self._av_frame_to_buffered(av_frame, frame_index)
+        except (StopIteration, av.error.EOFError):
+            logger.warning(f"[线程] 视频流结束，帧 {frame_index}")
+        except Exception as e:
+            logger.warning(f"[线程] 无法读取帧 {frame_index}: {e}")
+        return None
+
+    def _av_frame_to_buffered(self, av_frame,
+                              frame_index: int) -> BufferedFrame:
+        """将 av.VideoFrame 转换为 BufferedFrame"""
+        bf = BufferedFrame(frame_index=frame_index)
+
+        # GL 编辑模式：YUV 零拷贝
+        if self._gl_mode and not self._preview_mode:
+            try:
+                y, u, v, w, h = self._extract_yuv_planes(av_frame)
+                bf.yuv_data = (y, u, v, w, h)
+                bf.raw_frame = av_frame.to_ndarray(format='bgr24')
+                return bf
+            except Exception as e:
+                logger.warning(f"[线程] YUV 提取失败，回退 BGR: {e}")
+
+        # QLabel 模式 / GL 预览模式：CPU 处理
+        frame = av_frame.to_ndarray(format='bgr24')
+        bf.raw_frame = frame
+
+        rotated_frame = self._apply_rotation(frame)
+        display_frame = self._compose_display(rotated_frame)
+
+        if HAS_CV2:
+            rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+        else:
+            rgb_frame = display_frame[:, :, ::-1].copy()
+        h, w, ch = rgb_frame.shape
+        bytes_per_line = ch * w
+        bf.qimage = QImage(
+            rgb_frame.data, w, h, bytes_per_line,
+            QImage.Format.Format_RGB888
+        ).copy()
+
+        return bf
 
     # ── 内部方法（仅在工作线程内调用） ──
 

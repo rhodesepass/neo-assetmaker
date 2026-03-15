@@ -115,6 +115,12 @@ class VideoPreviewWidget(QWidget):
         self._use_gl: bool = False
         self._gl_renderer = None
 
+        # 预读帧缓冲区统计（自适应预读深度）
+        self._underrun_count: int = 0
+        self._tick_count: int = 0
+        self._last_adaptive_check: int = 0
+        self._adaptive_interval: int = 30  # 每 30 帧检查一次
+
         self._setup_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -643,7 +649,11 @@ class VideoPreviewWidget(QWidget):
         return preview_frame
 
     def _on_timer_tick(self):
-        """定时器回调 — 不再直接读帧，改为发送命令到工作线程"""
+        """定时器回调 — 从预读帧缓冲区消费帧
+
+        预读模式：工作线程主动提前解码填充缓冲区，timer tick 直接取帧。
+        缓冲区空时跳帧（不阻塞 UI），并统计欠载次数用于自适应预读深度。
+        """
         if self._loop_frame is not None:
             # 图片循环模式：帧索引递增但画面不变（无 I/O，保持主线程）
             self.current_frame_index += 1
@@ -653,7 +663,104 @@ class VideoPreviewWidget(QWidget):
             return
         if self._reader_thread is None:
             return
-        self._reader_thread.request_read_next()
+
+        # 从缓冲区取帧（非阻塞）
+        frame = self._reader_thread.frame_buffer.get()
+        if frame is None:
+            # 缓冲区为空 — 欠载（underrun），跳帧
+            self._underrun_count += 1
+            return
+
+        # 检查参数版本号，丢弃过期帧
+        if frame.params_version != self._reader_thread.params_version:
+            return
+
+        self._consume_buffered_frame(frame)
+        self._adaptive_prefetch()
+
+    def _consume_buffered_frame(self, frame):
+        """消费一个缓冲帧，更新显示"""
+        from gui.widgets.frame_reader_thread import BufferedFrame
+
+        self.current_frame_index = frame.frame_index
+        self.current_frame = frame.raw_frame
+
+        # GL 模式
+        if self._use_gl and self._gl_renderer:
+            if self._gl_renderer.gl_failed:
+                self._use_gl = False
+                self._display_stack.setCurrentIndex(0)
+                logger.warning("OpenGL 初始化失败，回退到 QLabel 软件渲染")
+            elif frame.yuv_data is not None and not self._preview_mode:
+                # GL 编辑模式：YUV 直传 GPU
+                y, u, v, w, h = frame.yuv_data
+                self._gl_renderer.upload_yuv_frame(y, u, v, w, h)
+                self._gl_renderer.set_rotation(self._rotation)
+                rotated_w, rotated_h = self._get_rotated_video_size()
+                self._gl_renderer.set_cropbox(
+                    *self.cropbox, rotated_w, rotated_h)
+                self._gl_renderer.set_show_cropbox(True)
+                self.frame_changed.emit(frame.frame_index)
+                self._update_info_label()
+                return
+            else:
+                # GL 预览模式：CPU 处理后上传
+                if frame.raw_frame is not None:
+                    self._display_frame(frame.raw_frame)
+                self.frame_changed.emit(frame.frame_index)
+                self._update_info_label()
+                return
+
+        # QLabel 模式
+        if frame.qimage is not None and not frame.qimage.isNull():
+            label_size = self.video_label.size()
+            pixmap = QPixmap.fromImage(frame.qimage).scaled(
+                label_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            if not self._preview_mode:
+                rotated_width, _ = self._get_rotated_video_size()
+                self.display_scale = (
+                    pixmap.width() / rotated_width
+                    if rotated_width > 0 else 1.0)
+                self.display_offset_x = (
+                    label_size.width() - pixmap.width()) // 2
+                self.display_offset_y = (
+                    label_size.height() - pixmap.height()) // 2
+            self.video_label.setPixmap(pixmap)
+
+        self.frame_changed.emit(frame.frame_index)
+        self._update_info_label()
+
+    def _adaptive_prefetch(self):
+        """根据缓冲区欠载率动态调整预读深度（3~8 帧）"""
+        self._tick_count += 1
+        if (self._tick_count - self._last_adaptive_check
+                < self._adaptive_interval):
+            return
+
+        underrun_rate = (
+            self._underrun_count / max(self._adaptive_interval, 1))
+
+        if self._reader_thread is None:
+            return
+        buffer = self._reader_thread.frame_buffer
+        current_max = buffer.max_size
+
+        if underrun_rate > 0.20 and current_max < 8:
+            buffer.max_size = min(current_max + 1, 8)
+            logger.debug(
+                f"预读深度增加到 {buffer.max_size} "
+                f"(欠载率 {underrun_rate:.1%})")
+        elif underrun_rate < 0.05 and current_max > 3:
+            buffer.max_size = max(current_max - 1, 3)
+            logger.debug(
+                f"预读深度减少到 {buffer.max_size} "
+                f"(欠载率 {underrun_rate:.1%})")
+
+        self._underrun_count = 0
+        self._last_adaptive_check = self._tick_count
 
     def play(self):
         """播放"""
@@ -661,6 +768,15 @@ class VideoPreviewWidget(QWidget):
             return
         if not self._has_video and self._loop_frame is None:
             return
+
+        # 重置自适应统计
+        self._underrun_count = 0
+        self._tick_count = 0
+
+        # 启动预读
+        if self._reader_thread is not None:
+            self._reader_thread.start_prefetch()
+
         # 使用 round() 减少截断误差
         interval = round(1000 / self.video_fps)
         self.timer.start(interval)
@@ -672,6 +788,10 @@ class VideoPreviewWidget(QWidget):
         self.timer.stop()
         self.is_playing = False
         self.playback_state_changed.emit(False)
+
+        # 停止预读（节省 CPU）
+        if self._reader_thread is not None:
+            self._reader_thread.stop_prefetch()
 
     def toggle_play(self):
         """切换播放/暂停"""
