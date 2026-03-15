@@ -64,7 +64,7 @@ class SshUploadWorker(QThread):
                 progress_callback=_report,
             )
             if success:
-                self.upload_completed.emit(f"上传到 {remote_path} 成功")
+                self.upload_completed.emit(f"上传到 {remote_path} 成功，请等待程序启动")
             else:
                 self.upload_failed.emit("SSH 上传失败")
         except Exception as e:

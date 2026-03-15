@@ -95,20 +95,26 @@ def ssh_auto_upload(
 
             # 某个神秘应用退出的时候磨磨蹭蹭（）（）（）（）
             start_time = time.time()
+            reportPos = 0
             while True:
                 if _check_cancel():
                     _report(0, "已取消")
                     return False
+                reportPos += 9
+                _report(reportPos, "正在尝试退出主程序")
                 stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
                 if not stdout.read().decode().strip().isdigit():
                     logger.info("主程序已退出")
                     break
-                if time.time() - start_time > 15:
+                if time.time() - start_time > 10:
                     logger.error("等待程序退出超时，可能需要手动重启通行证上的程序")
+                    _report(100, "退出失败，请手动重启通行证上的程序")
                     return False
                 time.sleep(0.5)
+            _report(reportPos, "正在尝试重启主程序")
             from core.sshOperation import startDrmApp
             startDrmApp(ssh)
+            _report(100, "重启命令已发送，等待程序启动...")
 
         return True
 
