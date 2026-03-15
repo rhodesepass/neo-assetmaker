@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QMenuBar, QMenu, QStatusBar,
     QFileDialog, QMessageBox, QLabel, QScrollArea,
     QGroupBox, QCheckBox, QComboBox, QDoubleSpinBox,
-    QSpinBox, QLineEdit, QTabWidget, QStackedWidget
+    QSpinBox, QLineEdit, QTabWidget
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QUrl, QCoreApplication
 import os
@@ -327,11 +327,6 @@ class MainWindow(QMainWindow):
         self.btn_about.setToolTip("项目介绍")
         self.btn_about.setFixedSize(50, 50)
 
-        self.btn_remote = ToolButton(FluentIcon.WIFI, self.sidebar)  # 使用WIFI图标作为远程
-        self.btn_remote.setCheckable(True)
-        self.btn_remote.setToolTip("远程")
-        self.btn_remote.setFixedSize(50, 50)
-
         # 创建按钮容器，居中显示
         buttons_container = QWidget()
         buttons_layout = QVBoxLayout(buttons_container)
@@ -343,7 +338,6 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(self.btn_material)
         buttons_layout.addWidget(self.btn_market)
         buttons_layout.addWidget(self.btn_about)
-        buttons_layout.addWidget(self.btn_remote)
 
         sidebar_layout.addWidget(buttons_container)
         sidebar_layout.addStretch()
@@ -731,7 +725,6 @@ class MainWindow(QMainWindow):
         self.btn_material.clicked.connect(self._on_sidebar_material)
         self.btn_market.clicked.connect(self._on_sidebar_market)
         self.btn_about.clicked.connect(self._on_sidebar_about)
-        self.btn_remote.clicked.connect(self._on_sidebar_remote)
         self.btn_settings.clicked.connect(self._on_sidebar_settings)
 
         # 入场视频预览
@@ -1817,8 +1810,6 @@ class MainWindow(QMainWindow):
             self._settings_page.setVisible(False)
         if hasattr(self, '_about_widget'):
             self._about_widget.setVisible(False)
-        if hasattr(self, '_remote_control_widget'):
-            self._remote_control_widget.setVisible(False)
 
         # 检查是否已经创建了烧录界面
         if not hasattr(self, '_flasher_widget'):
@@ -2144,35 +2135,6 @@ class MainWindow(QMainWindow):
         self._settings_page.setVisible(True)
 
         self.status_bar.showMessage("设置模式")
-
-    def _on_sidebar_remote(self):
-        """侧边栏：远程"""
-        # 重置所有按钮状态
-        self.btn_firmware.setChecked(False)
-        self.btn_material.setChecked(False)
-        self.btn_market.setChecked(False)
-        self.btn_about.setChecked(False)
-        self.btn_remote.setChecked(True)
-        self.btn_settings.setChecked(False)
-
-        self.splitter.setVisible(False)
-        if hasattr(self, '_market_widget'):
-            self._market_widget.setVisible(False)
-        if hasattr(self, '_settings_page'):
-            self._settings_page.setVisible(False)
-        if hasattr(self, '_about_widget'):
-            self._about_widget.setVisible(False)
-        if hasattr(self, '_flasher_widget'):
-            self._flasher_widget.setVisible(False)
-
-        if not hasattr(self, '_remote_control_widget'):
-            from gui.widgets.remote_page import RemotePage
-            self._remote_control_widget = RemotePage(parent=self)
-
-
-        # 切换到远程页面
-
-        self.status_bar.showMessage("远程模式")
 
     def _on_nav_file(self):
         """顶部导航：文件"""
