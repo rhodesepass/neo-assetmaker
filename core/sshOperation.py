@@ -1,13 +1,10 @@
+import json
 import paramiko
-import socket
 from scp import SCPClient
 import json
 import os
 import re
-import time
 import logging
-from typing import Callable, Optional
-import threading
 import shutil
 
 
@@ -49,7 +46,7 @@ def RefreshRemoteMaterialList(ssh):
     jsonList = FindJsonPath(fileListCache)
 
     scp = SCPClient(ssh.get_transport())
-    for target in jsonList:
+    for targetJsonFile in jsonList:
 
         # 重置tmp目录
         if os.path.exists(os.path.join(localPath, "tmp")):
@@ -57,20 +54,46 @@ def RefreshRemoteMaterialList(ssh):
         os.makedirs(os.path.join(localPath, "tmp"))
 
         # 此处需要放置在临时目录的临时目录
-        scp.get(target, os.path.join(localPath, "tmp", os.path.basename(target)))
+        baseJsonFileName = os.path.basename(targetJsonFile)
+        scp.get(targetJsonFile, os.path.join(localPath, "tmp", baseJsonFileName))
         
         # 通过UUID移动
         UUID = FindUUIDInJson(os.path.join(localPath, "tmp"))
+        if UUID is None:
+            logger.error(f"未找到UUID，无法移动文件 {targetJsonFile}")
+            continue
+
         currentPath = os.path.join(localPath, UUID)
         if not os.path.exists(currentPath):
             os.makedirs(currentPath)
         try:
-            shutil.move(os.path.join(localPath, "tmp", os.path.basename(target)), currentPath)
+            shutil.move(os.path.join(localPath, "tmp", baseJsonFileName), currentPath)
+            # 移动失败大概率是UUID重复（
+
+            # 下载预览图
+            targetPath = os.path.dirname(targetJsonFile) + "/"
+            iconPath = GetIconPath(os.path.join(currentPath, baseJsonFileName))
+            if iconPath is None:
+                continue
+            scp.get(targetPath + iconPath, os.path.join(currentPath, iconPath))
+
         except Exception as e:
             logger.error(f"移动文件失败: {e}")
         finally:
             if os.path.exists(os.path.join(localPath, "tmp")):
                 shutil.rmtree(os.path.join(localPath, "tmp"))
+
+
+def GetIconPath(jsonPath):
+    try:
+        with open(jsonPath, "r", encoding="utf-8") as f:
+            cache = f.read()
+            data = json.loads(cache)
+            return data.get("icon")
+    except Exception as e:
+        logger.error(f"读取JSON文件失败: {e}")
+        return None
+
 
 
 
@@ -80,6 +103,9 @@ def FindJsonPath(text):
     pattern = r'/assets/[^/]+/[^/]+\.json'
     matches = re.findall(pattern, text, flags=re.UNICODE)
     return matches
+
+
+
 
 if __name__ == "__main__" and debug == True:
     ssh = paramiko.SSHClient()
