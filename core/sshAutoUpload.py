@@ -50,7 +50,7 @@ def ssh_auto_upload(
             return False
 
         # 找UUID
-        uuid = find_uuid_in_json(local_path)
+        uuid = FindUUIDInJson(local_path)
         if uuid == "":
             _report(0, "未找到 UUID")
             return False
@@ -203,7 +203,7 @@ def _upload_dir_with_progress(
         report(100, "上传完成")
 
 
-def find_uuid_in_json(path):
+def FindUUIDInJson(path):
     """
     在指定的path下查找*.json文件（只会查找一次），找到后返回uuid字段，仅包含字母、数字和连字符，失败返回空文本
     """

@@ -45,3 +45,5 @@ temp_update/
 ffmpeg
 ffplay
 ffprobe
+
+tmp/
