@@ -49,7 +49,7 @@ class ExportType(Enum):
 class VideoExportParams:
     """视频导出参数"""
     video_path: str
-    cropbox: Tuple[int, int, int, int]  # (x, y, w, h)
+    cropbox: Tuple[int, int, int, int]  # (x, y, w, h) 旋转后坐标系
     start_frame: int
     end_frame: int
     fps: float
@@ -247,7 +247,6 @@ class ExportWorker(QThread):
 
             orig_w = stream.width
             orig_h = stream.height
-            x, y, w, h = params.cropbox
             rotation = params.rotation
 
             # 任意角度旋转：预计算旋转矩阵（循环外计算，所有帧复用）
@@ -263,30 +262,8 @@ class ExportWorker(QThread):
                 rot_matrix[1, 2] += (nh - orig_h) / 2.0
                 rotated_size = (nw, nh)
 
-            # 将cropbox从原始坐标变换到旋转后坐标
-            if rotation == 90:
-                rx, ry, rw, rh = (orig_h - y - h, x, h, w)
-            elif rotation == 180:
-                rx, ry, rw, rh = (orig_w - x - w, orig_h - y - h, w, h)
-            elif rotation == 270:
-                rx, ry, rw, rh = (y, orig_w - x - w, h, w)
-            elif rotation == 0:
-                rx, ry, rw, rh = (x, y, w, h)
-            else:
-                # 非正交角度：仿射正向变换
-                corners = np.array(
-                    [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
-                    dtype=np.float64)
-                rotated_corners = np.array(
-                    [rot_matrix[:, :2] @ c + rot_matrix[:, 2]
-                     for c in corners])
-                rx = max(0, int(np.floor(rotated_corners[:, 0].min())))
-                ry = max(0, int(np.floor(rotated_corners[:, 1].min())))
-                rx1 = min(rotated_size[0],
-                          int(np.ceil(rotated_corners[:, 0].max())))
-                ry1 = min(rotated_size[1],
-                          int(np.ceil(rotated_corners[:, 1].max())))
-                rw, rh = rx1 - rx, ry1 - ry
+            # cropbox 已在旋转后坐标系中，直接使用（无需坐标变换）
+            rx, ry, rw, rh = params.cropbox
 
             # 精确 seek 到起始帧
             # 参考: https://pyav.org/docs/stable/api/container.html#av.container.InputContainer.seek

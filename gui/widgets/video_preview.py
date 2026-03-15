@@ -890,9 +890,13 @@ class VideoPreviewWidget(QWidget):
         return (rx0, ry0, rx1 - rx0, ry1 - ry0)
 
     def get_cropbox_for_export(self) -> Tuple[int, int, int, int]:
-        """获取导出用的 cropbox（原始坐标系）"""
+        """获取导出用的 cropbox（原始坐标系，供模拟器使用）"""
         x, y, w, h = self.cropbox
         return self._cropbox_to_original_coords(x, y, w, h)
+
+    def get_cropbox_in_rotated_space(self) -> Tuple[int, int, int, int]:
+        """获取旋转空间中的 cropbox（用于视频导出，无坐标转换）"""
+        return tuple(self.cropbox)
 
     def set_cropbox(self, x: int, y: int, w: int, h: int):
         """设置裁剪框"""

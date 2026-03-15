@@ -3015,7 +3015,7 @@ class MainWindow(QMainWindow):
                 data['loop_image_path'] = self._loop_image_path
                 data['is_loop_image'] = True
         elif self.video_preview.video_path:
-            cropbox = self.video_preview.get_cropbox_for_export()
+            cropbox = self.video_preview.get_cropbox_in_rotated_space()
             rotation = self.video_preview.get_rotation()
             in_point = self.timeline.get_in_point()
             out_point = self.timeline.get_out_point()
@@ -3032,7 +3032,7 @@ class MainWindow(QMainWindow):
 
         if self._config.intro.enabled and self._config.intro.file:
             if self.intro_preview.video_path:
-                cropbox = self.intro_preview.get_cropbox_for_export()
+                cropbox = self.intro_preview.get_cropbox_in_rotated_space()
                 rotation = self.intro_preview.get_rotation()
 
                 data['intro_video_params'] = VideoExportParams(

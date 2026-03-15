@@ -297,6 +297,7 @@ class TimelineWidget(QWidget):
         self.spin_rotation.setWrapping(True)
         self.spin_rotation.setFixedWidth(100)
         self.spin_rotation.setToolTip("旋转角度（0-359°）")
+        self.spin_rotation.setKeyboardTracking(False)
         control_layout.addWidget(self.spin_rotation)
 
         self.btn_rotate_cw = ToolButton()
