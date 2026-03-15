@@ -213,8 +213,7 @@ class FrameReaderThread(QThread):
         self._command_queue.put((CMD_SET_ROTATION, degrees))
 
     def request_set_cropbox(self, cropbox: list):
-        self._frame_buffer.clear()
-        self._params_version += 1
+        # cropbox 变化不影响帧解码数据，无需清空缓冲区或递增版本号
         self._command_queue.put((CMD_SET_CROPBOX, cropbox.copy()))
 
     def request_set_preview_params(self, preview_mode: bool, target_w: int,

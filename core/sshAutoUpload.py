@@ -103,12 +103,16 @@ def ssh_auto_upload(
                 if not stdout.read().decode().strip().isdigit():
                     logger.info("主程序已退出")
                     break
-                if time.time() - start_time > 15:
+                if time.time() - start_time > 10:
                     logger.error("等待程序退出超时，可能需要手动重启通行证上的程序")
+                    _report(100, "退出失败，请手动重启通行证上的程序")
                     return False
                 time.sleep(0.5)
-
-            ssh.exec_command("nohup /root/epass_drm_app > output.log 2>&1 &")
+                
+            _report(reportPos, "正在尝试重启主程序")
+            from core.sshOperation import startDrmApp
+            startDrmApp(ssh)
+            _report(100, "重启命令已发送，等待程序启动...")
 
         return True
 

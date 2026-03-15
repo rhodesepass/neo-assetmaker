@@ -1,3 +1,4 @@
+#超 级 多 的 屎 山 ciallo~ 修的我想哭
 #!/usr/bin/env python3
 """
 明日方舟通行证素材制作器
@@ -7,11 +8,8 @@ import sys
 import os
 import logging
 
-# 打包环境兼容处理 (cx_Freeze)
 if getattr(sys, 'frozen', False):
-    # 冻结环境下获取应用目录
     APP_DIR = os.path.dirname(sys.executable)
-    # 设置 PyQt6 插件路径
     plugin_path = os.path.join(APP_DIR, 'lib', 'PyQt6', 'Qt6', 'plugins')
     if os.path.exists(plugin_path):
         os.environ['QT_PLUGIN_PATH'] = plugin_path
@@ -31,7 +29,6 @@ if getattr(sys, 'frozen', False):
         except Exception:
             sys.stderr = io.StringIO()
 
-    # 启用 faulthandler — 捕获 segfault 的 Python traceback
     import faulthandler
     try:
         _crash_log_path = os.path.join(APP_DIR, 'crash.log')
@@ -42,10 +39,8 @@ if getattr(sys, 'frozen', False):
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 添加项目根目录到路径
 sys.path.insert(0, APP_DIR)
 
-# 扩展模块运行环境设置
 os.environ["QT_API"] = "pyqt6"
 
 
@@ -106,7 +101,6 @@ def _main_inner():
     # 禁用QFluentWidgets启动提示（必须在导入QFluentWidgets之前设置）
     os.environ["QFluentWidgets_SUPPRESS_TIPS"] = "1"
 
-    # 初始化日志系统
     from utils.logger import setup_logger, cleanup_old_logs
     setup_logger()
     cleanup_old_logs(days=30)
@@ -145,7 +139,6 @@ def _main_inner():
     # > before the QApplication constructor.
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
-    # 创建应用程序（必须在 AA_ShareOpenGLContexts 之后）
     app = QApplication(sys.argv)
 
     # 依赖检查必须在 QApplication 之后，避免 QtWebEngine 在 QApplication 之前
@@ -160,28 +153,23 @@ def _main_inner():
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName("ArknightsPassMaker")
 
-    # 设置Fluent主题
     setTheme(Theme.AUTO)
     setThemeColor("#ff6b8b")
 
-    # 设置应用程序图标
     icon_path = os.path.join(APP_DIR, 'resources', 'icons', 'favicon.ico')
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
-    # Windows 平台设置中文字体
     if sys.platform == "win32":
         font = QFont("Microsoft YaHei", 9)
         app.setFont(font)
 
-    # 创建并显示主窗口
     logger.info("创建主窗口...")
     window = MainWindow()
     window.show()
 
     logger.info("应用程序启动完成")
 
-    # 运行应用程序
     exit_code = app.exec()
     logger.info(f"应用程序退出，退出码: {exit_code}")
     sys.exit(exit_code)
@@ -194,7 +182,6 @@ def main():
     except Exception:
         import traceback
         error_text = traceback.format_exc()
-        # 写入崩溃日志
         try:
             log_path = os.path.join(
                 os.environ.get('TEMP', '.'),
@@ -203,7 +190,6 @@ def main():
                 f.write(error_text)
         except Exception:
             pass
-        # 尝试显示错误对话框
         try:
             from PyQt6.QtWidgets import QApplication, QMessageBox
             app = QApplication.instance() or QApplication(sys.argv)

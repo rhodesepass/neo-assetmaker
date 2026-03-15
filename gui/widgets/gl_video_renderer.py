@@ -933,16 +933,11 @@ class GLVideoWidget(QOpenGLWidget):
         self._cropbox_program.release()
 
     def _update_mvp(self):
-        """更新 MVP 矩阵（含旋转和宽高比校正）
+        """更新 MVP 矩阵（像素空间旋转 + letterbox 缩放）
 
-        之前的实现：deg==0 时直接返回 identity 矩阵，导致全屏四边形
-        被非等比拉伸填满 widget（视频变形）。90/270 度的宽高比校正
-        也不正确（仅考虑视频自身比例，未与 widget 比例联合计算）。
-
-        修复：对所有旋转角度统一计算 letterbox 缩放。
-        参考 OpenGL 规范：NDC -1..1 通过 viewport transform 映射到
-        window coordinates，必须在 MVP 中主动校正宽高比。
-        https://www.khronos.org/opengl/wiki/Vertex_Post-Processing
+        变换链: quad [-1,1]^2 → 视频像素空间 → 旋转 → NDC letterbox
+        旋转在像素空间（各向同性）中执行，避免非均匀缩放导致的变形。
+        参考: https://www.khronos.org/opengl/wiki/Vertex_Post-Processing
         """
         self._mvp_matrix = QMatrix4x4()
         self._mvp_matrix.setToIdentity()
@@ -955,7 +950,7 @@ class GLVideoWidget(QOpenGLWidget):
 
         deg = self._rotation_degrees
 
-        # 计算旋转后视频尺寸
+        # 计算旋转后视频包围盒尺寸
         if deg in (90, 270):
             rvw, rvh = float(vh), float(vw)
         elif deg in (0, 180):
@@ -967,30 +962,21 @@ class GLVideoWidget(QOpenGLWidget):
             rvw = vw * cos_a + vh * sin_a
             rvh = vw * sin_a + vh * cos_a
 
-        # 宽高比校正（letterbox）
-        video_aspect = rvw / rvh
-        widget_aspect = ww / wh
-        if widget_aspect > video_aspect:
-            # widget 更宽 → 左右留黑边
-            sx = video_aspect / widget_aspect
-            sy = 1.0
-        else:
-            # widget 更高 → 上下留黑边
-            sx = 1.0
-            sy = widget_aspect / video_aspect
+        # Letterbox fit factor
+        fit = min(ww / rvw, wh / rvh)
 
-        # 非正交角度额外缩放以适应旋转后的包围盒
-        if deg not in (0, 90, 180, 270):
-            bbox_scale = 1.0 / (cos_a + sin_a)
-            sx *= bbox_scale
-            sy *= bbox_scale
-
+        # MVP = scale(2*fit/ww, 2*fit/wh) * rotate(-deg) * scale(vw/2, vh/2)
+        #
         # Qt QMatrix4x4 运算顺序：m.op1(); m.op2() → M = op1 * op2
-        # 顶点: pos' = M * pos = op1 * (op2 * pos)，op2 先作用于顶点
-        # 需要：先旋转顶点，再缩放 → scale 在 API 中先调用
-        self._mvp_matrix.scale(sx, sy, 1.0)
+        # 顶点变换: pos' = op1 * (op2 * pos)，op2 先作用于顶点
+        #
+        # 1. scale(vw/2, vh/2) — 将 [-1,1]^2 quad 映射到视频像素空间
+        # 2. rotate(-deg) — 在像素空间中旋转（各向同性，无变形）
+        # 3. scale(2*fit/ww, 2*fit/wh) — 像素空间 → NDC 带 letterbox
+        self._mvp_matrix.scale(2.0 * fit / ww, 2.0 * fit / wh, 1.0)
         if deg != 0:
             self._mvp_matrix.rotate(-deg, 0.0, 0.0, 1.0)
+        self._mvp_matrix.scale(vw / 2.0, vh / 2.0, 1.0)
 
     def _update_display_rect(self):
         """更新视频在 widget 内的显示区域（用于坐标转换）"""
@@ -1005,6 +991,13 @@ class GLVideoWidget(QOpenGLWidget):
         deg = self._rotation_degrees
         if deg in (90, 270):
             vw, vh = vh, vw
+        elif deg not in (0, 180):
+            rad = math.radians(deg)
+            cos_a = abs(math.cos(rad))
+            sin_a = abs(math.sin(rad))
+            orig_vw, orig_vh = vw, vh
+            vw = int(orig_vw * cos_a + orig_vh * sin_a)
+            vh = int(orig_vw * sin_a + orig_vh * cos_a)
 
         # 等比缩放适应 widget
         scale = min(ww / vw, wh / vh)
@@ -1028,15 +1021,24 @@ class GLVideoWidget(QOpenGLWidget):
         elif deg == 270:
             return (1.0 - ny, nx)
         else:
-            # 任意角度逆旋转
+            # 任意角度逆旋转（像素空间）
+            vw = self._video_width
+            vh = self._video_height
             rad = math.radians(deg)
-            cx, cy = 0.5, 0.5
-            dx, dy = nx - cx, ny - cy
-            cos_a = math.cos(rad)
-            sin_a = math.sin(rad)
-            ux = dx * cos_a + dy * sin_a + cx
-            uy = -dx * sin_a + dy * cos_a + cy
-            return (ux, uy)
+            cos_a = abs(math.cos(rad))
+            sin_a = abs(math.sin(rad))
+            rvw = vw * cos_a + vh * sin_a
+            rvh = vw * sin_a + vh * cos_a
+            # 包围盒归一化 → 像素（居中）
+            px = (nx - 0.5) * rvw
+            py = (ny - 0.5) * rvh
+            # 逆旋转（+deg）
+            cos_r = math.cos(rad)
+            sin_r = math.sin(rad)
+            ux = px * cos_r + py * sin_r
+            uy = -px * sin_r + py * cos_r
+            # 像素 → 视频归一化
+            return (ux / vw + 0.5, uy / vh + 0.5)
 
     def _apply_forward_rotation(self, nx: float, ny: float
                                 ) -> Tuple[float, float]:
@@ -1051,14 +1053,24 @@ class GLVideoWidget(QOpenGLWidget):
         elif deg == 270:
             return (ny, 1.0 - nx)
         else:
-            rad = math.radians(-deg)
-            cx, cy = 0.5, 0.5
-            dx, dy = nx - cx, ny - cy
-            cos_a = math.cos(rad)
-            sin_a = math.sin(rad)
-            ux = dx * cos_a + dy * sin_a + cx
-            uy = -dx * sin_a + dy * cos_a + cy
-            return (ux, uy)
+            # 任意角度正向旋转（像素空间）
+            vw = self._video_width
+            vh = self._video_height
+            rad = math.radians(deg)
+            cos_a = abs(math.cos(rad))
+            sin_a = abs(math.sin(rad))
+            rvw = vw * cos_a + vh * sin_a
+            rvh = vw * sin_a + vh * cos_a
+            # 视频归一化 → 像素（居中）
+            px = (nx - 0.5) * vw
+            py = (ny - 0.5) * vh
+            # 正向旋转（标准数学 CCW = 屏幕 CW）
+            cos_r = math.cos(rad)
+            sin_r = math.sin(rad)
+            ux = px * cos_r - py * sin_r
+            uy = px * sin_r + py * cos_r
+            # 像素 → 包围盒归一化
+            return (ux / rvw + 0.5, uy / rvh + 0.5)
 
     def cleanup(self):
         """清理 OpenGL 资源"""

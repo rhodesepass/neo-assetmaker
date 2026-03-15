@@ -1,3 +1,4 @@
+#超 级 多 的 屎 山 ciallo~
 """主窗口 - 三栏布局"""
 from core.error_handler import ErrorHandler, show_error
 from core.crash_recovery_service import CrashRecoveryService
@@ -1409,18 +1410,18 @@ class MainWindow(QMainWindow):
             # 设置工作目录为应用根目录，确保模拟器能找到 FFmpeg DLL
             # Windows DLL 搜索顺序：exe 所在目录 → system32 → PATH
             # 模拟器 exe 在 simulator/target/release/ 子目录，无法找到根目录的 DLL
-            popen_kwargs['cwd'] = app_dir
+            popen_kwargs['cwd'] = self._app_dir
 
             # 双保险：将 app_dir 加入 PATH 环境变量
             env = os.environ.copy()
-            env['PATH'] = app_dir + os.pathsep + env.get('PATH', '')
+            env['PATH'] = self._app_dir + os.pathsep + env.get('PATH', '')
             popen_kwargs['env'] = env
 
             proc = subprocess.Popen([
                 simulator_path,
                 "--config", config_path,
                 "--base-dir", self._base_dir,
-                "--app-dir", app_dir,
+                "--app-dir", self._app_dir,
                 "--cropbox", f"{cropbox[0]},{cropbox[1]},{cropbox[2]},{cropbox[3]}",
                 "--rotation", str(rotation)
             ], **popen_kwargs)

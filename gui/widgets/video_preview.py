@@ -1138,7 +1138,10 @@ class VideoPreviewWidget(QWidget):
             self._bound_cropbox()
             self._emit_cropbox_changed()
 
-            if self._reader_thread is not None:
+            # GL 编辑模式下 cropbox 由 GPU 绘制，无需同步到后台线程
+            if self._reader_thread is not None and (
+                    not self._use_gl or self._preview_mode
+                    or (self._gl_renderer and self._gl_renderer.gl_failed)):
                 self._reader_thread.request_set_cropbox(self.cropbox)
             if self.current_frame is not None:
                 self._refresh_display()
