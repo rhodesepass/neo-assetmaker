@@ -208,9 +208,11 @@ def run_cxfreeze(skip_flasher=False):
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
         "PyQt6.QtOpenGLWidgets", "PyQt6.QtOpenGL",
         "qfluentwidgets",
-        "av", "OpenGL", "OpenGL.GL",
-        "OpenGL.GL.VERSION", "OpenGL.raw", "OpenGL.raw.GL",
-        "OpenGL.platform", "OpenGL.arrays",
+        "av",
+        # PyOpenGL 不放在 packages 中 — packages 会触发 cx_Freeze 的
+        # _import_all_sub_modules() 递归扫描整个 OpenGL/ 目录(2800+ 文件),
+        # 任何子模块加载失败都会导致 ImportError 中止构建。
+        # 改为在 includes 中精确指定入口点和动态加载的模块。
         "cv2", "PIL", "numpy", "jsonschema", "thefuzz",
         "logging", "json", "uuid", "dataclasses",
         "qtpy", "httpx", "httpcore", "httpx._transports",
@@ -223,15 +225,20 @@ def run_cxfreeze(skip_flasher=False):
     ]
 
     includes = [
-        # PyOpenGL 平台模块 — 通过 plugins.importByName() 动态加载
-        # cx_Freeze 无法跟踪 __import__ 字符串形式的动态导入
+        # ── PyOpenGL: 精确包含，避免 packages 递归发现导致构建失败 ──
+        # 入口点 — cx_Freeze 自动跟踪 GL/__init__.py 中的 star-import 链
+        # (GL.VERSION.GL_1_1~GL_4_6, GL.pointers, GL.images, GL.exceptional,
+        #  GL.glget, GL.vboimplementation, raw.GL.VERSION.* 等所有静态依赖)
+        "OpenGL",
+        "OpenGL.GL",
+        # 平台模块 — PlatformPlugin 使用 importByName() 动态加载，
+        # cx_Freeze 静态分析无法跟踪 __import__ 中的字符串参数
         "OpenGL.platform.win32",
         "OpenGL.platform.ctypesloader",
         "OpenGL.platform.baseplatform",
         "OpenGL._configflags",
         "OpenGL.plugins",
-        # OpenGL.arrays — FormatHandler 插件动态加载
-        # 将 numpy array 转换为 C 指针的关键模块
+        # 数组格式处理器 — FormatHandler 插件使用 __import__ 动态加载
         "OpenGL.arrays.numpymodule",
         "OpenGL.arrays.ctypesarrays",
         "OpenGL.arrays.ctypesparameters",
@@ -244,7 +251,7 @@ def run_cxfreeze(skip_flasher=False):
         "OpenGL.arrays.arraydatatype",
         "OpenGL.arrays.formathandler",
         "OpenGL.converters",
-        # OpenGL.raw — GL 常量和原始函数绑定
+        # raw GL 绑定
         "OpenGL.raw.GL",
     ]
 
@@ -254,6 +261,17 @@ def run_cxfreeze(skip_flasher=False):
         "torch.utils.benchmark", "torch.distributed", "torchvision",
         "torchaudio", "scipy.spatial.cKDTree", "sympy",
         "PySide6", "PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets",
+        # OpenGL: 排除非 Windows 平台模块（finder.py:230 会跳过 excludes 中的模块）
+        "OpenGL.platform.glx",
+        "OpenGL.platform.darwin",
+        "OpenGL.platform.egl",
+        "OpenGL.platform.osmesa",
+        "OpenGL.platform.entrypoint31",
+        # OpenGL: 排除不需要的子包（减小体积，防止间接引用报错）
+        "OpenGL.GLES1", "OpenGL.GLES2", "OpenGL.GLES3",
+        "OpenGL.GLU", "OpenGL.GLUT", "OpenGL.GLE",
+        "OpenGL.EGL", "OpenGL.GLX", "OpenGL.WGL",
+        "OpenGL.AGL", "OpenGL.Tk",
     ]
 
     include_files = [
