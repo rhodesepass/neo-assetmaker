@@ -66,7 +66,7 @@ def ssh_auto_upload(
             banner_timeout=10,
             auth_timeout=10,
         )
-
+    
         scp = SCPClient(ssh.get_transport())
 
         if _check_cancel():
@@ -107,8 +107,8 @@ def ssh_auto_upload(
                     logger.error("等待程序退出超时，可能需要手动重启通行证上的程序")
                     return False
                 time.sleep(0.5)
-
-            ssh.exec_command("nohup /root/epass_drm_app > output.log 2>&1 &")
+            from core.sshOperation import startDrmApp
+            startDrmApp(ssh)
 
         return True
 
