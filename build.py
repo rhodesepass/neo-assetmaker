@@ -231,13 +231,26 @@ def run_cxfreeze(skip_flasher=False):
                     print(f"  Fallback: added {_parent} for {pkg_name}")
 
     # 验证关键第三方包可被 PathFinder 发现（与 cx_Freeze 相同的机制）
+    _missing_critical = []
     for pkg_name in ("OpenGL", "PyQt6"):
         importlib.machinery.PathFinder.invalidate_caches()
         pf_spec = importlib.machinery.PathFinder.find_spec(pkg_name, search_paths)
         if pf_spec:
             print(f"  PathFinder check: {pkg_name} -> {pf_spec.origin}")
         else:
-            print(f"  WARNING: PathFinder cannot find {pkg_name} in search_paths")
+            _fallback = _ilu.find_spec(pkg_name)
+            if _fallback is None:
+                _pip_name = "PyOpenGL" if pkg_name == "OpenGL" else pkg_name
+                print(f"  FATAL: {pkg_name} is NOT INSTALLED")
+                print(f"         Run: uv pip install {_pip_name}")
+                _missing_critical.append(pkg_name)
+            else:
+                print(f"  WARNING: PathFinder cannot find {pkg_name}, "
+                      f"but importlib.util found it at {_fallback.origin}")
+    if _missing_critical:
+        print(f"\n  Cannot proceed without: {', '.join(_missing_critical)}")
+        print(f"  This usually means 'uv sync' did not install these packages.")
+        return False
 
     # 预编译检查：使用与 cx_Freeze 相同的 optimize 级别（finder.py:446-448）
     main_window_path = os.path.join(project_root, "gui", "main_window.py")
