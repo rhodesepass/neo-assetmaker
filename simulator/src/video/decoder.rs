@@ -125,7 +125,14 @@ impl VideoDecoder {
                 // No cropbox, but rotation swaps dimensions
                 (src_height, src_width)
             } else {
-                (src_width, src_height)
+                // Arbitrary angle: bounding box is larger than original
+                let rad = (rotation as f64).to_radians();
+                let abs_cos = rad.cos().abs();
+                let abs_sin = rad.sin().abs();
+                (
+                    (src_width as f64 * abs_cos + src_height as f64 * abs_sin).ceil() as u32,
+                    (src_width as f64 * abs_sin + src_height as f64 * abs_cos).ceil() as u32,
+                )
             };
 
             // Create final scaler from crop size to target size
@@ -325,10 +332,11 @@ impl VideoDecoder {
     /// Rotate a frame
     fn rotate_frame(&self, data: &[u8], w: u32, h: u32, rotation: i32) -> (Vec<u8>, u32, u32) {
         match rotation {
+            0 => (data.to_vec(), w, h),
             90 => self.rotate_90(data, w, h),
             180 => self.rotate_180(data, w, h),
             270 => self.rotate_270(data, w, h),
-            _ => (data.to_vec(), w, h),
+            _ => self.rotate_arbitrary(data, w, h, rotation),
         }
     }
 
@@ -382,6 +390,68 @@ impl VideoDecoder {
             }
         }
         (result, new_w, new_h)
+    }
+
+    /// Rotate by arbitrary angle using affine transform + bilinear interpolation
+    /// Equivalent to Python's cv2.warpAffine with cv2.INTER_LINEAR
+    fn rotate_arbitrary(&self, data: &[u8], w: u32, h: u32, rotation: i32) -> (Vec<u8>, u32, u32) {
+        let rad = (rotation as f64).to_radians();
+        let cos_a = rad.cos();
+        let sin_a = rad.sin();
+        let abs_cos = cos_a.abs();
+        let abs_sin = sin_a.abs();
+
+        // Bounding box (matches Python _get_rotated_video_size)
+        let nw = (w as f64 * abs_cos + h as f64 * abs_sin).ceil() as u32;
+        let nh = (w as f64 * abs_sin + h as f64 * abs_cos).ceil() as u32;
+
+        // Original center & new center
+        let cx = w as f64 / 2.0;
+        let cy = h as f64 / 2.0;
+        let ncx = nw as f64 / 2.0;
+        let ncy = nh as f64 / 2.0;
+
+        let src_stride = w as usize * 3;
+        let dst_stride = nw as usize * 3;
+        let mut result = vec![0u8; (nw * nh * 3) as usize];
+        let w_limit = (w - 1) as f64;
+        let h_limit = (h - 1) as f64;
+
+        for dst_y in 0..nh {
+            for dst_x in 0..nw {
+                // Inverse mapping: dst → src
+                let dx = dst_x as f64 - ncx;
+                let dy = dst_y as f64 - ncy;
+                let src_xf = cos_a * dx + sin_a * dy + cx;
+                let src_yf = -sin_a * dx + cos_a * dy + cy;
+
+                // Bilinear interpolation (out-of-bounds stays black = 0)
+                if src_xf >= 0.0 && src_xf < w_limit
+                    && src_yf >= 0.0 && src_yf < h_limit
+                {
+                    let x0 = src_xf.floor() as usize;
+                    let y0 = src_yf.floor() as usize;
+                    let x1 = x0 + 1;
+                    let y1 = y0 + 1;
+                    let fx = src_xf - x0 as f64;
+                    let fy = src_yf - y0 as f64;
+
+                    let dst_idx = dst_y as usize * dst_stride + dst_x as usize * 3;
+                    for c in 0..3 {
+                        let v00 = data[y0 * src_stride + x0 * 3 + c] as f64;
+                        let v10 = data[y0 * src_stride + x1 * 3 + c] as f64;
+                        let v01 = data[y1 * src_stride + x0 * 3 + c] as f64;
+                        let v11 = data[y1 * src_stride + x1 * 3 + c] as f64;
+                        let v = (1.0 - fx) * (1.0 - fy) * v00
+                              + fx * (1.0 - fy) * v10
+                              + (1.0 - fx) * fy * v01
+                              + fx * fy * v11;
+                        result[dst_idx + c] = v.round() as u8;
+                    }
+                }
+            }
+        }
+        (result, nw, nh)
     }
 
     /// Seek to the beginning of the video
