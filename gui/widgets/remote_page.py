@@ -47,7 +47,8 @@ class AssetListItemWidget(QWidget):
         self.name_label.setMaximumHeight(16)
         self.uuid_label = CaptionLabel(f"UUID: {asset_data.get('uuid', '')}")
         self.uuid_label.setMaximumHeight(16)
-        # self.path_label = CaptionLabel(f"路径: {asset_data.get('path', '')}")
+        self.path_label = CaptionLabel(f"路径: {asset_data.get('path', '')}")
+        self.path_label.setMaximumHeight(16)
 
         # 右侧按钮
         self.btn_delete = PushButton("删除")
@@ -70,7 +71,7 @@ class AssetListItemWidget(QWidget):
         text_layout.setSpacing(2)
         text_layout.addWidget(self.name_label)
         text_layout.addWidget(self.uuid_label)
-        # text_layout.addWidget(self.path_label)
+        text_layout.addWidget(self.path_label)
         top_layout.addLayout(text_layout)
 
         left_layout.addLayout(top_layout)
@@ -123,7 +124,7 @@ class AssetListItemWidget(QWidget):
             logger.error(f"加载缩略图失败: {e}")
 
     def _on_delete(self):
-        self.parent_page._on_delete_for_asset(self.asset_data['name'])
+        self.parent_page._on_delete_for_asset(self.asset_data)
 
     def _on_download(self):
         self.parent_page._on_download_for_asset(self.asset_data['name'])
@@ -222,6 +223,11 @@ class RemotePage(QWidget):
         self.btnUploadLocal.setEnabled(False)
         layout.addWidget(self.btnUploadLocal)
 
+        self.btnRestartDrm = PushButton("重启DrmApp")
+        self.btnRestartDrm.setIcon(FluentIcon.UPDATE)
+        self.btnRestartDrm.setEnabled(False)
+        layout.addWidget(self.btnRestartDrm)
+
         # 分隔线
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
@@ -295,6 +301,7 @@ class RemotePage(QWidget):
     def _connect_signals(self):
         self.btnConnect.clicked.connect(self._on_connect)
         self.btnRefreshList.clicked.connect(self._on_refresh_list)
+        self.btnRestartDrm.clicked.connect(self._on_restart_drm)
         self.btnUploadLocal.clicked.connect(self._on_upload_local)
         self.btnClearLog.clicked.connect(self.logTextEdit.clear)
 
@@ -334,6 +341,7 @@ class RemotePage(QWidget):
         self.btnConnect.setEnabled(not busy)
         self.btnRefreshList.setEnabled(not busy and self._is_connected)
         self.btnUploadLocal.setEnabled(not busy and self._is_connected)
+        self.btnRestartDrm.setEnabled(not busy and self._is_connected)
         # 设置中栏列表项按钮的启用状态
         for i in range(self.assetDetailList.count()):
             item = self.assetDetailList.item(i)
@@ -402,6 +410,7 @@ class RemotePage(QWidget):
             self.btnConnect.setText("断开")
             self.btnRefreshList.setEnabled(True)
             self.btnUploadLocal.setEnabled(True)
+            self.btnRestartDrm.setEnabled(True)
         else:
             self.connectionStatusLabel.setText("未连接")
             setCustomStyleSheet(
@@ -412,6 +421,7 @@ class RemotePage(QWidget):
             self.btnConnect.setText("连接")
             self.btnRefreshList.setEnabled(False)
             self.btnUploadLocal.setEnabled(False)
+            self.btnRestartDrm.setEnabled(False)
             # 断开时清空列表
             self.assetDetailList.clear()
 
@@ -525,55 +535,65 @@ class RemotePage(QWidget):
         InfoBar.error("上传失败", error, parent=self,
                       position=InfoBarPosition.TOP, duration=5000)
 
-    # ─── 删除 ────────────────────────────────────────────
-
-    def _on_delete(self):
-        if self._is_busy:
-            return
-
-        name = self._get_selected_asset_name()
-        if not name:
-            return
-
-        reply = QMessageBox.question(
-            self, "确认删除",
-            f"确定要删除远程素材 \"{name}\" 吗？\n此操作不可撤销。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        host, port, user, password, remote_path = self._get_ssh_params()
-        self._set_busy(True)
-
-        from core.ssh_upload_service import SshDeleteWorker
-        self._delete_worker = SshDeleteWorker(parent=self)
-        self._delete_worker.setup(host, port, user, password, remote_path, name)
-        self._delete_worker.log_message.connect(self._worker_log)
-        self._delete_worker.delete_completed.connect(self._on_delete_done)
-        self._delete_worker.delete_failed.connect(self._on_delete_failed)
-        self._delete_worker.start()
-
     def _on_delete_done(self, name: str):
         self._set_busy(False)
         InfoBar.success("删除成功", f"已删除: {name}", parent=self,
                         position=InfoBarPosition.TOP, duration=3000)
+        reply = QMessageBox.question(
+            self, "删除成功",
+            f"已删除: {name}\n是否重启DrmApp以应用更改？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
         # 刷新列表
         if self._is_connected:
             self._on_refresh_list()
+
+        # 重启
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import threading
+        t = threading.Thread(target=self.restart_drm_worker, daemon=True)
+        t.start()        
+    def _on_restart_drm(self):
+        import threading
+        t = threading.Thread(target=self.restart_drm_worker, daemon=True)
+        t.start()
+        return
+
+    def restart_drm_worker(self):
+        try:
+            import paramiko
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            host, port, user, password,remote_path = self._get_ssh_params()
+            ssh.connect(host, port=port, username=user, password=password,
+                timeout=10, banner_timeout=10, auth_timeout=10)
+            from core.sshOperation import StopDrmApp, StartDrmApp
+            self._log("INFO", f"开始重启DrmApp...")
+            StopDrmApp(ssh)
+            self._log("INFO", f"DrmApp 已停止，正在启动...")
+            StartDrmApp(ssh)
+            self._log("INFO", f"已发送重启指令")
+        except Exception as e:
+            InfoBar.error("重启失败", f"重启失败：\n{e}",
+                          parent=self, position=InfoBarPosition.TOP, duration=5000)
+        return
 
     def _on_delete_failed(self, error: str):
         self._set_busy(False)
         InfoBar.error("删除失败", error, parent=self,
                       position=InfoBarPosition.TOP, duration=5000)
 
-    def _on_delete_for_asset(self, name: str):
+    def _on_delete_for_asset(self, asset_data: dict):
         if self._is_busy:
             return
 
+        name = asset_data.get('name', 'Unknown')
+        uuid = asset_data.get('uuid', 'Unknown')
+        path = asset_data.get('path', 'Unknown')
         reply = QMessageBox.question(
             self, "确认删除",
-            f"确定要删除远程素材 \"{name}\" 吗？\n此操作不可撤销。",
+            f"确定要删除远程素材 \"{name}\" 吗？\nUUID = {uuid}\n{path}\n此操作不可撤销。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -584,7 +604,7 @@ class RemotePage(QWidget):
 
         from core.ssh_upload_service import SshDeleteWorker
         self._delete_worker = SshDeleteWorker(parent=self)
-        self._delete_worker.setup(host, port, user, password, remote_path, name)
+        self._delete_worker.setup(host, port, user, password, remote_path, name, uuid, path)
         self._delete_worker.log_message.connect(self._worker_log)
         self._delete_worker.delete_completed.connect(self._on_delete_done)
         self._delete_worker.delete_failed.connect(self._on_delete_failed)

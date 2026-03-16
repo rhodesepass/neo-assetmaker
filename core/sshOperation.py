@@ -75,6 +75,10 @@ def RefreshRemoteMaterialListCache(ssh):
                 continue
             scp.get(targetPath + iconPath, os.path.join(currentPath, iconPath))
 
+            # 保存远程文件路径
+            with open(os.path.join(currentPath, "remoteFolderPath.cfg"), "w", encoding="utf-8") as f:
+                f.write(targetPath)
+
         except Exception as e:
             logger.error(f"移动文件失败: {e}")
         finally:
@@ -130,7 +134,6 @@ def DelRemoteFile(ssh, remotePath) -> bool:
 
 def UploadFile(ssh, localPath, remotePath, report = None, finishedSize : int = 0, totalSize : int = 0):
     '''上传文件'''
-    print(f"正在上传文件 {localPath} totalSize: {totalSize}")
     if report == None:
         scp = SCPClient(ssh.get_transport())
     else:

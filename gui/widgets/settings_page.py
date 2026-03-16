@@ -285,8 +285,8 @@ class SettingsPage(QWidget):
                 settings.get('theme_color', '#ff6b8b'))
             self.themeImageCard.setImagePath(
                 settings.get('theme_image', ''))
-            self.scaleCard.setValue(
-                settings.get('scale', 1.0))
+            # self.scaleCard.setValue(
+            #     settings.get('scale', 1.0))
             self.languageCard.setCurrentText(
                 settings.get('language', '简体中文'))
 

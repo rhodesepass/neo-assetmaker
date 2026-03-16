@@ -172,67 +172,23 @@ class SshRemoteListWorker(QThread):
             from core.sshOperation import RefreshRemoteMaterialListCache
             RefreshRemoteMaterialListCache(ssh)
             localPath = os.path.join(os.getcwd(), "tmp")
-            pattern = os.path.join(localPath, "**", "*.json")
-            jsonFilePaths = glob.glob(pattern, recursive=True)
-            self.log_message.emit("INFO", f"找到 {len(jsonFilePaths)} 个素材包")
+
+            childrenFolders = [name for name in os.listdir(localPath) if os.path.isdir(os.path.join(localPath, name))]
+            self.log_message.emit("INFO", f"找到 {len(childrenFolders)} 个素材包")
             items = []
-            for path in jsonFilePaths:
-                items.append({"name": GetJsonFatherKey(path, "name"), "size": 0, "date": 0, "uuid": GetJsonFatherKey(path, "uuid")})
+            for folder in childrenFolders:
+
+                # 读取远程文件路径
+                with open(os.path.join(localPath, folder, "remoteFolderPath.cfg"), "r", encoding="utf-8") as f:
+                    remoteAbsPath = f.read()
+                jsonPath = os.path.join(localPath, folder, "epconfig.json")
+                items.append({"name": GetJsonFatherKey(jsonPath, "name"), "size": 0, "date": 0, "uuid": GetJsonFatherKey(jsonPath, "uuid"), "path": remoteAbsPath})
             self.list_completed.emit(items)
+
         except Exception as e:
             self.log_message.emit("ERROR", f"获取远程素材列表失败: {e}")
             self.list_failed.emit(str(e))
             return
-
-        #     # 列出子目录: 名称, 大小(du), 修改日期
-        #     cmd = (
-        #         f"for d in {remote_path}/*/; do "
-        #         f"[ -d \"$d\" ] && "
-        #         f"name=$(basename \"$d\") && "
-        #         f"size=$(du -sh \"$d\" 2>/dev/null | cut -f1) && "
-        #         f"mtime=$(stat -c '%Y' \"$d\" 2>/dev/null || stat -f '%m' \"$d\" 2>/dev/null) && "
-        #         f"echo \"$name|$size|$mtime\"; "
-        #         f"done"
-        #     )
-        #     stdin, stdout, stderr = ssh.exec_command(cmd, timeout=15)
-        #     output = stdout.read().decode("utf-8", errors="replace").strip()
-        #     err = stderr.read().decode("utf-8", errors="replace").strip()
-
-        #     items = []
-        #     if output:
-        #         for line in output.splitlines():
-        #             parts = line.split("|", 2)
-        #             if len(parts) == 3:
-        #                 name, size, mtime = parts
-        #                 # 转换 unix 时间戳为可读日期
-        #                 try:
-        #                     import datetime
-        #                     dt = datetime.datetime.fromtimestamp(int(mtime))
-        #                     date_str = dt.strftime("%Y-%m-%d %H:%M")
-        #                 except (ValueError, OSError):
-        #                     date_str = mtime
-        #                 items.append({"name": name, "size": size, "date": date_str})
-
-        #     self.log_message.emit("INFO", f"找到 {len(items)} 个素材包")
-        #     self.list_completed.emit(items)
-
-        # except socket.timeout:
-        #     self.log_message.emit("ERROR", "连接超时")
-        #     self.list_failed.emit("连接超时")
-        # except paramiko.ssh_exception.AuthenticationException:
-        #     self.log_message.emit("ERROR", "SSH 认证失败")
-        #     self.list_failed.emit("SSH 认证失败")
-        # except Exception as e:
-        #     logger.exception("获取远程列表失败")
-        #     self.log_message.emit("ERROR", f"获取列表失败: {e}")
-        #     self.list_failed.emit(str(e))
-        # finally:
-        #     if ssh:
-        #         try:
-        #             ssh.close()
-        #         except Exception:
-        #             pass
-
 
 class SshDeleteWorker(QThread):
     """SSH 删除远程素材工作线程"""
@@ -246,22 +202,22 @@ class SshDeleteWorker(QThread):
         self._args = None
 
     def setup(self, host: str, port: int, user: str, password: str,
-              remote_path: str, target_name: str):
-        self._args = (host, port, user, password, remote_path, target_name)
+              remote_path: str, target_name: str,uuid: str, path: str):
+        self._args = (host, port, user, password, remote_path, target_name, uuid, path)
 
     def run(self):
         if not self._args:
             self.delete_failed.emit("参数不足")
             return
-        host, port, user, password, remote_path, target_name = self._args
+        host, port, user, password, remote_path, target_name, uuid, path = self._args
         ssh = None
         try:
             self.log_message.emit("INFO", f"正在删除远程素材: {target_name}...")
             ssh = _create_ssh_client(host, port, user, password)
 
-            full_path = f"{remote_path.rstrip('/')}/{target_name}"
-            stdin, stdout, stderr = ssh.exec_command(f"rm -rf {full_path}", timeout=15)
+            stdin, stdout, stderr = ssh.exec_command(f"rm -rf {path}", timeout=15)
             exit_status = stdout.channel.recv_exit_status()
+
             err = stderr.read().decode("utf-8", errors="replace").strip()
 
             if exit_status == 0:
