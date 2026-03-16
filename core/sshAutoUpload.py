@@ -8,6 +8,7 @@ import time
 import logging
 from typing import Callable, Optional
 import threading
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -173,13 +174,18 @@ def _upload_dir_with_progress(
     total_files = _count_files_in_dir(local_dir)
     uploaded = 0
 
-    def _report_file_progress():
-        if total_files == 0:
-            report(100, "上传完成")
-            return
-        percent = int(uploaded / total_files * 90) + 10
-        report(percent, f"正在上传文件 ({uploaded}/{total_files})...")
-
+    def _count_bytes_in_dir(path: str) -> int:
+        '''递归计算目录下的所有文件的总字节数'''
+        total = 0
+        for root, _, files in os.walk(path):
+            for f in files:
+                fp = os.path.join(root, f)
+                if os.path.isfile(fp):
+                    total += os.path.getsize(fp)
+        return total
+    
+    total_size = _count_bytes_in_dir(local_dir)
+    finished_size = 0
     for item in os.listdir(local_dir):
         if cancel_event and cancel_event.is_set():
             raise InterruptedError("上传已取消")
@@ -188,9 +194,11 @@ def _upload_dir_with_progress(
         remote_path = f"{remote_dir}/{item}"
 
         if os.path.isfile(local_path):
-            scp.put(local_path, remote_path=remote_path)
+            from core.sshOperation import UploadFile
+            UploadFile(ssh, local_path, remote_path, report, finished_size, totalSize=total_size)
+            finished_size += os.path.getsize(local_path)
             uploaded += 1
-            _report_file_progress()
+            
         elif os.path.isdir(local_path):
             ssh.exec_command(f"mkdir -p {remote_path}")
             _upload_dir_with_progress(

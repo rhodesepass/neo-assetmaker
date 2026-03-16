@@ -1,6 +1,6 @@
 '''此处所有的函数都应被try catch包裹，抛出异常由调用者处理'''
 
-
+from functools import partial
 import time
 import json
 import paramiko
@@ -130,17 +130,29 @@ def DelRemoteFile(ssh, remotePath) -> bool:
         logger.info(f"删除远程文件成功: {remotePath}")
         return True
 
-def UploadFile(ssh, localPath, remotePath):
+def UploadFile(ssh, localPath, remotePath, report = None, finishedSize : int = 0, totalSize : int = 0):
     '''上传文件'''
-    scp = SCPClient(ssh.get_transport())
+    print(f"正在上传文件 {localPath} totalSize: {totalSize}")
+    if report == None:
+        scp = SCPClient(ssh.get_transport())
+    else:
+        scp = SCPClient(ssh.get_transport(), progress = partial(CalcSpeed, report, finishedSize, totalSize))    
     scp.put(localPath, remotePath)
+
     scp.close() 
 
-def UploadDir(ssh, localPath, remotePath):
-    '''上传文件夹'''
-    scp = SCPClient(ssh.get_transport())
-    scp.put(localPath, remotePath, recursive=True)
-    scp.close()
+sshUploadSpeedCalculatorLastTime = time.time()
+sshUploadSpeedCalculatorLastSent = 0
+def CalcSpeed(report, finishedSize, totalSize, filename, size, sent):
+    global sshUploadSpeedCalculatorLastTime, sshUploadSpeedCalculatorLastSent, currentSize
+    now = time.time()
+    dt = now - sshUploadSpeedCalculatorLastTime
+    ds = sent - sshUploadSpeedCalculatorLastSent
+    if dt > 0:
+        speed = ds / dt   # B/s
+        report(int(((finishedSize + sent) / totalSize) * 100), f"正在上传文件 ({sent}/{size})... {speed/1024:.2f} KB/s")
+    sshUploadSpeedCalculatorLastTime = now
+    sshUploadSpeedCalculatorLastSent = sent
 
 if __name__ == "__main__" and debug == True:
     ssh = paramiko.SSHClient()
@@ -154,8 +166,6 @@ if __name__ == "__main__" and debug == True:
         banner_timeout=10,
         auth_timeout=10,
     )
-    RefreshRemoteMaterialListCache(ssh)
-    UploadDir(ssh, r"C:\Users\BSODWTPC\Desktop\干员素材\初音未来", "/assets/")
     RefreshRemoteMaterialListCache(ssh)
     StopDrmApp(ssh)
     StartDrmApp(ssh)
