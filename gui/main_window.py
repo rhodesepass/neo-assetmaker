@@ -738,13 +738,16 @@ class MainWindow(QMainWindow):
 
     def _read_user_settings(self) -> dict:
         """读取 user_settings.json 并返回 dict"""
-        import json
-        config_dir = os.path.join(self._app_dir, "config")
-        config_file = os.path.join(config_dir, "user_settings.json")
-        if os.path.exists(config_file):
-            with open(config_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return {}
+        try:
+            import json
+            config_dir = os.path.join(self._app_dir, "config")
+            config_file = os.path.join(config_dir, "user_settings.json")
+            if os.path.exists(config_file):
+                with open(config_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"读取用户设置失败: {e}")
+            return {}
 
     def _load_settings_to_page(self):
         """将 user_settings.json 的值加载到设置页面"""
