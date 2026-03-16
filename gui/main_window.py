@@ -1406,6 +1406,11 @@ class MainWindow(QMainWindow):
                             f"模拟器启动前自动保存: {self._project_path}")
                     except Exception as e:
                         logger.warning(f"自动保存失败: {e}")
+                        QMessageBox.warning(
+                            self, "警告",
+                            f"自动保存失败，模拟器预览可能不准确\n\n{e}"
+                        )
+                        return
                 else:
                     QMessageBox.warning(
                         self, "警告",

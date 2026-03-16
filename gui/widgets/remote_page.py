@@ -1,5 +1,5 @@
 """
-远程管理页面 — 三栏布局：操作按钮 | 预览+素材列表 | 日志
+远程管理页面 — 三栏布局：操作按钮+素材列表 | 预览+操作 | 日志
 """
 
 import os
@@ -11,20 +11,20 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QFileDialog, QLabel, QFrame, QHeaderView,
-    QTableWidgetItem, QMessageBox,
+    QFileDialog, QLabel, QFrame, QListWidgetItem,
+    QMessageBox,
 )
 
 from qfluentwidgets import (
-    SimpleCardWidget, CardWidget,
+    SimpleCardWidget,
     SubtitleLabel, StrongBodyLabel, CaptionLabel,
     PrimaryPushButton, PushButton,
-    ProgressBar, TableWidget, PlainTextEdit,
+    ProgressBar, ListWidget, PlainTextEdit,
     FluentIcon, InfoBar, InfoBarPosition,
     setCustomStyleSheet,
 )
 
-from gui.styles import COLOR_PREVIEW_BG, apply_themed_style
+from gui.styles import COLOR_PREVIEW_BG
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,8 @@ class RemotePage(QWidget):
     """
     远程管理页面 — 三栏布局（应该是能用的吧，啊哈哈......）
 
-    左栏: 操作按钮（连接、刷新、上传）
-    中栏: 远程素材列表 + 预览 + 操作按钮（删除、下载、编辑）
+    左栏: 操作按钮（连接、刷新、上传）+ 素材列表
+    中栏: 预览显示 + 操作按钮（删除、下载、编辑）
     右栏: 操作日志
     """
 
@@ -81,7 +81,7 @@ class RemotePage(QWidget):
         self.splitter.addWidget(self.middlePanel)
         self.splitter.addWidget(self.rightPanel)
 
-        self.splitter.setSizes([200, 600, 300])
+        self.splitter.setSizes([240, 560, 300])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 3)
         self.splitter.setStretchFactor(2, 1)
@@ -89,10 +89,10 @@ class RemotePage(QWidget):
         self.mainLayout.addWidget(self.splitter)
 
     def _build_left_panel(self):
-        """左栏: 操作按钮"""
+        """左栏: 操作按钮 + 素材列表"""
         self.leftPanel = SimpleCardWidget()
-        self.leftPanel.setMinimumWidth(200)
-        self.leftPanel.setMaximumWidth(250)
+        self.leftPanel.setMinimumWidth(230)
+        self.leftPanel.setMaximumWidth(280)
 
         layout = QVBoxLayout(self.leftPanel)
         layout.setContentsMargins(15, 15, 15, 15)
@@ -114,10 +114,10 @@ class RemotePage(QWidget):
         layout.addWidget(self.btnUploadLocal)
 
         # 分隔线
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(line)
+        line1 = QFrame()
+        line1.setFrameShape(QFrame.Shape.HLine)
+        line1.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(line1)
 
         # 连接状态
         self.connectionStatusLabel = CaptionLabel("未连接")
@@ -136,56 +136,62 @@ class RemotePage(QWidget):
         self.progressLabel = CaptionLabel("")
         layout.addWidget(self.progressLabel)
 
-        layout.addStretch()
+        # 分隔线 2 — 分隔状态区和列表区
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.Shape.HLine)
+        line2.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(line2)
+
+        # 远程素材列表
+        self.assetListLabel = CaptionLabel("远程素材")
+        layout.addWidget(self.assetListLabel)
+
+        self.remoteAssetList = ListWidget()
+        self.remoteAssetList.setTextElideMode(
+            Qt.TextElideMode.ElideMiddle)
+        # 去除 ListWidget 默认边框，融入 SimpleCardWidget
+        setCustomStyleSheet(
+            self.remoteAssetList,
+            "ListWidget { border: none; background: transparent; }",
+            "ListWidget { border: none; background: transparent; }",
+        )
+        layout.addWidget(self.remoteAssetList, stretch=1)
 
     def _build_middle_panel(self):
-        """中栏: 素材列表 + 预览 + 操作按钮"""
+        """中栏: 预览显示 + 操作按钮"""
         self.middlePanel = QWidget()
         layout = QVBoxLayout(self.middlePanel)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        # 远程素材列表
-        self.remoteAssetTable = TableWidget()
-        self.remoteAssetTable.setColumnCount(3)
-        self.remoteAssetTable.setHorizontalHeaderLabels(["名称", "大小", "修改日期"])
-        self.remoteAssetTable.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch)
-        self.remoteAssetTable.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents)
-        self.remoteAssetTable.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents)
-        self.remoteAssetTable.setSelectionBehavior(
-            TableWidget.SelectionBehavior.SelectRows)
-        self.remoteAssetTable.setEditTriggers(
-            TableWidget.EditTrigger.NoEditTriggers)
-        self.remoteAssetTable.verticalHeader().setVisible(False)
-        layout.addWidget(self.remoteAssetTable, stretch=2)
-
-        # 预览区域
-        self.previewContainer = CardWidget()
+        # 预览容器（SimpleCardWidget，无 hover 动画）
+        self.previewContainer = SimpleCardWidget()
         previewLayout = QVBoxLayout(self.previewContainer)
         previewLayout.setContentsMargins(10, 10, 10, 10)
+        previewLayout.setSpacing(8)
 
+        # 选中素材名称标签
+        self.previewNameLabel = CaptionLabel("")
+        self.previewNameLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        previewLayout.addWidget(self.previewNameLabel)
+
+        # 预览图片显示
         self.previewLabel = QLabel()
         self.previewLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.previewLabel.setMinimumHeight(150)
+        self.previewLabel.setMinimumHeight(250)
         self.previewLabel.setText("选择素材以预览")
         setCustomStyleSheet(
             self.previewLabel,
-            "QLabel { color: #888888; font-size: 13px; }",
-            "QLabel { color: #666666; font-size: 13px; }",
+            f"QLabel {{ color: #888888; font-size: 13px;"
+            f" background-color: {COLOR_PREVIEW_BG[0]};"
+            f" border-radius: 8px; }}",
+            f"QLabel {{ color: #666666; font-size: 13px;"
+            f" background-color: {COLOR_PREVIEW_BG[1]};"
+            f" border-radius: 8px; }}",
         )
-        previewLayout.addWidget(self.previewLabel)
+        previewLayout.addWidget(self.previewLabel, stretch=1)
 
-        apply_themed_style(
-            self.previewContainer,
-            f"CardWidget {{ background-color: {COLOR_PREVIEW_BG[0]}; }}",
-            f"CardWidget {{ background-color: {COLOR_PREVIEW_BG[1]}; }}",
-        )
-        layout.addWidget(self.previewContainer, stretch=1)
-
-        # 操作按钮行
+        # 操作按钮行（在预览容器内部）
         actionLayout = QHBoxLayout()
         actionLayout.setSpacing(8)
 
@@ -204,7 +210,9 @@ class RemotePage(QWidget):
         actionLayout.addWidget(self.btnDelete)
         actionLayout.addWidget(self.btnDownload)
         actionLayout.addWidget(self.btnEdit)
-        layout.addLayout(actionLayout)
+        previewLayout.addLayout(actionLayout)
+
+        layout.addWidget(self.previewContainer, stretch=1)
 
     def _build_right_panel(self):
         """右栏: 操作日志"""
@@ -240,7 +248,7 @@ class RemotePage(QWidget):
         self.btnDownload.clicked.connect(self._on_download)
         self.btnEdit.clicked.connect(self._on_edit)
         self.btnClearLog.clicked.connect(self.logTextEdit.clear)
-        self.remoteAssetTable.itemSelectionChanged.connect(self._on_asset_selected)
+        self.remoteAssetList.currentItemChanged.connect(self._on_asset_selected)
 
     # ─── 日志 ────────────────────────────────────────────
 
@@ -278,7 +286,7 @@ class RemotePage(QWidget):
         self.btnConnect.setEnabled(not busy)
         self.btnRefreshList.setEnabled(not busy and self._is_connected)
         self.btnUploadLocal.setEnabled(not busy and self._is_connected)
-        has_selection = len(self.remoteAssetTable.selectedItems()) > 0
+        has_selection = self.remoteAssetList.currentItem() is not None
         self.btnDelete.setEnabled(not busy and has_selection)
         self.btnDownload.setEnabled(not busy and has_selection)
         self.btnEdit.setEnabled(not busy and has_selection)
@@ -354,6 +362,11 @@ class RemotePage(QWidget):
             self.btnConnect.setText("连接")
             self.btnRefreshList.setEnabled(False)
             self.btnUploadLocal.setEnabled(False)
+            # 断开时清空列表和预览
+            self.remoteAssetList.clear()
+            self.previewNameLabel.setText("")
+            self.previewLabel.setPixmap(QPixmap())
+            self.previewLabel.setText("选择素材以预览")
 
     # ─── 刷新列表 ────────────────────────────────────────
 
@@ -373,18 +386,25 @@ class RemotePage(QWidget):
         self._list_worker.start()
 
     def _on_list_loaded(self, items: list):
-        self.remoteAssetTable.setRowCount(0)
-        for item in items:
-            row = self.remoteAssetTable.rowCount()
-            self.remoteAssetTable.insertRow(row)
-            self.remoteAssetTable.setItem(row, 0, QTableWidgetItem(item["name"]))
-            self.remoteAssetTable.setItem(row, 1, QTableWidgetItem(item["size"]))
-            self.remoteAssetTable.setItem(row, 2, QTableWidgetItem(item["date"]))
+        self.remoteAssetList.clear()
+        if not items:
+            placeholder = QListWidgetItem("暂无远程素材")
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.remoteAssetList.addItem(placeholder)
+        else:
+            for item in items:
+                li = QListWidgetItem(item["name"])
+                li.setData(Qt.ItemDataRole.UserRole, item)
+                li.setToolTip(f"大小: {item['size']} | 修改日期: {item['date']}")
+                self.remoteAssetList.addItem(li)
 
         self._set_busy(False)
         if items:
             InfoBar.success("列表已刷新", f"找到 {len(items)} 个素材包",
                             parent=self, position=InfoBarPosition.TOP, duration=3000)
+        else:
+            InfoBar.info("列表已刷新", "未找到远程素材",
+                         parent=self, position=InfoBarPosition.TOP, duration=3000)
 
     def _on_list_failed(self, error: str):
         self._set_busy(False)
@@ -393,9 +413,8 @@ class RemotePage(QWidget):
 
     # ─── 素材选中 ────────────────────────────────────────
 
-    def _on_asset_selected(self):
-        selected = self.remoteAssetTable.selectedItems()
-        has_selection = len(selected) > 0
+    def _on_asset_selected(self, current, previous):
+        has_selection = current is not None and (current.flags() & Qt.ItemFlag.ItemIsSelectable)
 
         if not self._is_busy:
             self.btnDelete.setEnabled(has_selection)
@@ -403,19 +422,19 @@ class RemotePage(QWidget):
             self.btnEdit.setEnabled(has_selection)
 
         if has_selection:
-            name = self.remoteAssetTable.item(
-                self.remoteAssetTable.currentRow(), 0).text()
+            name = current.text()
+            self.previewNameLabel.setText(f"正在预览: {name}")
             self._load_preview(name)
         else:
+            self.previewNameLabel.setText("")
             self.previewLabel.setPixmap(QPixmap())
             self.previewLabel.setText("选择素材以预览")
 
     def _get_selected_asset_name(self) -> str:
-        row = self.remoteAssetTable.currentRow()
-        if row < 0:
-            return ""
-        item = self.remoteAssetTable.item(row, 0)
-        return item.text() if item else ""
+        item = self.remoteAssetList.currentItem()
+        if item and (item.flags() & Qt.ItemFlag.ItemIsSelectable):
+            return item.text()
+        return ""
 
     # ─── 预览 ────────────────────────────────────────────
 
