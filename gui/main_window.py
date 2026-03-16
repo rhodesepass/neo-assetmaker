@@ -1,4 +1,6 @@
-#超 级 多 的 屎 山 ciallo~
+#超 级 多 的 屎 山 ciallo~ 啊哈哈.....
+#我就是那个大笨蛋....啊哈哈哈....
+#呜呜呜....果然还是被抛弃了嘛....啊哈哈哈....
 """主窗口 - 三栏布局"""
 from core.error_handler import ErrorHandler, show_error
 from core.crash_recovery_service import CrashRecoveryService
@@ -1390,6 +1392,33 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # 启动模拟器前自动保存，确保磁盘配置与 GUI 状态一致
+            # 模拟器从磁盘读取 epconfig.json（不共享 GUI 内存），
+            # 而导出直接使用 video_preview.video_path（内存中的当前视频）。
+            # 如果用户修改了视频但未保存，模拟器会打开旧视频 → 画面完全不同。
+            if self._is_modified:
+                if self._project_path:
+                    try:
+                        self._config.save_to_file(self._project_path)
+                        self._is_modified = False
+                        self._update_title()
+                        logger.info(
+                            f"模拟器启动前自动保存: {self._project_path}")
+                    except Exception as e:
+                        logger.warning(f"自动保存失败: {e}")
+                        QMessageBox.warning(
+                            self, "警告",
+                            f"自动保存失败，模拟器预览可能不准确\n\n{e}"
+                        )
+                        return
+                else:
+                    QMessageBox.warning(
+                        self, "警告",
+                        "请先保存项目配置\n\n"
+                        "文件 → 保存项目"
+                    )
+                    return
+
             config_path = os.path.join(self._base_dir, "epconfig.json")
 
             if not os.path.exists(config_path):
@@ -1402,6 +1431,11 @@ class MainWindow(QMainWindow):
 
             cropbox = self.video_preview.get_cropbox_in_rotated_space()
             rotation = self.video_preview.get_rotation()
+
+            logger.info(
+                f"启动模拟器: cropbox={cropbox}, rotation={rotation}, "
+                f"config_video={self._config.loop.file}, "
+                f"gui_video={self.video_preview.video_path}")
 
             popen_kwargs = {}
             if sys.platform == 'win32':
