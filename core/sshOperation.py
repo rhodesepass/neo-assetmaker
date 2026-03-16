@@ -1,3 +1,4 @@
+import time
 import json
 import paramiko
 from scp import SCPClient
@@ -23,8 +24,6 @@ def startDrmApp(ssh):
     stdin, stdout, stderr = ssh.exec_command("cd /root/ && nohup ./hostStartDrm.sh > output.log 2>&1 &")
     stdout.channel.recv_exit_status()
     return
-
-
 
 def RefreshRemoteMaterialList(ssh):
     '''刷新通行证上的素材列表'''
@@ -83,7 +82,6 @@ def RefreshRemoteMaterialList(ssh):
             if os.path.exists(os.path.join(localPath, "tmp")):
                 shutil.rmtree(os.path.join(localPath, "tmp"))
 
-
 def GetIconPath(jsonPath):
     try:
         with open(jsonPath, "r", encoding="utf-8") as f:
@@ -94,15 +92,31 @@ def GetIconPath(jsonPath):
         logger.error(f"读取JSON文件失败: {e}")
         return None
 
-
-
-
 def FindJsonPath(text):
     '''使用正则匹配 */*.json'''
 
     pattern = r'/assets/[^/]+/[^/]+\.json'
     matches = re.findall(pattern, text, flags=re.UNICODE)
     return matches
+
+def stopDrmApp(ssh) -> bool:
+    '''停止DRM'''
+    stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
+    stdout.channel.recv_exit_status()
+    stdin, stdout, stderr = ssh.exec_command(f"kill {stdout.read().decode().strip()}")
+    start_time = time.time()
+    while True:
+        stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
+        if not stdout.read().decode().strip().isdigit():
+            logger.info("主程序已退出")
+            break
+        if time.time() - start_time > 10:
+            logger.error("等待程序退出超时，可能需要手动重启通行证上的程序")
+            return False
+        time.sleep(0.5)
+    return True
+
+
 
 
 

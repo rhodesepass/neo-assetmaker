@@ -91,6 +91,7 @@ def ssh_auto_upload(
         if enableRestart:
             _report(100, "正在尝试重启远程程序...")
             stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
+            stdout.channel.recv_exit_status()
             stdin, stdout, stderr = ssh.exec_command(f"kill {stdout.read().decode().strip()}")
 
             # 某个神秘应用退出的时候磨磨蹭蹭（）（）（）（）
@@ -109,7 +110,7 @@ def ssh_auto_upload(
                     return False
                 time.sleep(0.5)
                 
-            _report(reportPos, "正在尝试重启主程序")
+            _report(100, "正在尝试启动主程序")
             from core.sshOperation import startDrmApp
             startDrmApp(ssh)
             _report(100, "重启命令已发送，等待程序启动...")
