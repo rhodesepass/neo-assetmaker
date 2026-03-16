@@ -191,7 +191,7 @@ class SettingsPage(QWidget):
         self.aboutCard = SettingCard(
             FluentIcon.INFO, f"{APP_NAME} v{APP_VERSION}",
             "明日方舟通行证素材制作器\n"
-            "作者: Rafael_ban & 初微弦音 & 涙不在为你而流\n"
+            "作者: Rafael_ban & 初微弦音 & 涙不在为你而流 & 蓝屏的此电脑-PULLUP\n"
             "© 2026 罗德岛工程部",
             parent=self.aboutGroup)
 
