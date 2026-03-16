@@ -23,7 +23,7 @@ pub struct VideoPlayer {
     target_width: u32,
     /// Target height
     target_height: u32,
-    /// Cropbox for loop video (x, y, w, h) in original video coordinates
+    /// Cropbox for loop video (x, y, w, h) in rotated video coordinates
     loop_cropbox: Option<(u32, u32, u32, u32)>,
     /// Rotation for loop video in degrees (0, 90, 180, 270)
     loop_rotation: i32,

@@ -8,7 +8,6 @@
 from qfluentwidgets import isDarkTheme, themeColor, setCustomStyleSheet
 
 
-# ── 语义颜色 ──────────────────────────────────────────────
 # (light, dark) 元组
 
 COLOR_TEXT_PRIMARY = ("#333333", "#eeeeee")
@@ -31,14 +30,10 @@ COLOR_ACCENT = ("#ff6b8b", "#ff6b8b")  # 主题强调色
 COLOR_PREVIEW_BG = ("#1a1a1a", "#0a0a0a")
 COLOR_PREVIEW_TEXT = ("#888888", "#666666")
 
-# ── 间距 ──────────────────────────────────────────────────
-
 SPACING_SM = 8
 SPACING_MD = 12
 SPACING_LG = 16
 
-
-# ── 辅助函数 ──────────────────────────────────────────────
 
 def pick(color_pair: tuple[str, str]) -> str:
     """根据当前主题选择颜色值。

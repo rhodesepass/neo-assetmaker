@@ -36,7 +36,6 @@ class TimelineSlider(QWidget):
         self._margin = 10
         self._track_height = 30
 
-        # 颜色
         self._bg_color = QColor(35, 35, 35)
         self._track_color = QColor(45, 45, 45)
         self._selection_color = QColor(66, 133, 244, 150)
@@ -115,16 +114,13 @@ class TimelineSlider(QWidget):
         track_y = (h - self._track_height) // 2
         track_width = w - 2 * self._margin
 
-        # 背景
         painter.fillRect(0, 0, w, h, self._bg_color)
 
-        # 轨道 - 圆角矩形
         track_rect = QRect(self._margin, track_y, track_width, self._track_height)
         painter.setBrush(QBrush(self._track_color))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(track_rect, 4, 4)
 
-        # 选中范围 - 圆角矩形
         if self._total_frames > 1:
             in_x = self._frame_to_x(self._in_point)
             out_x = self._frame_to_x(self._out_point)
@@ -134,7 +130,6 @@ class TimelineSlider(QWidget):
                 painter.setBrush(QBrush(self._selection_color))
                 painter.drawRoundedRect(selection_rect, 4, 4)
 
-        # 入点标记 - 绿色三角形
         in_x = self._frame_to_x(self._in_point)
         painter.setBrush(QBrush(self._in_color))
         painter.setPen(Qt.PenStyle.NoPen)
@@ -144,7 +139,6 @@ class TimelineSlider(QWidget):
             QPoint(in_x, track_y)
         ])
 
-        # 出点标记 - 红色三角形
         out_x = self._frame_to_x(self._out_point)
         painter.setBrush(QBrush(self._out_color))
         bottom_y = track_y + self._track_height
@@ -154,20 +148,16 @@ class TimelineSlider(QWidget):
             QPoint(out_x, bottom_y)
         ])
 
-        # 当前位置 - 蓝色指示器
         cur_x = self._frame_to_x(self._current_frame)
         center_y = track_y + self._track_height // 2
         
-        # 绘制垂直线条
         painter.setPen(QPen(self._current_color, 2))
         painter.drawLine(cur_x, track_y - 10, cur_x, track_y + self._track_height + 10)
         
-        # 绘制中心圆点
         painter.setBrush(QBrush(self._current_color))
         painter.setPen(QPen(self._current_color_hover, 2))
         painter.drawEllipse(QPoint(cur_x, center_y), 6, 6)
         
-        # 绘制外圈光晕效果
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(self._current_color_hover, 1, Qt.PenStyle.SolidLine))
         painter.drawEllipse(QPoint(cur_x, center_y), 9, 9)
@@ -209,7 +199,6 @@ class TimelineSlider(QWidget):
 class TimelineWidget(QWidget):
     """时间轴组件"""
 
-    # 信号
     play_pause_clicked = pyqtSignal()
     seek_requested = pyqtSignal(int)
     prev_frame_clicked = pyqtSignal()
@@ -238,7 +227,6 @@ class TimelineWidget(QWidget):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
 
-        # 控制按钮
         control_layout = QHBoxLayout()
         control_layout.setSpacing(8)
 
@@ -292,12 +280,10 @@ class TimelineWidget(QWidget):
 
         control_layout.addWidget(CaptionLabel("|"))
 
-        # 模拟预览按钮
         self.btn_preview = PushButton("模拟预览")
         self.btn_preview.setToolTip("启动模拟器预览实际显示效果")
         control_layout.addWidget(self.btn_preview)
 
-        # 旋转控件组：逆时针按钮 + SpinBox + 顺时针按钮
         self.btn_rotate_ccw = ToolButton()
         self.btn_rotate_ccw.setText("↺")
         self.btn_rotate_ccw.setFixedWidth(32)
@@ -311,6 +297,7 @@ class TimelineWidget(QWidget):
         self.spin_rotation.setWrapping(True)
         self.spin_rotation.setFixedWidth(100)
         self.spin_rotation.setToolTip("旋转角度（0-359°）")
+        self.spin_rotation.setKeyboardTracking(False)
         control_layout.addWidget(self.spin_rotation)
 
         self.btn_rotate_cw = ToolButton()
@@ -321,7 +308,6 @@ class TimelineWidget(QWidget):
 
         control_layout.addStretch()
 
-        # 时间轴滑块
         self.timeline_slider = TimelineSlider()
         self.timeline_slider.setToolTip("拖动或点击跳转")
 

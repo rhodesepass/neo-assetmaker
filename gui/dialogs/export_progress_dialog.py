@@ -13,7 +13,6 @@ from qfluentwidgets import (
 class ExportProgressDialog(QDialog):
     """导出进度对话框"""
 
-    # 导出成功的信号
     export_success_signal = pyqtSignal(bool)
 
     cancel_requested = pyqtSignal()
@@ -37,23 +36,19 @@ class ExportProgressDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # 状态标签 - 使用Fluent SubtitleLabel
         self.label_status = SubtitleLabel("准备导出...")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_status)
 
-        # 进度条 - 使用Fluent ProgressBar
         self.progress_bar = ProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
 
-        # 详细信息标签 - 使用Fluent BodyLabel
         self.label_detail = BodyLabel("")
         self.label_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_detail)
 
-        # 按钮 - 使用Fluent PushButton
         self.btn_action = PushButton("取消")
         self.btn_action.clicked.connect(self._on_action_clicked)
         layout.addWidget(self.btn_action)
@@ -82,7 +77,6 @@ class ExportProgressDialog(QDialog):
         if self._is_completed:
             self.accept()
         else:
-            # 请求取消
             self.cancel_requested.emit()
             self.label_status.setText("正在取消...")
             self.btn_action.setEnabled(False)

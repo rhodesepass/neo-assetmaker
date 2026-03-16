@@ -2,10 +2,15 @@
 
 ### v2.1.0
 
-**性能优化**
+**视频系统重写**
+- 视频解码引擎从 OpenCV 切换到 PyAV，新增 OpenGL 硬件渲染器
+- 帧预取缓冲区 + PBO (Pixel Buffer Object) 异步上传，减少 GPU 等待
 - 视频预览后台线程化：帧读取和处理移至 `FrameReaderThread(QThread)`，长视频加载和播放不再阻塞 UI
 - 内置丢帧策略，确保 30fps 视频流畅播放
 - Tab 切换无延迟，预览页面不再互相卡住
+- 修复视频预览拉伸变形：`_update_mvp()` 添加所有旋转角度的 letterbox 宽高比校正
+- 修复裁剪框只能水平移动：初始大小改为最大尺寸的 75%，四周留出自由移动空间
+- PyOpenGL 打包支持和运行时防护
 
 **新增任意角度旋转**
 - 支持 0-359° 任意整数角度旋转（不限于 0°/90°/180°/270°）
@@ -24,6 +29,13 @@
 **新增自动保存功能**
 - 定期自动保存项目配置
 - 可配置保存间隔，备份文件自动管理
+
+**新增 SSH 远程上传管理**
+- 侧边栏新增远程管理入口（WiFi 图标）
+- SSH 连接配置：地址、端口、用户名、密码、远程路径
+- 一键上传文件到通行证设备，实时进度显示
+- 上传完毕后可选自动重启通行证程序
+- 修复使用自动上传后 drmapp 无法启动外部应用的问题
 
 **新增素材商城扩展模块**
 - 用户认证系统
@@ -46,6 +58,31 @@
   - 文件浏览和传输功能
   - 设备信息卡片（制造商/产品/存储容量）
 - 统一服务管理器（延迟初始化、优雅关闭）
+
+**UI 改进**
+- 主题图标、间距和配色优化
+- 窗口圆角真正裁剪（`WA_TranslucentBackground` + `paintEvent`），四角不再漏色
+- 补齐所有四角的 `border-radius`（左上、左下之前缺失）
+- 背景图片改由 `paintEvent` 绘制，支持圆角裁剪
+- 导出时支持自定义 FFmpeg 路径
+
+**编译后闪退修复**
+- QApplication 之前设置 `AA_ShareOpenGLContexts`，解决 QOpenGLWidget + QWebEngineView COM 冲突
+- `check_dependencies()` 移到 QApplication 之后，避免 QtWebEngine COM 初始化冲突 (Windows fatal exception 0x8001010d)
+- stderr/stdout 重定向到文件而非 StringIO，崩溃诊断信息不再丢失
+- 全局 `sys.excepthook` 安全网，防止 PyQt6 slot 未处理异常导致 abort
+- 冻结环境下 12 处 `__file__` 路径修复（使用 `get_app_dir()`）
+
+**构建系统**
+- 新增可复用的 GitHub Actions 构建工作流
+- uv 升级到 0.10.10，添加 lock 检查
+- CI 修复：uv setup、PyOpenGL fallback、额外依赖安装
+
+**Bug 修复**
+- 修复 `QDialog` 未导入导致崩溃恢复对话框功能失效
+- 修复 `paintGL()` 缺少异常保护可能导致程序崩溃
+- 修复固件下载函数在 `./bin` 不存在时崩溃
+- 修复操作下拉框异常截断（Qt `\t` 宽度计算错误，改用 shortcut）
 
 ### v2.0.0
 

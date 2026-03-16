@@ -21,19 +21,15 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
         配置好的根日志记录器
     """
     if log_dir is None:
-        # 使用应用程序目录（支持打包环境）
         from utils.file_utils import get_app_dir
         log_dir = os.path.join(get_app_dir(), 'logs')
 
-    # 多级降级策略
     dirs_to_try = [
         log_dir,
     ]
-    # 添加 AppData 目录作为备选
     appdata = os.getenv('LOCALAPPDATA')
     if appdata:
         dirs_to_try.append(os.path.join(appdata, 'ArknightsPassMaker', 'logs'))
-    # 添加临时目录作为最后备选
     dirs_to_try.append(os.path.join(tempfile.gettempdir(), 'ArknightsPassMaker_logs'))
 
     actual_log_dir = None
@@ -46,7 +42,6 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
             continue
 
     if actual_log_dir is None:
-        # 所有目录都不可用，只使用控制台输出
         print("[WARNING] 无法创建日志目录，仅使用控制台输出")
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
@@ -59,14 +54,12 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
 
     log_file = os.path.join(actual_log_dir, f'app_{datetime.now():%Y%m%d}.log')
 
-    # 日志格式
     file_formatter = logging.Formatter(
         '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
 
-    # 创建文件处理器，带异常处理
     file_handler = None
     try:
         file_handler = RotatingFileHandler(
@@ -80,12 +73,10 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
     except (PermissionError, OSError) as e:
         print(f"[WARNING] 无法创建日志文件: {e}")
 
-    # 控制台处理器 - 只记录 INFO 及以上
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
 
-    # 配置根日志记录器
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.handlers.clear()
@@ -94,7 +85,6 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
         root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
-    # 记录启动信息
     if file_handler:
         root_logger.info(f"日志系统已初始化，日志文件: {log_file}")
     else:
@@ -122,7 +112,6 @@ def cleanup_old_logs(log_dir: Optional[str] = None, days: int = 30):
     from datetime import timedelta
 
     if log_dir is None:
-        # 使用与 setup_logger 相同的目录逻辑
         from utils.file_utils import get_app_dir
         log_dir = os.path.join(get_app_dir(), 'logs')
 
@@ -134,7 +123,6 @@ def cleanup_old_logs(log_dir: Optional[str] = None, days: int = 30):
 
     for log_file in glob.glob(os.path.join(log_dir, 'app_*.log*')):
         try:
-            # 从文件名提取日期
             filename = os.path.basename(log_file)
             if filename.startswith('app_') and len(filename) >= 12:
                 date_str = filename[4:12]  # app_YYYYMMDD.log
@@ -186,8 +174,6 @@ class LogManager:
         try:
             with open(self.log_file, 'r', encoding='utf-8') as f:
                 for line in f:
-                    # 解析日志行（匹配 root logger 格式）
-                    # 格式: 2024-01-01 12:00:00 [INFO] module.name: message
                     match = re.match(
                         r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(\w+)\] (\S+): (.+)',
                         line.strip()
@@ -198,15 +184,12 @@ class LogManager:
 
                     timestamp, log_level, name, message = match.groups()
 
-                    # 关键词过滤
                     if keyword and keyword.lower() not in message.lower():
                         continue
 
-                    # 日志级别过滤
                     if level and level.upper() != log_level:
                         continue
 
-                    # 时间范围过滤
                     if start_time or end_time:
                         log_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
 
@@ -247,7 +230,6 @@ class LogManager:
             level: 日志级别过滤
         """
         try:
-            # 搜索符合条件的日志
             logs = self.search_logs(
                 keyword="",
                 level=level,
@@ -256,7 +238,6 @@ class LogManager:
                 max_results=100000  # 导出时允许更多结果
             )
 
-            # 写入文件
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(f"日志导出 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 80 + "\n\n")
@@ -286,7 +267,6 @@ class LogManager:
         }
 
         try:
-            # 统计主日志文件
             if os.path.exists(self.log_file):
                 stats['file_size'] = os.path.getsize(self.log_file)
 
@@ -294,14 +274,12 @@ class LogManager:
                     for line in f:
                         stats['total_lines'] += 1
 
-                        # 统计各级别数量（匹配 [LEVEL] 格式）
                         match = re.search(r'\[(\w+)\]', line)
                         if match:
                             level = match.group(1)
                             if level in stats['by_level']:
                                 stats['by_level'][level] += 1
 
-            # 查找备份文件
             log_dir = os.path.dirname(self.log_file)
             log_name = os.path.basename(self.log_file)
 
@@ -336,17 +314,14 @@ class LogManager:
             log_dir = os.path.dirname(self.log_file)
             log_name = os.path.basename(self.log_file)
 
-            # 查找所有备份文件
             backup_files = []
             for file in os.listdir(log_dir):
                 if file.startswith(log_name) and file != log_name:
                     backup_path = os.path.join(log_dir, file)
                     backup_files.append((backup_path, os.path.getmtime(backup_path)))
 
-            # 按修改时间排序（从旧到新）
             backup_files.sort(key=lambda x: x[1])
 
-            # 删除超过保留数量的旧备份
             if len(backup_files) > keep_count:
                 for backup_path, _ in backup_files[:-keep_count]:
                     os.remove(backup_path)

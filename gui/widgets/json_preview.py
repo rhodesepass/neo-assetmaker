@@ -25,7 +25,6 @@ class JsonSyntaxHighlighter(QSyntaxHighlighter):
     def __init__(self, document: QTextDocument):
         super().__init__(document)
 
-        # 定义格式
         self._key_format = QTextCharFormat()
         self._key_format.setForeground(QColor("#9cdcfe"))
 
@@ -45,25 +44,20 @@ class JsonSyntaxHighlighter(QSyntaxHighlighter):
         """高亮代码块"""
         import re
 
-        # 键
         for match in re.finditer(r'"([^"]+)"\s*:', text):
             self.setFormat(match.start(), match.end() - match.start() - 1, self._key_format)
 
-        # 字符串值
         for match in re.finditer(r':\s*"([^"]*)"', text):
             start = text.find('"', match.start() + 1)
             end = text.find('"', start + 1) + 1
             self.setFormat(start, end - start, self._string_format)
 
-        # 数字
         for match in re.finditer(r':\s*(-?\d+\.?\d*)', text):
             self.setFormat(match.start(1), len(match.group(1)), self._number_format)
 
-        # 布尔值
         for match in re.finditer(r'\b(true|false)\b', text):
             self.setFormat(match.start(), match.end() - match.start(), self._bool_format)
 
-        # null
         for match in re.finditer(r'\bnull\b', text):
             self.setFormat(match.start(), match.end() - match.start(), self._null_format)
 
@@ -99,12 +93,11 @@ class JsonPreviewWidget(QWidget):
         title_label = StrongBodyLabel("配置预览 (JSON)")
         setCustomStyleSheet(
             title_label,
-            "padding: 8px 12px; background-color: #f5f5f5; border-bottom: 1px solid #e8e8e8;",
-            "padding: 8px 12px; background-color: #2a2a2a; border-bottom: 1px solid #3a3a3a;"
+            "padding: 8px 12px; background-color: #f5f5f5; border-bottom: 1px solid #e8e8e8; color: #333333;",
+            "padding: 8px 12px; background-color: #2a2a2a; border-bottom: 1px solid #3a3a3a; color: #eeeeee;"
         )
         layout.addWidget(title_label)
 
-        # JSON文本框
         self.text_edit = TextEdit()
         self.text_edit.setReadOnly(True)
         self.text_edit.setAcceptDrops(False)
@@ -117,7 +110,6 @@ class JsonPreviewWidget(QWidget):
         )
         layout.addWidget(self.text_edit)
 
-        # 语法高亮
         self._highlighter = JsonSyntaxHighlighter(self.text_edit.document())
 
         # 验证状态 — 背景更接近面板整体
@@ -163,10 +155,7 @@ class JsonPreviewWidget(QWidget):
         self._config = config
         self._validator = EPConfigValidator(base_dir)
 
-        # 更新JSON显示
         self._update_json()
-
-        # 更新验证状态
         self._update_validation()
 
     def update_preview(self):
@@ -194,12 +183,10 @@ class JsonPreviewWidget(QWidget):
             self.warning_count_label.setText("")
             return
 
-        # 执行验证
         results = self._validator.validate_config(self._config)
         errors = self._validator.get_errors()
         warnings = self._validator.get_warnings()
 
-        # 更新状态
         if len(errors) == 0:
             self.status_icon.setText("✓")
             setCustomStyleSheet(self.status_icon, "color: #2e7d32; font-size: 16px;", "color: #4a4; font-size: 16px;")
@@ -211,10 +198,8 @@ class JsonPreviewWidget(QWidget):
             self.status_label.setText("配置无效")
             setCustomStyleSheet(self.status_label, "color: #dc3545;", "color: #f44;")
 
-        # 更新计数和详细提示
         if len(errors) > 0:
             self.error_count_label.setText(f"{len(errors)} 个错误")
-            # 构建详细的 tooltip
             tooltip_lines = ["<b>错误列表:</b>"]
             for r in errors:
                 tooltip_lines.append(f"• {r.field}: {r.message}")
@@ -225,7 +210,6 @@ class JsonPreviewWidget(QWidget):
 
         if len(warnings) > 0:
             self.warning_count_label.setText(f"{len(warnings)} 个警告")
-            # 构建详细的 tooltip
             tooltip_lines = ["<b>警告列表:</b>"]
             for r in warnings:
                 tooltip_lines.append(f"• {r.field}: {r.message}")

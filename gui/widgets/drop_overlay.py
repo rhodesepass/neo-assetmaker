@@ -22,7 +22,6 @@ class DropOverlayWidget(QWidget):
         self._accepted_extensions: Tuple[str, ...] = ()
         self._hint_text: str = "释放以导入文件"
         self.hide()
-        # 在父 widget 上启用拖放并安装事件过滤器
         parent.setAcceptDrops(True)
         parent.installEventFilter(self)
 
@@ -110,10 +109,8 @@ class DropOverlayWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 半透明背景
         painter.fillRect(self.rect(), QColor(0, 120, 215, 30))
 
-        # 虚线圆角边框（内缩 8px）
         pen = QPen(QColor(0, 120, 215, 150))
         pen.setWidth(2)
         pen.setStyle(Qt.PenStyle.DashLine)
@@ -121,7 +118,6 @@ class DropOverlayWidget(QWidget):
         inner = self.rect().adjusted(8, 8, -8, -8)
         painter.drawRoundedRect(inner, 12, 12)
 
-        # 居中提示文字
         painter.setPen(QColor(255, 255, 255, 200))
         font = QFont()
         font.setPointSize(16)

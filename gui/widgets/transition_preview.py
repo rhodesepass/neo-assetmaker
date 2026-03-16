@@ -28,7 +28,6 @@ class TransitionPreviewWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(2)
 
-        # 左侧：进入过渡
         left_widget = QWidget()
         left_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_widget)
@@ -50,7 +49,6 @@ class TransitionPreviewWidget(QWidget):
 
         main_layout.addWidget(left_widget, stretch=1)
 
-        # 右侧：循环过渡
         right_widget = QWidget()
         right_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         right_layout = QVBoxLayout(right_widget)

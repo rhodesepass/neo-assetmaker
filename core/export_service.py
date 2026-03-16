@@ -49,7 +49,7 @@ class ExportType(Enum):
 class VideoExportParams:
     """视频导出参数"""
     video_path: str
-    cropbox: Tuple[int, int, int, int]  # (x, y, w, h)
+    cropbox: Tuple[int, int, int, int]  # (x, y, w, h) 旋转后坐标系
     start_frame: int
     end_frame: int
     fps: float
@@ -146,7 +146,6 @@ class ExportWorker(QThread):
                     self.export_failed.emit(f"导出 {task.export_type.value} 失败: {str(e)}")
                     return
 
-            # 生成epconfig.json
             if self._epconfig:
                 self.progress_updated.emit(95, "正在生成 epconfig.json...")
                 self._generate_epconfig()
@@ -184,7 +183,6 @@ class ExportWorker(QThread):
 
     def _export_argb(self, output_path: str, mat: np.ndarray, is_logo: bool = False):
         """导出ARGB格式文件"""
-        # 旋转180度
         mat = cv2.rotate(mat, cv2.ROTATE_180) if HAS_CV2 else np.rot90(mat, 2)
         mat = mat.astype(np.uint8)
         h, w = mat.shape[:2]
@@ -222,7 +220,6 @@ class ExportWorker(QThread):
         if not HAS_AV:
             raise RuntimeError("未安装PyAV，无法解码视频")
 
-        # 图片模式：从单张图片生成1秒循环视频
         if params.is_image:
             self._export_video_from_image(output_path, params, base_progress, total_tasks)
             return
@@ -248,10 +245,8 @@ class ExportWorker(QThread):
 
             total_frames = params.end_frame - params.start_frame
 
-            # 从 stream 元数据获取视频原始尺寸
             orig_w = stream.width
             orig_h = stream.height
-            x, y, w, h = params.cropbox
             rotation = params.rotation
 
             # 任意角度旋转：预计算旋转矩阵（循环外计算，所有帧复用）
@@ -267,30 +262,8 @@ class ExportWorker(QThread):
                 rot_matrix[1, 2] += (nh - orig_h) / 2.0
                 rotated_size = (nw, nh)
 
-            # 将cropbox从原始坐标变换到旋转后坐标
-            if rotation == 90:
-                rx, ry, rw, rh = (orig_h - y - h, x, h, w)
-            elif rotation == 180:
-                rx, ry, rw, rh = (orig_w - x - w, orig_h - y - h, w, h)
-            elif rotation == 270:
-                rx, ry, rw, rh = (y, orig_w - x - w, h, w)
-            elif rotation == 0:
-                rx, ry, rw, rh = (x, y, w, h)
-            else:
-                # 非正交角度：仿射正向变换
-                corners = np.array(
-                    [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
-                    dtype=np.float64)
-                rotated_corners = np.array(
-                    [rot_matrix[:, :2] @ c + rot_matrix[:, 2]
-                     for c in corners])
-                rx = max(0, int(np.floor(rotated_corners[:, 0].min())))
-                ry = max(0, int(np.floor(rotated_corners[:, 1].min())))
-                rx1 = min(rotated_size[0],
-                          int(np.ceil(rotated_corners[:, 0].max())))
-                ry1 = min(rotated_size[1],
-                          int(np.ceil(rotated_corners[:, 1].max())))
-                rw, rh = rx1 - rx, ry1 - ry
+            # cropbox 已在旋转后坐标系中，直接使用（无需坐标变换）
+            rx, ry, rw, rh = params.cropbox
 
             # 精确 seek 到起始帧
             # 参考: https://pyav.org/docs/stable/api/container.html#av.container.InputContainer.seek
@@ -301,14 +274,12 @@ class ExportWorker(QThread):
                 target_pts = int(target_sec / time_base)
                 container.seek(target_pts, stream=stream, backward=True)
 
-            # 解码帧并处理
             frames_written = 0
             frame_idx = 0
             for av_frame in container.decode(stream):
                 if self._cancelled:
                     raise InterruptedError("导出已取消")
 
-                # 计算当前帧在视频中的实际索引
                 if av_frame.pts is not None and time_base and fps > 0:
                     current_sec = float(av_frame.pts * time_base)
                     current_idx = int(current_sec * fps)
@@ -319,14 +290,11 @@ class ExportWorker(QThread):
                 if current_idx < params.start_frame:
                     continue
 
-                # 超出结束帧则停止
                 if current_idx >= params.end_frame:
                     break
 
-                # 将 PyAV 帧转换为 BGR numpy 数组（与 cv2 兼容）
                 frame = av_frame.to_ndarray(format='bgr24')
 
-                # 应用用户设置的旋转（保留 cv2 图像处理调用）
                 if rotation == 90:
                     frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                 elif rotation == 180:
@@ -340,7 +308,6 @@ class ExportWorker(QThread):
                         borderMode=cv2.BORDER_CONSTANT,
                         borderValue=(0, 0, 0))
 
-                # 应用裁剪（使用旋转后的坐标）
                 frame = frame[ry:ry+rh, rx:rx+rw]
                 frame = cv2.resize(frame, (target_w, target_h))
 
@@ -361,7 +328,6 @@ class ExportWorker(QThread):
 
                 frame_idx += 1
 
-            # 关闭 PyAV 容器（替代 cap.release()）
             container.close()
 
             if frames_written == 0:
@@ -405,7 +371,6 @@ class ExportWorker(QThread):
         crf_value = 19
         preset = "medium"
 
-        # 构建视频滤镜（pad 黑边）
         vf_filters = []
         if padded_w > 0 and padded_h > 0:
             vf_filters.append(f"pad={padded_w}:{padded_h}:0:0:black")
@@ -487,17 +452,14 @@ class ExportWorker(QThread):
         padding_side = spec["padding_side"]
         rotate_180 = spec["rotate_180"]
 
-        # 读取图片
         image_path = params.video_path
         img_array = np.fromfile(image_path, dtype=np.uint8)
         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         if frame is None:
             raise RuntimeError(f"无法打开图片: {image_path}")
 
-        # 缩放到目标分辨率
         frame = cv2.resize(frame, (target_w, target_h))
 
-        # 旋转180度
         if rotate_180:
             frame = cv2.rotate(frame, cv2.ROTATE_180)
 
@@ -505,7 +467,6 @@ class ExportWorker(QThread):
         os.makedirs(temp_dir, exist_ok=True)
 
         try:
-            # 生成30帧（1秒@30fps）
             fps = 30.0
             total_frames = 30
 
@@ -597,7 +558,6 @@ class ExportService(QObject):
         tasks = []
         resolution = epconfig.screen.value
 
-        # Logo/Icon
         if logo_mat is not None:
             tasks.append(ExportTask(
                 export_type=ExportType.ICON,
@@ -605,7 +565,6 @@ class ExportService(QObject):
                 data=logo_mat
             ))
 
-        # Overlay
         if overlay_mat is not None:
             tasks.append(ExportTask(
                 export_type=ExportType.OVERLAY,
@@ -613,15 +572,13 @@ class ExportService(QObject):
                 data=overlay_mat
             ))
 
-        # Loop视频（图片模式优先）
         if loop_image_path is not None:
             if not self.ffmpeg_available:
                 self.export_failed.emit("未找到ffmpeg，无法导出视频")
                 return
-            # 从图片生成循环视频
             image_params = VideoExportParams(
                 video_path=loop_image_path,
-                cropbox=(0, 0, 0, 0),  # 图片模式不需要裁剪
+                cropbox=(0, 0, 0, 0),
                 start_frame=0,
                 end_frame=30,
                 fps=30.0,
@@ -644,7 +601,6 @@ class ExportService(QObject):
                 data=loop_video_params
             ))
 
-        # Intro视频
         if intro_video_params is not None:
             if not self.ffmpeg_available:
                 self.export_failed.emit("未找到ffmpeg，无法导出视频")
@@ -660,7 +616,6 @@ class ExportService(QObject):
             self.export_failed.emit("没有需要导出的内容")
             return
 
-        # 启动工作线程
         self._worker = ExportWorker(self)
         self._worker.setup(
             tasks=tasks,

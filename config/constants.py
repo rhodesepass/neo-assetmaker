@@ -26,7 +26,7 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "height": 640,
         "padded_width": 384,
         "padded_height": 640,
-        "padding_side": "right",  # 补右边黑边
+        "padding_side": "right",
         "padding_amount": 24,
         "rotate_180": False,
         "description": "360x640 (对齐后384x640, 右边+24px黑边)"
@@ -36,7 +36,7 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "height": 854,
         "padded_width": 480,
         "padded_height": 864,
-        "padding_side": "bottom",  # 补下边黑边
+        "padding_side": "bottom",
         "padding_amount": 10,
         "rotate_180": False,
         "description": "480x854 (对齐后480x864, 底部+10px黑边)"
@@ -46,7 +46,7 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "height": 1080,
         "padded_width": 720,
         "padded_height": 1080,
-        "padding_side": None,  # 无补边
+        "padding_side": None,
         "padding_amount": 0,
         "rotate_180": False,
         "description": "720x1080 (无黑边)"
@@ -75,8 +75,8 @@ TRANSITION_TYPES = ["none", "fade", "move", "swipe"]
 OVERLAY_TYPES = ["none", "arknights", "image"]
 
 # ===== Arknights叠加UI图片尺寸 =====
-ARK_CLASS_ICON_SIZE = (50, 50)    # 职业图标尺寸
-ARK_LOGO_SIZE = (75, 35)          # Logo尺寸
+ARK_CLASS_ICON_SIZE = (50, 50)
+ARK_LOGO_SIZE = (75, 35)
 
 # ===== 职业图标预设 =====
 OPERATOR_CLASS_PRESETS = {

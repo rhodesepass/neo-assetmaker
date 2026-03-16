@@ -30,14 +30,12 @@ class RecoveryListWidget(QListWidget):
         super().__init__(parent)
         self._recovery_items: List[RecoveryInfo] = []
 
-        # 设置样式
         setCustomStyleSheet(
             self,
             "QListWidget { border: 1px solid #ddd; border-radius: 5px; padding: 5px; background-color: white; } QListWidget::item { padding: 10px; margin: 2px; border-radius: 3px; } QListWidget::item:hover { background-color: #f0f0f0; } QListWidget::item:selected { background-color: #ff6b8b; color: white; }",
             "QListWidget { border: 1px solid #555; border-radius: 5px; padding: 5px; background-color: #2b2b2b; color: #ddd; } QListWidget::item { padding: 10px; margin: 2px; border-radius: 3px; } QListWidget::item:hover { background-color: #404040; } QListWidget::item:selected { background-color: #ff6b8b; color: white; }"
         )
 
-        # 连接信号
         self.itemClicked.connect(self._on_item_clicked)
 
     def load_recoveries(self, recovery_list: List[RecoveryInfo]):
@@ -82,7 +80,7 @@ class RecoveryListWidget(QListWidget):
 class CrashRecoveryDialog(QDialog):
     """崩溃恢复对话框"""
 
-    recovery_requested = pyqtSignal(RecoveryInfo, str)  # 恢复请求信号
+    recovery_requested = pyqtSignal(RecoveryInfo, str)
 
     def __init__(self, recovery_service: CrashRecoveryService, parent=None):
         super().__init__(parent)
@@ -99,14 +97,12 @@ class CrashRecoveryDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # 标题
         title_label = QLabel("发现未保存的项目")
         title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         setCustomStyleSheet(title_label, "color: #ff6b8b; margin-bottom: 10px;", "color: #ff6b8b; margin-bottom: 10px;")
         layout.addWidget(title_label)
 
-        # 说明
         desc_label = QLabel(
             "以下项目在上次运行时未正常保存，您可以选择恢复这些项目。\n"
             "选择一个项目后，点击\"恢复\"按钮将项目恢复到指定位置。"
@@ -115,7 +111,6 @@ class CrashRecoveryDialog(QDialog):
         setCustomStyleSheet(desc_label, "color: #666; margin-bottom: 10px;", "color: #aaa; margin-bottom: 10px;")
         layout.addWidget(desc_label)
 
-        # 恢复项目列表
         list_group = QGroupBox("可恢复项目")
         list_layout = QVBoxLayout()
 
@@ -126,7 +121,6 @@ class CrashRecoveryDialog(QDialog):
         list_group.setLayout(list_layout)
         layout.addWidget(list_group)
 
-        # 详细信息
         detail_group = QGroupBox("详细信息")
         detail_layout = QVBoxLayout()
 
@@ -143,12 +137,10 @@ class CrashRecoveryDialog(QDialog):
         detail_group.setLayout(detail_layout)
         layout.addWidget(detail_group)
 
-        # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # 按钮
         button_layout = QHBoxLayout()
 
         self.recover_button = PrimaryPushButton("恢复")
@@ -187,7 +179,6 @@ class CrashRecoveryDialog(QDialog):
         recovery_list = self.recovery_service.check_crash_recovery()
 
         if not recovery_list:
-            # 没有可恢复的项目
             self.recovery_list.clear()
             self.detail_text.setText("没有发现可恢复的项目")
             self.recover_button.setEnabled(False)
@@ -195,18 +186,15 @@ class CrashRecoveryDialog(QDialog):
             self.delete_all_button.setEnabled(False)
             return
 
-        # 加载恢复项目
         self.recovery_list.load_recoveries(recovery_list)
 
     def _on_recovery_selected(self, recovery_info: RecoveryInfo):
         """恢复项目选择事件"""
         self._selected_recovery = recovery_info
 
-        # 显示详细信息
         summary = self.recovery_service.get_recovery_summary(recovery_info)
         self.detail_text.setText(summary)
 
-        # 启用按钮
         self.recover_button.setEnabled(True)
         self.delete_button.setEnabled(True)
 
@@ -215,7 +203,6 @@ class CrashRecoveryDialog(QDialog):
         if not self._selected_recovery:
             return
 
-        # 选择保存位置
         from PyQt6.QtWidgets import QFileDialog
 
         default_name = "recovered_epconfig.json"
@@ -232,34 +219,27 @@ class CrashRecoveryDialog(QDialog):
         if not path:
             return
 
-        # 显示进度
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # 不确定进度
         self.recover_button.setEnabled(False)
 
         try:
-            # 执行恢复
             success = self.recovery_service.recover_project(self._selected_recovery, path)
 
             if success:
-                # 清除恢复信息
                 recovery_path = os.path.join(
                     self.recovery_service._recovery_dir,
                     f"recovery_{int(self._selected_recovery.timestamp)}.json"
                 )
                 self.recovery_service.clear_recovery_info(recovery_path)
-
-                # 刷新列表
                 self._load_recoveries()
 
-                # 显示成功消息
                 QMessageBox.information(
                     self,
                     "恢复成功",
                     f"项目已成功恢复到:\n{path}"
                 )
 
-                # 发出恢复请求信号
                 self.recovery_requested.emit(self._selected_recovery, path)
 
             else:
@@ -297,17 +277,13 @@ class CrashRecoveryDialog(QDialog):
             return
 
         try:
-            # 删除恢复信息
             recovery_path = os.path.join(
                 self.recovery_service._recovery_dir,
                 f"recovery_{int(self._selected_recovery.timestamp)}.json"
             )
             self.recovery_service.clear_recovery_info(recovery_path)
-
-            # 刷新列表
             self._load_recoveries()
 
-            # 清空详细信息
             self.detail_text.clear()
             self._selected_recovery = None
             self.recover_button.setEnabled(False)
@@ -335,11 +311,8 @@ class CrashRecoveryDialog(QDialog):
 
         try:
             self.recovery_service.clear_all_recovery()
-
-            # 刷新列表
             self._load_recoveries()
 
-            # 清空详细信息
             self.detail_text.clear()
             self._selected_recovery = None
             self.recover_button.setEnabled(False)

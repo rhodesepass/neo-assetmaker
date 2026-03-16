@@ -29,18 +29,15 @@ class WelcomeDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(25, 25, 25, 25)
 
-        # 标题 - 使用Fluent SubtitleLabel
         title_label = SubtitleLabel("欢迎使用明日方舟通行证素材制作器")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
 
-        # 分隔线
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(line)
 
-        # 操作流程说明 - 使用Fluent StrongBodyLabel
         intro_label = StrongBodyLabel("基本操作流程:")
         layout.addWidget(intro_label)
 
@@ -66,7 +63,6 @@ class WelcomeDialog(QDialog):
 
             layout.addLayout(step_layout)
 
-        # 注意事项 - 使用CardWidget
         note_card = CardWidget()
         note_layout = QVBoxLayout(note_card)
         note_layout.setContentsMargins(15, 15, 15, 15)
@@ -80,18 +76,15 @@ class WelcomeDialog(QDialog):
         note_layout.addWidget(note_label)
         layout.addWidget(note_card)
 
-        # 分隔线
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
         line2.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(line2)
 
-        # 快捷键提示
         shortcut_label = BodyLabel("提示: 按 F1 键可随时查看快捷键帮助")
         shortcut_label.setStyleSheet("color: #4285f4;")
         layout.addWidget(shortcut_label)
 
-        # 底部按钮
         button_layout = QHBoxLayout()
 
         self.check_dont_show = CheckBox("不再显示")

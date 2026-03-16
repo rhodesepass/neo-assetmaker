@@ -56,18 +56,14 @@ class ImageProcessor:
                     raise ValueError("OpenCV无法解码图片")
                 return img
             elif HAS_PIL:
-                # PIL加载并转换为numpy
                 pil_img = Image.open(path)
                 if pil_img.mode == 'RGBA':
                     img = np.array(pil_img)
-                    # RGBA -> BGRA
                     img = img[:, :, [2, 1, 0, 3]]
                 elif pil_img.mode == 'RGB':
                     img = np.array(pil_img)
-                    # RGB -> BGR
                     img = img[:, :, [2, 1, 0]]
                 else:
-                    # 转换为RGBA
                     pil_img = pil_img.convert('RGBA')
                     img = np.array(pil_img)
                     img = img[:, :, [2, 1, 0, 3]]
@@ -98,7 +94,6 @@ class ImageProcessor:
                     with open(path, 'wb') as f:
                         f.write(encoded.tobytes())
             elif HAS_PIL:
-                # BGR(A) -> RGB(A)
                 if img.shape[-1] == 4:
                     img_rgb = img[:, :, [2, 1, 0, 3]]
                     pil_img = Image.fromarray(img_rgb, 'RGBA')
@@ -140,15 +135,12 @@ class ImageProcessor:
         if not keep_aspect:
             return cv2.resize(img, (target_width, target_height))
 
-        # 计算缩放比例
         scale = max(target_width / w, target_height / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
 
-        # 缩放
         resized = cv2.resize(img, (new_w, new_h))
 
-        # 居中裁剪
         start_x = (new_w - target_width) // 2
         start_y = (new_h - target_height) // 2
         cropped = resized[start_y:start_y+target_height, start_x:start_x+target_width]
@@ -167,11 +159,9 @@ class ImageProcessor:
     def ensure_bgra(img: np.ndarray) -> np.ndarray:
         """确保图片为BGRA格式"""
         if len(img.shape) == 2:
-            # 灰度图
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA) if HAS_CV2 else \
                   np.stack([img, img, img, np.full_like(img, 255)], axis=-1)
         elif img.shape[-1] == 3:
-            # BGR -> BGRA
             if HAS_CV2:
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
             else:
@@ -190,9 +180,7 @@ class ImageProcessor:
         Returns:
             处理后的图片 (256x256 BGRA)
         """
-        # 缩放到Logo尺寸
         img = ImageProcessor.resize_image(img, LOGO_WIDTH, LOGO_HEIGHT)
-        # 确保BGRA格式
         img = ImageProcessor.ensure_bgra(img)
         return img
 
@@ -212,9 +200,7 @@ class ImageProcessor:
         target_w = spec["width"]
         target_h = spec["height"]
 
-        # 缩放到目标分辨率
         img = ImageProcessor.resize_image(img, target_w, target_h)
-        # 确保BGRA格式
         img = ImageProcessor.ensure_bgra(img)
         return img
 

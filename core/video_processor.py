@@ -96,7 +96,6 @@ class VideoProcessor:
                 timeout=10
             )
             if result.returncode == 0:
-                # 提取版本信息
                 first_line = result.stdout.split('\n')[0] if result.stdout else ""
                 return True, first_line
             return False, "FFmpeg返回非零退出码"
@@ -135,18 +134,15 @@ class VideoProcessor:
             )
             parts = result.stdout.strip().split(',')
             if len(parts) >= 5:
-                # 解析帧率
                 fps_parts = parts[3].split('/')
                 if len(fps_parts) == 2:
                     fps = float(fps_parts[0]) / float(fps_parts[1])
                 else:
                     fps = float(fps_parts[0])
 
-                # 解析时长
                 duration_str = parts[2]
                 duration = float(duration_str) if duration_str != 'N/A' else 0
 
-                # 解析总帧数
                 total_frames = 0
                 if len(parts) >= 6 and parts[5] != 'N/A':
                     try:
@@ -191,11 +187,9 @@ class VideoProcessor:
         Returns:
             (处理是否成功, 错误信息)
         """
-        # 检查输入文件
         if not os.path.exists(input_path):
             return False, f"输入文件不存在: {input_path}"
 
-        # 获取分辨率配置
         spec = get_resolution_spec(target_resolution)
         orig_w = spec["width"]
         orig_h = spec["height"]
@@ -204,28 +198,20 @@ class VideoProcessor:
         pad_dir = spec["padding_side"]
         rotate_180 = spec["rotate_180"]
 
-        # 构建FFmpeg命令
         cmd = [self.ffmpeg_path, "-y", "-i", input_path]
 
-        # 视频滤镜
         filters = []
-
-        # 1. 缩放到原始分辨率
         filters.append(f"scale={orig_w}:{orig_h}")
 
-        # 2. 添加黑边
         if pad_dir:
             filters.append(f"pad={target_w}:{target_h}:0:0:black")
 
-        # 3. 720x1080需要旋转180度
         if rotate_180:
             filters.append("rotate=PI")
 
-        # 组合滤镜
         if filters:
             cmd.extend(["-vf", ",".join(filters)])
 
-        # 编码参数
         cmd.extend([
             "-c:v", "libx264",
             "-preset", "medium",

@@ -1,3 +1,4 @@
+#超 级 多 的 屎 山 ciallo~
 """主窗口 - 三栏布局"""
 from core.error_handler import ErrorHandler, show_error
 from core.crash_recovery_service import CrashRecoveryService
@@ -12,6 +13,7 @@ from config.constants import (
     SUPPORTED_VIDEO_FORMATS, SUPPORTED_IMAGE_FORMATS
 )
 from gui.widgets.drop_overlay import DropOverlayWidget
+from gui.styles import COLOR_TEXT_PRIMARY, COLOR_BG_ELEVATED, COLOR_BORDER
 from config.epconfig import EPConfig
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, ToolButton,
@@ -40,13 +42,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
-# Fluent Widgets导入
-
-# 确保在创建应用程序实例之前设置Qt.AA_ShareOpenGLContexts
 QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
-
-# 导入QtWebEngineWidgets
 
 
 class MainWindow(QMainWindow):
@@ -55,7 +51,6 @@ class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # 应用根目录（兼容冻结环境和开发环境）
         from utils.file_utils import get_app_dir
         self._app_dir = get_app_dir()
 
@@ -72,24 +67,23 @@ class MainWindow(QMainWindow):
         # 时间轴当前连接的预览器
         self._timeline_preview: Optional['VideoPreviewWidget'] = None
 
-        # 初始化自动保存和崩溃恢复服务
         self._auto_save_service = AutoSaveService()
         self._crash_recovery_service = CrashRecoveryService()
         self._crash_recovery_service.initialize(
             os.path.join(self._app_dir, ".recovery"))
 
-        # 初始化错误处理器
         self._error_handler = ErrorHandler()
         self._error_handler.error_occurred.connect(self._on_error_occurred)
 
-        # 撤销/重做历史
         self._undo_stack = []
         self._redo_stack = []
         self._max_history = 50  # 最大历史记录数
 
-        # 最近打开的文件列表
         self._recent_files = []
         self._max_recent_files = 10  # 最多保留10个最近文件
+
+        # 页面切换时记录正在播放的视频预览器，以便返回素材页时恢复
+        self._videos_were_playing: list = []
 
         self._setup_ui()
         self._setup_menu()
@@ -119,10 +113,7 @@ class MainWindow(QMainWindow):
         if self._config is None and auto_create:
             self._init_temp_project()
 
-        # 启动时延迟检查更新（2秒后）
         QTimer.singleShot(2000, self._check_update_on_startup)
-
-        # 启动时检查崩溃恢复（3秒后）
         QTimer.singleShot(3000, self._check_crash_recovery)
 
         logger.info("主窗口初始化完成")
@@ -149,27 +140,27 @@ class MainWindow(QMainWindow):
         """设置UI"""
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         self.setMinimumSize(1200, 900)  # 增大最小高度，确保内容完全显示
-        # 隐藏标准菜单栏
         self.menuBar().setVisible(False)
-        # 设置窗口标志，去掉默认标题栏，使用自定义标题栏
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
                             Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint)
-        # 初始化窗口拖动变量
+        # 启用透明背景 — CSS border-radius 仅影响绘制不裁剪窗口形状，
+        # 必须配合 WA_TranslucentBackground + paintEvent 实现真正的圆角裁剪
+        # https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._bg_color = "#232323"
+        self._bg_pixmap = None
+        self._corner_radius = 16.0
         self._is_dragging = False
         self._drag_start_pos = None
-        # 初始化窗口大小调整变量
         self._is_resizing = False
         self._resize_direction = None
         self._resize_start_pos = None
         self._resize_start_geometry = None
-        # 窗口边缘的拖拽区域宽度
         self._resize_margin = 8
 
-        # 中心部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # 主布局
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -177,115 +168,51 @@ class MainWindow(QMainWindow):
         # === 顶部标题栏 ===
         self.header_bar = QWidget()
         self.header_bar.setObjectName("header_bar")
-        self.header_bar.setStyleSheet("""
-            QWidget { background-color: rgba(40, 40, 40, 0.7); color: white; border-top-right-radius: 16px; }
-            QLabel { font-weight: bold; font-size: 16px; }
-        """)
+        _header_default_qss = "QWidget { background-color: rgba(40, 40, 40, 0.7); color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; } QLabel { font-weight: bold; font-size: 16px; }"
+        setCustomStyleSheet(self.header_bar, _header_default_qss, _header_default_qss)
         header_layout = QHBoxLayout(self.header_bar)
         header_layout.setContentsMargins(20, 8, 20, 8)
         header_layout.setSpacing(24)
 
-        # Logo
         logo_label = QLabel("PRTS")
-        logo_label.setStyleSheet("""
-            QLabel {
-                background-color: white;
-                color: #ff6b8b;
-                border-radius: 16px;
-                padding: 8px 12px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-        """)
+        _logo_qss = "QLabel { background-color: white; color: #ff6b8b; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }"
+        setCustomStyleSheet(logo_label, _logo_qss, _logo_qss)
         header_layout.addWidget(logo_label)
 
-        # 标题
         title_label = QLabel(APP_NAME)
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        setCustomStyleSheet(title_label, "font-size: 16px; font-weight: bold;", "font-size: 16px; font-weight: bold;")
         header_layout.addWidget(title_label)
 
         header_layout.addStretch()
 
-        # 添加窗口控制按钮
         control_layout = QHBoxLayout()
         control_layout.setSpacing(5)
 
-        # 最小化按钮
+        # 窗口控制按钮通用样式（始终在主题色 header 上，文字白色）
+        _ctrl_btn_qss = "QPushButton { background-color: transparent; color: white; border: none; border-radius: 18px; font-size: 20px; font-weight: bold; padding: 0; margin: 0; } QPushButton:hover { background-color: rgba(255, 255, 255, 0.2); } QPushButton:pressed { background-color: rgba(255, 255, 255, 0.3); }"
+        _max_btn_qss = "QPushButton { background-color: transparent; color: white; border: none; border-radius: 18px; font-size: 16px; font-weight: bold; padding: 0; margin: 0; } QPushButton:hover { background-color: rgba(255, 255, 255, 0.2); } QPushButton:pressed { background-color: rgba(255, 255, 255, 0.3); }"
+        _close_btn_qss = "QPushButton { background-color: transparent; color: white; border: none; border-radius: 18px; font-size: 20px; font-weight: bold; padding: 0; margin: 0; } QPushButton:hover { background-color: rgba(255, 0, 0, 0.3); color: white; } QPushButton:pressed { background-color: rgba(255, 0, 0, 0.4); }"
+
         self.btn_minimize = PushButton("−")
         self.btn_minimize.setFixedSize(36, 36)
-        self.btn_minimize.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: white;
-                border: none;
-                border-radius: 18px;
-                font-size: 20px;
-                font-weight: bold;
-                padding: 0;
-                margin: 0;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.3);
-            }
-        """)
+        setCustomStyleSheet(self.btn_minimize, _ctrl_btn_qss, _ctrl_btn_qss)
         self.btn_minimize.clicked.connect(self.showMinimized)
         control_layout.addWidget(self.btn_minimize)
 
-        # 最大化按钮
         self.btn_maximize = PushButton("□")
         self.btn_maximize.setFixedSize(36, 36)
-        self.btn_maximize.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: white;
-                border: none;
-                border-radius: 18px;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 0;
-                margin: 0;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.3);
-            }
-        """)
+        setCustomStyleSheet(self.btn_maximize, _max_btn_qss, _max_btn_qss)
         self.btn_maximize.clicked.connect(self._on_maximize)
         control_layout.addWidget(self.btn_maximize)
 
-        # 关闭按钮
         self.btn_close = PushButton("×")
         self.btn_close.setFixedSize(36, 36)
-        self.btn_close.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: white;
-                border: none;
-                border-radius: 18px;
-                font-size: 20px;
-                font-weight: bold;
-                padding: 0;
-                margin: 0;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 0, 0, 0.3);
-                color: white;
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 0, 0, 0.4);
-            }
-        """)
+        setCustomStyleSheet(self.btn_close, _close_btn_qss, _close_btn_qss)
         self.btn_close.clicked.connect(self.close)
         control_layout.addWidget(self.btn_close)
 
         header_layout.addLayout(control_layout)
 
-        # 为header_bar添加鼠标事件处理
         self.header_bar.setMouseTracking(True)
         self.header_bar.mousePressEvent = self._on_header_mouse_press
         self.header_bar.mouseMoveEvent = self._on_header_mouse_move
@@ -293,7 +220,6 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self.header_bar)
 
-        # === 内容区域布局 ===
         content_container = QWidget()
         content_layout = QHBoxLayout(content_container)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -307,7 +233,6 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(0)
         sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # 侧边栏按钮 - 使用Fluent ToolButton和图标
         self.btn_firmware = ToolButton(FluentIcon.ROBOT, self.sidebar)
         self.btn_firmware.setCheckable(True)
         self.btn_firmware.setToolTip("固件烧录")
@@ -329,7 +254,11 @@ class MainWindow(QMainWindow):
         self.btn_about.setToolTip("项目介绍")
         self.btn_about.setFixedSize(50, 50)
 
-        # 创建按钮容器，居中显示
+        self.btn_remote = ToolButton(FluentIcon.WIFI, self.sidebar)
+        self.btn_remote.setCheckable(True)
+        self.btn_remote.setToolTip("远程管理")
+        self.btn_remote.setFixedSize(50, 50)
+
         buttons_container = QWidget()
         buttons_layout = QVBoxLayout(buttons_container)
         buttons_layout.setContentsMargins(0, 20, 0, 0)
@@ -340,11 +269,11 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(self.btn_material)
         buttons_layout.addWidget(self.btn_market)
         buttons_layout.addWidget(self.btn_about)
+        buttons_layout.addWidget(self.btn_remote)
 
         sidebar_layout.addWidget(buttons_container)
         sidebar_layout.addStretch()
 
-        # 设置按钮单独放在底部
         self.btn_settings = ToolButton(FluentIcon.SETTING, self.sidebar)
         self.btn_settings.setCheckable(True)
         self.btn_settings.setToolTip("设置")
@@ -354,7 +283,6 @@ class MainWindow(QMainWindow):
             alignment=Qt.AlignmentFlag.AlignCenter)
         sidebar_layout.addSpacing(20)
 
-        # 设置侧边栏固定宽度
         self.sidebar.setFixedWidth(80)
         content_layout.addWidget(self.sidebar)
 
@@ -365,17 +293,14 @@ class MainWindow(QMainWindow):
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(0)
 
-        # 三栏分割器（素材制作界面）
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # === 左侧: 配置面板 ===
         from gui.widgets.basic_config_panel import BasicConfigPanel
 
-        # 创建配置面板容器
         self.config_container = QWidget()
         self.config_layout = QVBoxLayout(self.config_container)
 
-        # 工具栏行：操作菜单 + 设置模式下拉框
         from qfluentwidgets import (
             ComboBox as FluentComboBox,
             DropDownPushButton, RoundMenu, Action
@@ -385,7 +310,6 @@ class MainWindow(QMainWindow):
         toolbar_layout.setContentsMargins(10, 10, 10, 4)
         toolbar_layout.setSpacing(8)
 
-        # 操作下拉按钮（左侧）
         self.btn_operations = DropDownPushButton(FluentIcon.MENU, "操作")
         self.btn_operations.setFixedHeight(34)
 
@@ -393,7 +317,6 @@ class MainWindow(QMainWindow):
         # Ensure the menu is wide enough so long shortcut labels aren't truncated
         operations_menu.setFixedWidth(500)
 
-        # 文件操作
         operations_menu.addAction(
             Action(
                 FluentIcon.DOCUMENT,
@@ -429,7 +352,6 @@ class MainWindow(QMainWindow):
 
         operations_menu.addSeparator()
 
-        # 编辑操作
         self.menu_action_undo = Action(
             FluentIcon.RETURN,
             "撤销",
@@ -449,7 +371,6 @@ class MainWindow(QMainWindow):
         operations_menu.addAction(self.menu_action_redo)
         operations_menu.addSeparator()
 
-        # 帮助
         operations_menu.addAction(
             Action(
                 FluentIcon.HELP,
@@ -460,7 +381,6 @@ class MainWindow(QMainWindow):
         )
         operations_menu.addSeparator()
 
-        # 退出
         operations_menu.addAction(
             Action(
                 FluentIcon.POWER_BUTTON,
@@ -472,7 +392,6 @@ class MainWindow(QMainWindow):
         self.btn_operations.setMenu(operations_menu)
         toolbar_layout.addWidget(self.btn_operations)
 
-        # 设置模式下拉框（右侧）
         self.settings_mode_combo = FluentComboBox()
         self.settings_mode_combo.addItem("基础设置", userData="basic")
         self.settings_mode_combo.addItem("高级设置", userData="advanced")
@@ -484,13 +403,9 @@ class MainWindow(QMainWindow):
         toolbar_layout.addStretch()
         self.config_layout.addLayout(toolbar_layout)
 
-        # 高级配置面板
         self.advanced_config_panel = ConfigPanel()
-
-        # 基础配置面板
         self.basic_config_panel = BasicConfigPanel()
 
-        # 默认显示基础配置面板
         self.config_layout.addWidget(self.advanced_config_panel)
         self.config_layout.addWidget(self.basic_config_panel)
         self.advanced_config_panel.setVisible(False)
@@ -514,7 +429,6 @@ class MainWindow(QMainWindow):
         preview_layout.setContentsMargins(5, 5, 5, 5)
         preview_layout.setSpacing(5)
 
-        # 标签页：入场视频 / 截取帧编辑 / 过渡图片 / 循环视频 - 使用Fluent TabWidget
         self.preview_tabs = TabWidget()
         self.preview_tabs.setTabsClosable(False)  # 禁用关闭按钮
         self.preview_tabs.setMovable(False)  # 禁用标签移动
@@ -528,7 +442,6 @@ class MainWindow(QMainWindow):
         self.intro_preview = VideoPreviewWidget()  # 入场视频预览
         self.transition_preview = TransitionPreviewWidget()  # 过渡图片预览
 
-        # 截取帧编辑标签页
         frame_capture_widget = QWidget()
         frame_capture_layout = QVBoxLayout(frame_capture_widget)
         frame_capture_layout.setContentsMargins(0, 0, 0, 0)
@@ -547,7 +460,6 @@ class MainWindow(QMainWindow):
         self.preview_tabs.addTab(self.video_preview, "循环视频")         # Tab 3
         preview_layout.addWidget(self.preview_tabs, stretch=1)
 
-        # 默认应用基础设置模式的标签页显示逻辑
         self._show_loop_tab_only()
 
         self.timeline = TimelineWidget()
@@ -559,7 +471,6 @@ class MainWindow(QMainWindow):
         self.json_preview = JsonPreviewWidget()
         self.splitter.addWidget(self.json_preview)
 
-        # 设置分割比例，增加中间预览区域的空间
         self.splitter.setSizes([350, 800, 300])
         self.splitter.setStretchFactor(0, 1)   # 左侧允许少量伸缩
         self.splitter.setStretchFactor(1, 20)  # 中间优先伸缩，权重更大
@@ -570,19 +481,16 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(content_container)
 
-        # 状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪")
 
-        # 拖放支持
         self._setup_drop_support()
 
     def _setup_menu(self):
         """设置菜单"""
         menubar = self.menuBar()
 
-        # 文件菜单
         file_menu = menubar.addMenu("文件(&F)")
 
         self.action_new = QAction("新建项目(&N)", self)
@@ -591,7 +499,6 @@ class MainWindow(QMainWindow):
         self.action_open = QAction("打开项目(&O)...", self)
         file_menu.addAction(self.action_open)
 
-        # 最近打开的文件
         self.recent_menu = file_menu.addMenu("最近打开(&R)")
         self._update_recent_menu()
 
@@ -608,7 +515,6 @@ class MainWindow(QMainWindow):
         self.action_exit = QAction("退出(&X)", self)
         file_menu.addAction(self.action_exit)
 
-        # 编辑菜单
         edit_menu = menubar.addMenu("编辑(&E)")
 
         self.action_undo = QAction("撤销(&U)", self)
@@ -619,13 +525,11 @@ class MainWindow(QMainWindow):
         self.action_redo.setEnabled(False)
         edit_menu.addAction(self.action_redo)
 
-        # 工具菜单
         tools_menu = menubar.addMenu("工具(&T)")
 
         self.action_flasher = QAction("固件烧录(&R)...", self)
         tools_menu.addAction(self.action_flasher)
 
-        # 帮助菜单
         help_menu = menubar.addMenu("帮助(&H)")
 
         self.action_shortcuts = QAction("快捷键帮助(&K)", self)
@@ -641,14 +545,12 @@ class MainWindow(QMainWindow):
 
     def _setup_shortcuts(self):
         """设置全局快捷键 - 统一注册到 MainWindow 上，不受子面板可见性影响"""
-        # 文件操作
         QShortcut(QKeySequence.StandardKey.New, self).activated.connect(self._on_new_project)
         QShortcut(QKeySequence.StandardKey.Open, self).activated.connect(self._on_open_project)
         QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._on_save_project)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self).activated.connect(self._on_save_as)
         QShortcut(QKeySequence.StandardKey.Quit, self).activated.connect(self.close)
 
-        # 撤销/重做（需要动态启用/禁用）
         self._shortcut_undo = QShortcut(QKeySequence.StandardKey.Undo, self)
         self._shortcut_undo.setEnabled(False)
         self._shortcut_undo.activated.connect(self._on_undo)
@@ -656,16 +558,13 @@ class MainWindow(QMainWindow):
         self._shortcut_redo.setEnabled(False)
         self._shortcut_redo.activated.connect(self._on_redo)
 
-        # 工具
         QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self._on_validate)
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_export)
 
-        # 帮助
         QShortcut(QKeySequence("F1"), self).activated.connect(self._on_shortcuts)
 
     def _connect_signals(self):
         """连接信号"""
-        # 菜单动作
         self.action_new.triggered.connect(self._on_new_project)
         self.action_open.triggered.connect(self._on_open_project)
         self.action_save.triggered.connect(self._on_save_project)
@@ -678,7 +577,6 @@ class MainWindow(QMainWindow):
         self.action_check_update.triggered.connect(self._on_check_update)
         self.action_about.triggered.connect(self._on_about)
 
-        # 高级配置面板信号
         self.advanced_config_panel.config_changed.connect(
             self._on_config_changed)
         self.advanced_config_panel.video_file_selected.connect(
@@ -698,38 +596,32 @@ class MainWindow(QMainWindow):
             self._on_transition_image_changed)
         self.advanced_config_panel.ssh_upload_requested.connect(self._on_ssh_upload)
         
-        # 基础配置面板信号
         self.basic_config_panel.config_changed.connect(self._on_config_changed)
         self.basic_config_panel.video_file_selected.connect(
             self._on_video_file_selected)
         self.basic_config_panel.validate_requested.connect(self._on_validate)
         self.basic_config_panel.export_requested.connect(self._on_export)
         self.basic_config_panel.ssh_upload_requested.connect(self._on_ssh_upload)
-        # 截取帧编辑 - 保存图标按钮
         self.btn_save_icon.clicked.connect(self._on_save_captured_icon)
 
-        # 过渡图片裁切变化
         self.transition_preview.transition_crop_changed.connect(
             self._on_transition_crop_changed)
 
-        # 标签页切换
         self.preview_tabs.currentChanged.connect(self._on_preview_tab_changed)
 
-        # 循环视频预览
         self.video_preview.video_loaded.connect(self._on_video_loaded)
         self.video_preview.frame_changed.connect(self._on_frame_changed)
         self.video_preview.playback_state_changed.connect(
             self._on_playback_changed)
         self.video_preview.rotation_changed.connect(self.timeline.set_rotation)
 
-        # 侧边栏导航
         self.btn_firmware.clicked.connect(self._on_sidebar_firmware)
         self.btn_material.clicked.connect(self._on_sidebar_material)
         self.btn_market.clicked.connect(self._on_sidebar_market)
         self.btn_about.clicked.connect(self._on_sidebar_about)
+        self.btn_remote.clicked.connect(self._on_sidebar_remote)
         self.btn_settings.clicked.connect(self._on_sidebar_settings)
 
-        # 入场视频预览
         self.intro_preview.video_loaded.connect(self._on_intro_video_loaded)
         self.intro_preview.frame_changed.connect(self._on_intro_frame_changed)
         self.intro_preview.playback_state_changed.connect(
@@ -737,13 +629,10 @@ class MainWindow(QMainWindow):
         self.intro_preview.rotation_changed.connect(
             self._on_intro_rotation_changed)
 
-        # 时间轴（默认连接到入场视频预览）
         self._connect_timeline_to_preview(self.intro_preview)
 
-        # 时间轴模拟器请求
         self.timeline.simulator_requested.connect(self._on_simulator)
 
-        # 入点/出点设置
         self.timeline.set_in_point_clicked.connect(self._on_set_in_point)
         self.timeline.set_out_point_clicked.connect(self._on_set_out_point)
 
@@ -755,7 +644,6 @@ class MainWindow(QMainWindow):
                 return
             export_dialog, dir_path = result
 
-            # 仅在导出成功后才继续上传
             if not getattr(export_dialog, '_is_completed', False) or \
                     export_dialog.label_status.text() != "导出完成!":
                 print("导出失败，取消SSH上传")
@@ -834,11 +722,9 @@ class MainWindow(QMainWindow):
                 with open(config_file, "r", encoding="utf-8") as f:
                     settings = json.load(f)
 
-                # 应用主题设置
                 theme_name = settings.get('theme', '默认')
                 self._apply_theme_change(theme_name)
 
-                # 应用硬件加速设置
                 hw_accel = settings.get('hardware_acceleration', True)
                 if not hw_accel:
                     self._apply_instant_settings(
@@ -870,7 +756,6 @@ class MainWindow(QMainWindow):
         """检查是否首次运行"""
         settings = QSettings("ArknightsPassMaker", "MainWindow")
         if not settings.value("first_run_completed", False, type=bool):
-            # 检查用户设置是否允许显示欢迎对话框
             show_welcome = True
             try:
                 import json
@@ -885,7 +770,6 @@ class MainWindow(QMainWindow):
                 pass
 
             if show_welcome:
-                # 显示开屏公告
                 self._show_splash_announcement()
                 settings.setValue("first_run_completed", True)
         else:
@@ -894,7 +778,6 @@ class MainWindow(QMainWindow):
 
     def _show_splash_announcement(self):
         """显示开屏公告"""
-        # 检查是否需要显示公告
         settings = QSettings("ArknightsPassMaker", "MainWindow")
         if not settings.value("show_announcement", True, type=bool):
             return
@@ -903,7 +786,6 @@ class MainWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtGui import QIcon
 
-        # 创建公告对话框
         dialog = QDialog(self)
         dialog.setWindowTitle("软件使用指南")
         dialog.setMinimumSize(800, 600)
@@ -915,12 +797,10 @@ class MainWindow(QMainWindow):
                     'icons',
                     'favicon.ico')))
 
-        # 主布局
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # 标题
         title_label = QLabel("欢迎使用明日方舟通行证素材制作器 v2.0")
         setCustomStyleSheet(
             title_label,
@@ -929,7 +809,6 @@ class MainWindow(QMainWindow):
         )
         main_layout.addWidget(title_label)
 
-        # 内容区域
         content_browser = QTextBrowser()
         setCustomStyleSheet(
             content_browser,
@@ -937,7 +816,6 @@ class MainWindow(QMainWindow):
             "font-size: 14px; line-height: 1.5;"
         )
 
-        # 公告内容
         announcement_content = """
         <h2>软件使用指南</h2>
 
@@ -1041,14 +919,11 @@ class MainWindow(QMainWindow):
         content_browser.setHtml(announcement_content)
         main_layout.addWidget(content_browser)
 
-        # 底部布局
         bottom_layout = QHBoxLayout()
 
-        # 不再显示复选框
         self.show_announcement_check = QCheckBox("下次启动时不再显示")
         bottom_layout.addWidget(self.show_announcement_check)
 
-        # 按钮
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
@@ -1060,10 +935,8 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(bottom_layout)
 
-        # 显示对话框
         dialog.exec()
 
-        # 如果用户选择不再显示，保存设置
         if self.show_announcement_check.isChecked():
             settings = QSettings("ArknightsPassMaker", "MainWindow")
             settings.setValue("show_announcement", False)
@@ -1086,7 +959,6 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("已创建临时项目，可以开始编辑")
         logger.info(f"已初始化临时项目: {temp_dir}")
 
-        # 启动自动保存服务（临时项目也支持自动保存）
         self._auto_save_service.start(
             self._config, self._project_path, self._base_dir)
 
@@ -1147,23 +1019,19 @@ class MainWindow(QMainWindow):
         if not self._check_save():
             return
 
-        # 选择目录
         dir_path = QFileDialog.getExistingDirectory(
             self, "选择项目目录", ""
         )
         if not dir_path:
             return
 
-        # 清理临时项目
         self._cleanup_temp_dir()
 
-        # 创建新配置
         self._config = EPConfig()
         self._base_dir = dir_path
         self._project_path = os.path.join(dir_path, "epconfig.json")
         self._is_modified = True
 
-        # 清空所有预览组件（防止旧项目内容残留）
         self.video_preview.clear()
         self.intro_preview.clear()
         self.frame_capture_preview.clear()
@@ -1174,7 +1042,6 @@ class MainWindow(QMainWindow):
         self._loop_in_out = (0, 0)
         self._intro_in_out = (0, 0)
 
-        # 更新UI
         self.advanced_config_panel.set_config(self._config, self._base_dir)
         self.basic_config_panel.set_config(self._config, self._base_dir)
         self.json_preview.set_config(self._config, self._base_dir)
@@ -1194,7 +1061,6 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        # 清理临时项目
         self._cleanup_temp_dir()
 
         try:
@@ -1203,7 +1069,6 @@ class MainWindow(QMainWindow):
             self._base_dir = os.path.dirname(path)
             self._is_modified = False
 
-            # 清空所有预览组件（防止旧项目内容残留）
             self.video_preview.clear()
             self.intro_preview.clear()
             self.frame_capture_preview.clear()
@@ -1214,40 +1079,33 @@ class MainWindow(QMainWindow):
             self._loop_in_out = (0, 0)
             self._intro_in_out = (0, 0)
 
-            # 更新UI
             self.advanced_config_panel.set_config(self._config, self._base_dir)
             self.basic_config_panel.set_config(self._config, self._base_dir)
             self.json_preview.set_config(self._config, self._base_dir)
             self.video_preview.set_epconfig(self._config)
 
-            # 同步目标分辨率到所有预览组件
             target_w, target_h = self._get_target_resolution()
             self.video_preview.set_target_resolution(target_w, target_h)
             self.intro_preview.set_target_resolution(target_w, target_h)
 
-            # 尝试加载循环素材（延迟执行，避免阻塞UI）
             if self._config.loop.file:
                 file_path = self._config.loop.file
-                # 如果是相对路径，转换为绝对路径
                 if not os.path.isabs(file_path):
                     file_path = os.path.join(self._base_dir, file_path)
 
                 if os.path.exists(file_path):
                     from PyQt6.QtCore import QTimer
                     if self._config.loop.is_image:
-                        # 图片模式：加载图片到预览器
                         logger.info(f"尝试加载循环图片: {file_path}")
                         QTimer.singleShot(
                             100, lambda fp=file_path: self._load_loop_image(fp))
                     else:
-                        # 视频模式
                         logger.info(f"尝试加载循环视频: {file_path}")
                         QTimer.singleShot(
                             100, lambda vp=file_path: self.video_preview.load_video(vp))
                 else:
                     logger.warning(f"循环素材文件不存在: {file_path}")
 
-            # 尝试加载入场视频
             if self._config.intro.enabled and self._config.intro.file:
                 intro_path = self._config.intro.file
                 if not os.path.isabs(intro_path):
@@ -1261,10 +1119,8 @@ class MainWindow(QMainWindow):
             self._update_title()
             self.status_bar.showMessage(f"已打开: {path}")
 
-            # 添加到最近文件列表
             self._add_recent_file(path)
 
-            # 启动自动保存服务
             self._auto_save_service.start(
                 self._config, self._project_path, self._base_dir)
 
@@ -1288,7 +1144,6 @@ class MainWindow(QMainWindow):
             self._base_dir = os.path.dirname(path)
             self._is_modified = False
 
-            # 清空所有预览组件
             self.video_preview.clear()
             self.intro_preview.clear()
             self.frame_capture_preview.clear()
@@ -1299,18 +1154,15 @@ class MainWindow(QMainWindow):
             self._loop_in_out = (0, 0)
             self._intro_in_out = (0, 0)
 
-            # 更新UI
             self.advanced_config_panel.set_config(self._config, self._base_dir)
             self.basic_config_panel.set_config(self._config, self._base_dir)
             self.json_preview.set_config(self._config, self._base_dir)
             self.video_preview.set_epconfig(self._config)
 
-            # 同步目标分辨率到所有预览组件
             target_w, target_h = self._get_target_resolution()
             self.video_preview.set_target_resolution(target_w, target_h)
             self.intro_preview.set_target_resolution(target_w, target_h)
 
-            # 延迟加载循环素材
             if self._config.loop.file:
                 file_path = self._config.loop.file
                 if not os.path.isabs(file_path):
@@ -1323,7 +1175,6 @@ class MainWindow(QMainWindow):
                         QTimer.singleShot(
                             100, lambda vp=file_path: self.video_preview.load_video(vp))
 
-            # 延迟加载入场视频
             if self._config.intro.enabled and self._config.intro.file:
                 intro_path = self._config.intro.file
                 if not os.path.isabs(intro_path):
@@ -1374,7 +1225,6 @@ class MainWindow(QMainWindow):
         try:
             new_base_dir = os.path.dirname(path)
 
-            # 从临时项目迁移到永久目录
             if self._temp_dir and self._base_dir == self._temp_dir:
                 self._migrate_temp_to_permanent(new_base_dir)
 
@@ -1383,7 +1233,6 @@ class MainWindow(QMainWindow):
             self._base_dir = new_base_dir
             self._is_modified = False
 
-            # 更新面板的 base_dir
             self.advanced_config_panel.set_config(self._config, self._base_dir)
             self.basic_config_panel.set_config(self._config, self._base_dir)
             self.json_preview.set_config(self._config, self._base_dir)
@@ -1428,7 +1277,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先创建或打开项目")
             return
 
-        # 验证配置
         from core.validator import EPConfigValidator
         validator = EPConfigValidator(self._base_dir)
         validator.validate_config(self._config)
@@ -1441,7 +1289,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "验证失败", msg)
             return
 
-        # 检查循环素材是否已配置
         has_loop_video = self.video_preview.video_path
         has_loop_image = self._config.loop.is_image and hasattr(
             self, '_loop_image_path') and self._loop_image_path
@@ -1454,14 +1301,12 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # 选择导出目录
         dir_path = QFileDialog.getExistingDirectory(
             self, "选择导出目录", self._base_dir
         )
         if not dir_path:
             return
 
-        # 收集导出数据
         try:
             export_data = self._collect_export_data()
         except Exception as e:
@@ -1469,27 +1314,23 @@ class MainWindow(QMainWindow):
             show_error(e, "收集导出数据", self)
             return
 
-        # 处理arknights叠加的自定义图片
         try:
             self._process_arknights_custom_images(dir_path)
         except Exception as e:
             logger.error(f"处理自定义图片失败: {e}")
             show_error(e, "处理自定义图片", self)
 
-        # 处理 ImageOverlay 路径
         try:
             self._process_image_overlay(dir_path)
         except Exception as e:
             logger.error(f"处理 ImageOverlay 失败: {e}")
 
-        # 创建导出服务和进度对话框
         from core.export_service import ExportService
         from gui.dialogs.export_progress_dialog import ExportProgressDialog
 
         self._export_service = ExportService(self)
         self._export_dialog = ExportProgressDialog(self)
 
-        # 连接信号
         self._export_service.progress_updated.connect(
             self._export_dialog.update_progress
         )
@@ -1503,7 +1344,6 @@ class MainWindow(QMainWindow):
             self._export_service.cancel
         )
 
-        # 启动导出
         self._export_service.export_all(
             output_dir=dir_path,
             epconfig=self._config,
@@ -1514,7 +1354,6 @@ class MainWindow(QMainWindow):
             loop_image_path=export_data.get('loop_image_path'),
         )
 
-        # 显示进度对话框
         self._export_dialog.exec()
         return self._export_dialog, dir_path
 
@@ -1526,7 +1365,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先创建或打开项目")
             return
 
-        # 检查是否有循环视频
         if not self._config.loop.file:
             QMessageBox.warning(
                 self, "警告",
@@ -1535,7 +1373,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # 查找 Rust 模拟器可执行文件
         simulator_path = os.path.join(
             self._app_dir,
             "simulator", "target", "release", "arknights_pass_simulator.exe"
@@ -1553,10 +1390,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            # 使用项目目录中的 epconfig.json
             config_path = os.path.join(self._base_dir, "epconfig.json")
 
-            # 确保配置已保存（避免内存中的修改与文件不一致）
             if not os.path.exists(config_path):
                 QMessageBox.warning(
                     self, "警告",
@@ -1565,11 +1400,9 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            # 获取 cropbox 参数（使用原始坐标系）
-            cropbox = self.video_preview.get_cropbox_for_export()
+            cropbox = self.video_preview.get_cropbox_in_rotated_space()
             rotation = self.video_preview.get_rotation()
 
-            # 启动 Rust 模拟器
             popen_kwargs = {}
             if sys.platform == 'win32':
                 popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
@@ -1577,18 +1410,18 @@ class MainWindow(QMainWindow):
             # 设置工作目录为应用根目录，确保模拟器能找到 FFmpeg DLL
             # Windows DLL 搜索顺序：exe 所在目录 → system32 → PATH
             # 模拟器 exe 在 simulator/target/release/ 子目录，无法找到根目录的 DLL
-            popen_kwargs['cwd'] = app_dir
+            popen_kwargs['cwd'] = self._app_dir
 
             # 双保险：将 app_dir 加入 PATH 环境变量
             env = os.environ.copy()
-            env['PATH'] = app_dir + os.pathsep + env.get('PATH', '')
+            env['PATH'] = self._app_dir + os.pathsep + env.get('PATH', '')
             popen_kwargs['env'] = env
 
             proc = subprocess.Popen([
                 simulator_path,
                 "--config", config_path,
                 "--base-dir", self._base_dir,
-                "--app-dir", app_dir,
+                "--app-dir", self._app_dir,
                 "--cropbox", f"{cropbox[0]},{cropbox[1]},{cropbox[2]},{cropbox[3]}",
                 "--rotation", str(rotation)
             ], **popen_kwargs)
@@ -1698,19 +1531,15 @@ class MainWindow(QMainWindow):
         if not self._undo_stack:
             return
 
-        # 获取上一个状态
         prev_state = self._undo_stack.pop()
 
-        # 保存当前状态到重做栈
         current_state = self._config.to_dict() if self._config else {}
         self._redo_stack.append(current_state)
 
-        # 恢复上一个状态
         if prev_state:
             self._config = EPConfig.from_dict(prev_state)
             self._update_ui_from_config()
 
-        # 更新按钮状态
         self.action_undo.setEnabled(len(self._undo_stack) > 0)
         self.action_redo.setEnabled(len(self._redo_stack) > 0)
         self.menu_action_undo.setEnabled(len(self._undo_stack) > 0)
@@ -1725,19 +1554,15 @@ class MainWindow(QMainWindow):
         if not self._redo_stack:
             return
 
-        # 获取下一个状态
         next_state = self._redo_stack.pop()
 
-        # 保存当前状态到撤销栈
         current_state = self._config.to_dict() if self._config else {}
         self._undo_stack.append(current_state)
 
-        # 恢复下一个状态
         if next_state:
             self._config = EPConfig.from_dict(next_state)
             self._update_ui_from_config()
 
-        # 更新按钮状态
         self.action_undo.setEnabled(len(self._undo_stack) > 0)
         self.action_redo.setEnabled(len(self._redo_stack) > 0)
         self.menu_action_undo.setEnabled(len(self._undo_stack) > 0)
@@ -1755,14 +1580,11 @@ class MainWindow(QMainWindow):
         current_state = self._config.to_dict()
         self._undo_stack.append(current_state)
 
-        # 限制历史记录数量
         if len(self._undo_stack) > self._max_history:
             self._undo_stack.pop(0)
 
-        # 清空重做栈
         self._redo_stack.clear()
 
-        # 更新按钮状态
         self.action_undo.setEnabled(len(self._undo_stack) > 0)
         self.action_redo.setEnabled(False)
         self.menu_action_undo.setEnabled(len(self._undo_stack) > 0)
@@ -1783,16 +1605,38 @@ class MainWindow(QMainWindow):
         self._is_modified = True
         self._update_title()
 
+    def _pause_all_videos(self):
+        """暂停所有正在播放的视频预览，记录播放状态以便返回时恢复"""
+        self._videos_were_playing = []
+        all_previews = [
+            self.video_preview,
+            self.intro_preview,
+            self.frame_capture_preview,
+            self.transition_preview.preview_in,
+            self.transition_preview.preview_loop,
+        ]
+        for p in all_previews:
+            if p.is_playing:
+                self._videos_were_playing.append(p)
+                p.pause()
+
+    def _resume_videos(self):
+        """恢复之前暂停的视频播放"""
+        for p in self._videos_were_playing:
+            p.play()
+        self._videos_were_playing = []
+
     def _on_sidebar_firmware(self):
         """侧边栏：固件烧录"""
-        # 重置所有按钮状态
         self.btn_firmware.setChecked(True)
         self.btn_material.setChecked(False)
         self.btn_market.setChecked(False)
         self.btn_about.setChecked(False)
+        self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
 
-        # 隐藏其他视图
+        self._pause_all_videos()
+
         self.splitter.setVisible(False)
         if hasattr(self, '_market_widget'):
             self._market_widget.setVisible(False)
@@ -1800,59 +1644,47 @@ class MainWindow(QMainWindow):
             self._settings_page.setVisible(False)
         if hasattr(self, '_about_widget'):
             self._about_widget.setVisible(False)
+        if hasattr(self, '_remote_page'):
+            self._remote_page.setVisible(False)
 
-        # 检查是否已经创建了烧录界面
         if not hasattr(self, '_flasher_widget'):
             from gui.dialogs.flasher_dialog import FlasherDialog
 
-            # 创建烧录界面widget
             self._flasher_widget = QWidget()
             self._flasher_widget_layout = QVBoxLayout(self._flasher_widget)
 
-            # 创建FlasherDialog实例，但不显示为对话框
             self._flasher_dialog = FlasherDialog(self)
-
-            # 移除对话框的窗口装饰
             self._flasher_dialog.setWindowFlags(Qt.WindowType.Widget)
-
-            # 将FlasherDialog添加到widget中
             self._flasher_widget_layout.addWidget(self._flasher_dialog)
-
-            # 添加到内容布局
             self.content_layout.addWidget(self._flasher_widget)
 
-        # 显示烧录界面
         self._flasher_widget.setVisible(True)
         self.status_bar.showMessage("固件烧录模式")
 
     def _on_sidebar_material(self):
         """侧边栏：素材制作"""
-        # 重置所有按钮状态
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(True)
         self.btn_market.setChecked(False)
         self.btn_about.setChecked(False)
+        self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
 
-        # 隐藏市场视图（如果存在）
         if hasattr(self, '_market_widget'):
             self._market_widget.setVisible(False)
-
-        # 隐藏设置视图（如果存在）
         if hasattr(self, '_settings_page'):
             self._settings_page.setVisible(False)
-
-        # 隐藏项目介绍视图（如果存在）
         if hasattr(self, '_about_widget'):
             self._about_widget.setVisible(False)
-
-        # 隐藏烧录界面（如果存在）
         if hasattr(self, '_flasher_widget'):
             self._flasher_widget.setVisible(False)
+        if hasattr(self, '_remote_page'):
+            self._remote_page.setVisible(False)
 
-        # 显示素材制作界面
         self.splitter.setVisible(True)
         self.status_bar.showMessage("素材制作模式")
+
+        self._resume_videos()
 
     def _on_sidebar_market(self):
         """侧边栏：素材商城"""
@@ -1860,7 +1692,10 @@ class MainWindow(QMainWindow):
         self.btn_material.setChecked(False)
         self.btn_market.setChecked(True)
         self.btn_about.setChecked(False)
+        self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
+
+        self._pause_all_videos()
 
         self.splitter.setVisible(False)
         if hasattr(self, '_settings_page'):
@@ -1869,6 +1704,8 @@ class MainWindow(QMainWindow):
             self._about_widget.setVisible(False)
         if hasattr(self, '_flasher_widget'):
             self._flasher_widget.setVisible(False)
+        if hasattr(self, '_remote_page'):
+            self._remote_page.setVisible(False)
 
         if not hasattr(self, '_market_widget'):
             try:
@@ -1897,14 +1734,15 @@ class MainWindow(QMainWindow):
 
     def _on_sidebar_about(self):
         """侧边栏：项目介绍"""
-        # 重置所有按钮状态
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(False)
         self.btn_market.setChecked(False)
         self.btn_about.setChecked(True)
+        self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
 
-        # 隐藏其他视图
+        self._pause_all_videos()
+
         self.splitter.setVisible(False)
         if hasattr(self, '_market_widget'):
             self._market_widget.setVisible(False)
@@ -1912,20 +1750,19 @@ class MainWindow(QMainWindow):
             self._settings_page.setVisible(False)
         if hasattr(self, '_flasher_widget'):
             self._flasher_widget.setVisible(False)
+        if hasattr(self, '_remote_page'):
+            self._remote_page.setVisible(False)
 
-        # 预创建项目介绍视图（如果尚未创建）
         if not hasattr(self, '_about_widget'):
             from PyQt6.QtWidgets import QLabel, QVBoxLayout, QTextBrowser
 
-            # 创建项目介绍视图
             self._about_widget = QWidget()
-            self._about_widget.setVisible(False)  # 初始设置为不可见
+            self._about_widget.setVisible(False)
 
             about_layout = QVBoxLayout(self._about_widget)
             about_layout.setContentsMargins(20, 10, 20, 10)  # 减小上下边距
-            about_layout.setSpacing(15)  # 设置间距
+            about_layout.setSpacing(15)
 
-            # 标题
             title_label = QLabel("项目介绍")
             setCustomStyleSheet(
                 title_label,
@@ -1934,7 +1771,6 @@ class MainWindow(QMainWindow):
             )
             about_layout.addWidget(title_label)
 
-            # 创建WebEngineView
             try:
                 from PyQt6.QtWebEngineWidgets import QWebEngineView
                 web_view = QWebEngineView()
@@ -1946,7 +1782,6 @@ class MainWindow(QMainWindow):
                 )
                 about_layout.addWidget(web_view)
 
-                # 添加网站链接
                 url_label = QLabel(
                     f"网站链接: <a href='https://ep.iccmc.cc'>https://ep.iccmc.cc</a>")
                 url_label.setOpenExternalLinks(True)
@@ -1958,7 +1793,6 @@ class MainWindow(QMainWindow):
                 about_layout.addWidget(url_label)
 
             except Exception as e:
-                # 如果无法加载WebEngine，显示错误信息
                 text_browser = QTextBrowser()
                 text_browser.setOpenExternalLinks(True)
                 setCustomStyleSheet(
@@ -1989,7 +1823,6 @@ class MainWindow(QMainWindow):
                 text_browser.setHtml(error_html)
                 about_layout.addWidget(text_browser)
 
-                # 添加网站链接
                 url_label = QLabel(
                     f"网站链接: <a href='https://ep.iccmc.cc'>https://ep.iccmc.cc</a>")
                 url_label.setOpenExternalLinks(True)
@@ -2000,10 +1833,8 @@ class MainWindow(QMainWindow):
                 )
                 about_layout.addWidget(url_label)
 
-            # 一次性添加到内容布局
             self.content_layout.addWidget(self._about_widget)
 
-        # 显示项目介绍视图
         self._about_widget.setVisible(True)
 
         self.status_bar.showMessage("项目介绍")
@@ -2017,11 +1848,9 @@ class MainWindow(QMainWindow):
         """基础模式：仅显示循环视频标签页，修复 isSelected 残留"""
         if not hasattr(self, 'preview_tabs'):
             return
-        # 先切到目标标签页
         self.preview_tabs.setCurrentIndex(3)
         if 3 < self.preview_tabs.count():
             self.preview_tabs.setTabVisible(3, True)
-        # 再隐藏其他标签页
         for i in [0, 1, 2]:
             if i < self.preview_tabs.count():
                 self.preview_tabs.setTabVisible(i, False)
@@ -2048,67 +1877,95 @@ class MainWindow(QMainWindow):
         """设置模式切换"""
         try:
             if mode == "basic":
-                # 切换前：从高级面板同步数据到config
+                # 切换前先同步，避免丢失高级面板的修改
                 if self.advanced_config_panel.isVisible():
                     self.advanced_config_panel.update_config_from_ui()
 
-                # 显示基础设置界面
                 self.advanced_config_panel.setVisible(False)
                 self.basic_config_panel.setVisible(True)
 
-                # 切换后：用最新config同步基础面板
                 if self._config:
                     self.basic_config_panel.set_config(self._config, self._base_dir)
 
                 self.status_bar.showMessage("基础设置模式 - 简化界面")
-
-                # 基础模式下，只显示循环视频标签页
                 self._show_loop_tab_only()
             elif mode == "advanced":
-                # 切换前：从基础面板同步数据到config
+                # 切换前先同步，避免丢失基础面板的修改
                 if self.basic_config_panel.isVisible():
                     self.basic_config_panel.update_config_from_ui()
 
-                # 显示高级设置界面
                 self.advanced_config_panel.setVisible(True)
                 self.basic_config_panel.setVisible(False)
 
-                # 切换后：用最新config同步高级面板
                 if self._config:
                     self.advanced_config_panel.set_config(self._config, self._base_dir)
 
                 self.status_bar.showMessage("高级设置模式 - 完整界面")
-
-                # 高级模式下，显示所有标签页
                 self._show_all_tabs()
         except Exception as e:
             logger.error(f"设置模式切换错误: {e}")
 
-    def _on_sidebar_settings(self):
-        """侧边栏：设置"""
-        # 重置所有按钮状态
+    def _on_sidebar_remote(self):
+        """侧边栏：远程管理"""
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(False)
         self.btn_market.setChecked(False)
         self.btn_about.setChecked(False)
-        self.btn_settings.setChecked(True)
+        self.btn_remote.setChecked(True)
+        self.btn_settings.setChecked(False)
 
-        # 隐藏市场视图（如果存在）
+        self._pause_all_videos()
+
+        self.splitter.setVisible(False)
         if hasattr(self, '_market_widget'):
             self._market_widget.setVisible(False)
-
-        # 隐藏素材制作界面
-        self.splitter.setVisible(False)
-
-        # 隐藏项目介绍视图（如果存在）
+        if hasattr(self, '_settings_page'):
+            self._settings_page.setVisible(False)
         if hasattr(self, '_about_widget'):
             self._about_widget.setVisible(False)
-
-        # 隐藏烧录界面（如果存在）
         if hasattr(self, '_flasher_widget'):
             self._flasher_widget.setVisible(False)
 
-        # 懒创建设置页面（只创建一次，复用 widget）
+        if not hasattr(self, '_remote_page'):
+            from gui.widgets.remote_page import RemotePage
+            self._remote_page = RemotePage(parent=self)
+            self.content_layout.addWidget(self._remote_page)
+
+            try:
+                import json
+                config_file = os.path.join(self._app_dir, "config",
+                                           "user_settings.json")
+                if os.path.exists(config_file):
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        settings = json.load(f)
+                    self._remote_page.load_settings(settings)
+            except Exception:
+                pass
+
+        self._remote_page.setVisible(True)
+        self.status_bar.showMessage("远程管理模式")
+
+    def _on_sidebar_settings(self):
+        """侧边栏：设置"""
+        self.btn_firmware.setChecked(False)
+        self.btn_material.setChecked(False)
+        self.btn_market.setChecked(False)
+        self.btn_about.setChecked(False)
+        self.btn_remote.setChecked(False)
+        self.btn_settings.setChecked(True)
+
+        self._pause_all_videos()
+
+        if hasattr(self, '_market_widget'):
+            self._market_widget.setVisible(False)
+        self.splitter.setVisible(False)
+        if hasattr(self, '_about_widget'):
+            self._about_widget.setVisible(False)
+        if hasattr(self, '_flasher_widget'):
+            self._flasher_widget.setVisible(False)
+        if hasattr(self, '_remote_page'):
+            self._remote_page.setVisible(False)
+
         if not hasattr(self, '_settings_page'):
             from gui.widgets.settings_page import SettingsPage
             self._settings_page = SettingsPage(parent=self)
@@ -2120,7 +1977,6 @@ class MainWindow(QMainWindow):
                 self._on_shortcuts)
             self.content_layout.addWidget(self._settings_page)
 
-        # 加载当前设置
         self._load_settings_to_page()
         self._settings_page.setVisible(True)
 
@@ -2128,35 +1984,28 @@ class MainWindow(QMainWindow):
 
     def _on_nav_file(self):
         """顶部导航：文件"""
-        # 实现文件菜单功能
         from PyQt6.QtWidgets import QMenu, QMessageBox
         from PyQt6.QtGui import QAction
 
         try:
-            # 创建文件菜单
             file_menu = QMenu(self)
 
-            # 新建项目
             new_action = QAction("新建项目", self)
             new_action.triggered.connect(self._on_new_project)
             file_menu.addAction(new_action)
 
-            # 打开项目
             open_action = QAction("打开项目", self)
             open_action.triggered.connect(self._on_open_project)
             file_menu.addAction(open_action)
 
-            # 保存项目
             save_action = QAction("保存项目", self)
             save_action.triggered.connect(self._on_save_project)
             file_menu.addAction(save_action)
 
-            # 另存为
             save_as_action = QAction("另存为", self)
             save_as_action.triggered.connect(self._on_save_as)
             file_menu.addAction(save_as_action)
 
-            # 显示菜单
             pos = self.btn_nav_file.mapToGlobal(
                 self.btn_nav_file.rect().bottomLeft())
             file_menu.exec(pos)
@@ -2167,10 +2016,8 @@ class MainWindow(QMainWindow):
     def _on_nav_basic(self):
         """顶部导航：基础设置"""
         try:
-            # 切换到素材制作模式
             self._on_sidebar_material()
 
-            # 显示简化的基础设置界面
             if hasattr(
                     self,
                     'advanced_config_panel') and hasattr(
@@ -2180,7 +2027,6 @@ class MainWindow(QMainWindow):
                 self.basic_config_panel.setVisible(True)
                 self.status_bar.showMessage("基础设置模式 - 简化界面")
 
-            # 基础模式下，只显示循环视频标签页
             self._show_loop_tab_only()
         except Exception as e:
             logger.error(f"基础设置切换错误: {e}")
@@ -2188,10 +2034,8 @@ class MainWindow(QMainWindow):
     def _on_nav_advanced(self):
         """顶部导航：高级设置"""
         try:
-            # 切换到素材制作模式
             self._on_sidebar_material()
 
-            # 显示完整的高级设置界面
             if hasattr(
                     self,
                     'advanced_config_panel') and hasattr(
@@ -2201,37 +2045,30 @@ class MainWindow(QMainWindow):
                 self.basic_config_panel.setVisible(False)
                 self.status_bar.showMessage("高级设置模式 - 完整界面")
 
-            # 高级模式下，显示所有标签页
             self._show_all_tabs()
         except Exception as e:
             logger.error(f"高级设置切换错误: {e}")
 
     def _on_nav_help(self):
         """顶部导航：帮助"""
-        # 实现帮助菜单功能
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
 
         try:
-            # 创建帮助菜单
             help_menu = QMenu(self)
 
-            # 快捷键帮助
             shortcuts_action = QAction("快捷键帮助", self)
             shortcuts_action.triggered.connect(self._on_shortcuts)
             help_menu.addAction(shortcuts_action)
 
-            # 检查更新
             update_action = QAction("检查更新", self)
             update_action.triggered.connect(self._on_check_update)
             help_menu.addAction(update_action)
 
-            # 关于
             about_action = QAction("关于", self)
             about_action.triggered.connect(self._on_about)
             help_menu.addAction(about_action)
 
-            # 显示菜单
             pos = self.btn_nav_help.mapToGlobal(
                 self.btn_nav_help.rect().bottomLeft())
             help_menu.exec(pos)
@@ -2254,11 +2091,9 @@ class MainWindow(QMainWindow):
 
             settings = QSettings("ArknightsPassMaker", "MainWindow")
 
-            # 检查是否启用自动更新（默认启用）
             auto_check_enabled = settings.value(
                 "auto_check_updates", True, type=bool)
 
-            # 从用户设置文件中获取自动更新设置
             try:
                 import json
                 config_dir = os.path.join(self._app_dir, "config")
@@ -2286,7 +2121,6 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     pass
 
-            # 创建更新服务进行后台检查
             from core.update_service import UpdateService
 
             self._startup_update_service = UpdateService(APP_VERSION, self)
@@ -2296,7 +2130,6 @@ class MainWindow(QMainWindow):
                 self._on_startup_update_check_failed)
             self._startup_update_service.check_for_updates()
 
-            # 记录检查时间
             settings.setValue(
                 "last_update_check", datetime.now().isoformat())
 
@@ -2306,14 +2139,12 @@ class MainWindow(QMainWindow):
     def _check_crash_recovery(self):
         """启动时检查崩溃恢复"""
         try:
-            # 检查是否有可恢复的项目
             recovery_list = self._crash_recovery_service.check_crash_recovery()
 
             if not recovery_list:
                 logger.info("没有发现可恢复的项目")
                 return
 
-            # 显示崩溃恢复对话框
             from gui.dialogs.crash_recovery_dialog import CrashRecoveryDialog
 
             dialog = CrashRecoveryDialog(self._crash_recovery_service, self)
@@ -2330,10 +2161,7 @@ class MainWindow(QMainWindow):
     def _on_recovery_requested(self, recovery_info, target_path):
         """恢复项目请求"""
         try:
-            # 打开恢复的项目
             self._load_project(target_path)
-
-            # 清理旧的恢复信息
             self._crash_recovery_service.cleanup_old_recoveries(
                 max_age_hours=24)
 
@@ -2350,7 +2178,6 @@ class MainWindow(QMainWindow):
     def _on_startup_update_check_completed(self, release_info):
         """启动时更新检查完成"""
         if release_info:
-            # 发现新版本，弹出提示
             result = QMessageBox.information(
                 self, "发现新版本",
                 f"发现新版本 v{release_info.version}\n\n"
@@ -2361,7 +2188,6 @@ class MainWindow(QMainWindow):
             if result == QMessageBox.StandardButton.Yes:
                 self._on_check_update()
 
-        # 清理
         if hasattr(self, '_startup_update_service'):
             self._startup_update_service.deleteLater()
             del self._startup_update_service
@@ -2378,12 +2204,9 @@ class MainWindow(QMainWindow):
         self._is_modified = True
         self._update_title()
 
-        # 更新JSON预览
         if self._config:
             self.json_preview.set_config(self._config, self._base_dir)
-            # 更新视频预览的叠加UI配置
             self.video_preview.set_epconfig(self._config)
-            # 同步目标分辨率到所有预览组件
             target_w, target_h = self._get_target_resolution()
             self.video_preview.set_target_resolution(target_w, target_h)
             self.intro_preview.set_target_resolution(target_w, target_h)
@@ -2392,18 +2215,14 @@ class MainWindow(QMainWindow):
         """视频文件被选择"""
         logger.info(f"视频文件被选择: {path}")
 
-        # 检查路径是否存在
         import os
         path_exists = os.path.exists(path)
         logger.info(f"路径存在检查: {path_exists}")
 
-        # 尝试使用不同的编码方式检查路径
         try:
-            # 尝试使用原始路径
             path_exists_raw = os.path.exists(path)
             logger.info(f"原始路径检查: {path_exists_raw}")
 
-            # 尝试使用 Unicode 路径
             if isinstance(path, str):
                 path_exists_unicode = os.path.exists(path)
                 logger.info(f"Unicode 路径检查: {path_exists_unicode}")
@@ -2411,34 +2230,26 @@ class MainWindow(QMainWindow):
             logger.error(f"路径检查出错: {e}")
 
         if path:
-            # 即使路径检查失败，也尝试加载文件
             logger.info("尝试加载文件...")
             try:
-                # 检查文件类型
                 ext = os.path.splitext(path)[1].lower()
                 image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".gif"]
 
                 if ext in image_extensions:
-                    # 加载图片
                     logger.info("加载图片文件...")
                     self.video_preview.load_static_image_from_file(path)
                 else:
-                    # 加载视频
                     logger.info("加载视频文件...")
                     self.video_preview.load_video(path)
 
-                # 无论是否在基础模式下，都将时间轴连接到video_preview
                 logger.info("将时间轴连接到video_preview")
                 self._connect_timeline_to_preview(self.video_preview)
 
-                # 检查是否在基础模式下
                 if hasattr(
                         self,
                         'basic_config_panel') and self.basic_config_panel.isVisible():
-                    # 基础模式下，不自动切换标签页，保持在当前标签页
                     logger.info("基础模式下，不自动切换标签页")
                 else:
-                    # 高级模式下，切换到循环视频标签页
                     self.preview_tabs.setCurrentIndex(3)
             except Exception as e:
                 logger.error(f"加载文件出错: {e}")
@@ -2450,7 +2261,6 @@ class MainWindow(QMainWindow):
         logger.info(f"入场视频文件被选择: {path}")
         if path and os.path.exists(path):
             if self.intro_preview.load_video(path):
-                # 切换到入场视频标签页
                 self.preview_tabs.setCurrentIndex(0)
         else:
             logger.warning(f"入场视频文件不存在: {path}")
@@ -2472,7 +2282,6 @@ class MainWindow(QMainWindow):
 
             settings[setting_name] = value
 
-            # 主题图片选择时自动切换主题
             if setting_name == 'theme_image' and value:
                 settings['theme'] = '自定义图片'
 
@@ -2480,7 +2289,6 @@ class MainWindow(QMainWindow):
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
 
-            # 应用即时生效的设置
             self._apply_instant_settings(setting_name, value)
 
             self.status_bar.showMessage(f"设置已应用: {setting_name}")
@@ -2528,19 +2336,14 @@ class MainWindow(QMainWindow):
                 with open(config_file, "r", encoding="utf-8") as f:
                     settings = json.load(f)
 
-            # 根据主题名称应用不同的主题
             if theme_name == '默认':
-                # 应用默认主题
                 self._apply_default_theme()
             elif theme_name == '自定义':
-                # 应用自定义主题颜色
                 theme_color = settings.get('theme_color', '#ff6b8b')
                 self._apply_theme_color(theme_color)
             elif theme_name == '自定义图片':
-                # 应用自定义主题颜色（先应用颜色）
                 theme_color = settings.get('theme_color', '#ff6b8b')
                 self._apply_theme_color(theme_color)
-                # 然后应用自定义主题图片
                 theme_image = settings.get('theme_image', '')
                 if theme_image:
                     self._apply_theme_image(theme_image)
@@ -2550,32 +2353,30 @@ class MainWindow(QMainWindow):
 
     def _apply_default_theme(self):
         """应用默认主题"""
-        # 应用默认主题颜色
         self._apply_theme_color('#ff6b8b')
 
     def _apply_light_theme(self):
         """应用浅色主题"""
-        # 应用浅色主题颜色
         self._apply_theme_color('#4CAF50')
 
     def _apply_dark_theme(self):
         """应用深色主题"""
-        # 应用深色主题颜色
         self._apply_theme_color('#2196F3')
 
     def _apply_theme_color(self, color_hex):
         """应用主题颜色到界面"""
-        # 应用主题颜色到标题栏（纯色，与颜色选择器保持一致，添加圆角）
-        if hasattr(self, 'header_bar'):
-            style = f"QWidget {{ background-color: {color_hex}; color: white; border-top-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
-            self.header_bar.setStyleSheet(style)
-        
-        # 应用主题颜色到侧边栏（纯色，与顶部栏保持一致）
-        if hasattr(self, 'sidebar'):
-            sidebar_style = f"QWidget {{ background-color: {color_hex}; border-bottom-right-radius: 16px; }}"
-            self.sidebar.setStyleSheet(sidebar_style)
+        self._bg_color = color_hex
+        self._bg_pixmap = None
+        self.update()
 
-        # 应用主题颜色到导航按钮（如果存在）
+        if hasattr(self, 'header_bar'):
+            header_qss = f"QWidget {{ background-color: {color_hex}; color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
+            setCustomStyleSheet(self.header_bar, header_qss, header_qss)
+
+        if hasattr(self, 'sidebar'):
+            sidebar_qss = f"QWidget {{ background-color: {color_hex}; border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; }}"
+            setCustomStyleSheet(self.sidebar, sidebar_qss, sidebar_qss)
+
         nav_buttons = [
             'btn_nav_file',
             'btn_nav_basic',
@@ -2584,26 +2385,38 @@ class MainWindow(QMainWindow):
         for btn_name in nav_buttons:
             if hasattr(self, btn_name):
                 btn = getattr(self, btn_name)
-                style = "QPushButton { background-color: transparent; color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; } QPushButton:hover { background-color: rgba(255, 255, 255, 0.2); } QPushButton:pressed, QPushButton:checked { background-color: rgba(255, 255, 255, 0.3); }"
-                btn.setStyleSheet(style)
+                nav_qss = "QPushButton { background-color: transparent; color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; } QPushButton:hover { background-color: rgba(255, 255, 255, 0.2); } QPushButton:pressed, QPushButton:checked { background-color: rgba(255, 255, 255, 0.3); }"
+                setCustomStyleSheet(btn, nav_qss, nav_qss)
 
-        # 应用主题颜色到侧边栏按钮
         for btn in [
                 self.btn_firmware,
                 self.btn_material,
                 self.btn_market,
+                self.btn_about,
+                self.btn_remote,
                 self.btn_settings]:
-            style = f"QPushButton {{ background-color: white; color: #333333; border: 1px solid #e9ecef; border-radius: 10px; padding: 14px 20px; text-align: left; font-size: 15px; margin: 8px; }} QPushButton:hover {{ background-color: {color_hex}20; border-color: {color_hex}; }} QPushButton:pressed, QPushButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
-            btn.setStyleSheet(style)
+            light_qss = (
+                f"QToolButton {{ background-color: {COLOR_BG_ELEVATED[0]}; color: {COLOR_TEXT_PRIMARY[0]}; "
+                f"border: 1px solid #e9ecef; border-radius: 10px; padding: 14px 20px; "
+                f"text-align: left; font-size: 15px; margin: 8px; }} "
+                f"QToolButton:hover {{ background-color: {color_hex}20; border-color: {color_hex}; }} "
+                f"QToolButton:pressed, QToolButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
+            )
+            dark_qss = (
+                f"QToolButton {{ background-color: {COLOR_BG_ELEVATED[1]}; color: {COLOR_TEXT_PRIMARY[1]}; "
+                f"border: 1px solid {COLOR_BORDER[1]}; border-radius: 10px; padding: 14px 20px; "
+                f"text-align: left; font-size: 15px; margin: 8px; }} "
+                f"QToolButton:hover {{ background-color: {color_hex}30; border-color: {color_hex}; }} "
+                f"QToolButton:pressed, QToolButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
+            )
+            setCustomStyleSheet(btn, light_qss, dark_qss)
 
         logger.info(f"应用主题颜色: {color_hex}")
 
     def _apply_theme_image(self, image_path):
         """应用主题图片到界面（带有毛玻璃效果）"""
-        # 应用主题图片到界面并添加毛玻璃效果
         logger.info(f"应用主题图片: {image_path}")
 
-        # 先加载主题颜色
         theme_color = "#ff6b8b"
         try:
             import json
@@ -2618,12 +2431,20 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"加载主题颜色失败: {e}")
 
-        # 设置主窗口的背景图片
+        # 将背景图片加载到 _bg_pixmap，由 paintEvent 绘制（支持圆角裁剪）
+        # 不再使用 QSS background-image（QSS 不裁剪窗口形状）
+        from PyQt6.QtGui import QPixmap
+        pixmap = QPixmap(image_path)
+        if not pixmap.isNull():
+            self._bg_pixmap = pixmap
+        else:
+            logger.warning(f"主题图片加载失败: {image_path}")
+            self._bg_pixmap = None
+
+        # 设置子 widget 样式（QMainWindow 背景由 paintEvent 绘制）
         try:
-            # 检查当前是否为深色模式
             is_dark = isDarkTheme()
-            
-            # 根据主题模式设置不同的背景颜色
+
             if is_dark:
                 content_bg = "rgba(30, 30, 30, 0.7)"
                 status_bg = "rgba(30, 30, 30, 0.7)"
@@ -2634,44 +2455,38 @@ class MainWindow(QMainWindow):
                 status_bg = "rgba(248, 249, 250, 0.7)"
                 status_color = "#333"
                 status_border = "rgba(0, 0, 0, 0.1)"
-            
-            # 使用样式表设置背景图片，同时设置header_bar和sidebar使用主题颜色
-            style = """
-                QMainWindow {
-                    background-image: url('%s');
-                    background-repeat: no-repeat;
-                    background-position: center;
-                }
 
-                /* 为了让内容区域可见，我们需要为内容区域设置背景色和透明度 */
+            style = """
                 QWidget#content_stack {
                     background-color: %s;
                 }
 
                 QWidget#header_bar {
                     background-color: %s;
+                    border-top-left-radius: 16px;
                     border-top-right-radius: 16px;
                 }
 
                 QWidget#sidebar {
                     background-color: %s;
                     border-top-right-radius: 0px;
+                    border-bottom-left-radius: 16px;
                     border-bottom-right-radius: 16px;
                 }
 
-                /* 状态栏样式 */
                 QStatusBar {
                     background-color: %s;
                     color: %s;
                     border-top: 1px solid %s;
                 }
-                
+
                 QStatusBar::item {
                     border: none;
                 }
             """
 
-            self.setStyleSheet(style % (image_path, content_bg, theme_color, theme_color, status_bg, status_color, status_border))
+            self.setStyleSheet(style % (content_bg, theme_color, theme_color, status_bg, status_color, status_border))
+            self.update()  # 触发 paintEvent 重绘
 
             logger.info("主题图片已应用，带有半透明效果")
         except Exception as e:
@@ -2709,7 +2524,6 @@ class MainWindow(QMainWindow):
         except TypeError:
             pass
 
-        # 连接新预览器
         self.timeline.play_pause_clicked.connect(preview.toggle_play)
         self.timeline.seek_requested.connect(preview.seek_to_frame)
         self.timeline.prev_frame_clicked.connect(preview.prev_frame)
@@ -2721,10 +2535,8 @@ class MainWindow(QMainWindow):
         )
         self.timeline.rotation_value_changed.connect(preview.set_rotation)
 
-        # 记录当前连接的预览器
         self._timeline_preview = preview
 
-        # 更新时间轴显示
         if hasattr(preview, 'total_frames') and preview.total_frames > 0:
             self.timeline.set_total_frames(preview.total_frames)
             if hasattr(preview, 'video_fps'):
@@ -2735,7 +2547,6 @@ class MainWindow(QMainWindow):
             if hasattr(preview, 'is_playing'):
                 self.timeline.set_playing(preview.is_playing)
 
-        # 连接帧变更信号
         try:
             preview.frame_changed.disconnect(self._on_video_frame_changed)
         except TypeError:
@@ -2744,18 +2555,15 @@ class MainWindow(QMainWindow):
 
     def _on_video_frame_changed(self, frame):
         """视频帧变更时更新截取帧编辑页面"""
-        # 如果当前在截取帧编辑标签页，自动更新图片
         if self.preview_tabs.currentIndex() == 1 and hasattr(self,
                                                              '_current_video_preview'):
             source_preview = self._current_video_preview
             frame = source_preview.current_frame
             if frame is not None:
                 from gui.widgets.video_preview import VideoPreviewWidget
-                # 应用旋转变换
                 frame = frame.copy()
                 rotation = source_preview.get_rotation()
                 frame = VideoPreviewWidget.apply_rotation_to_frame(frame, rotation)
-                # 更新截取帧编辑页面的图片（保留用户已调整的 cropbox）
                 self.frame_capture_preview.update_static_frame(frame)
                 logger.info(
                     f"更新截取帧编辑页面，帧: {source_preview.current_frame_index}")
@@ -2771,50 +2579,42 @@ class MainWindow(QMainWindow):
             self._loop_in_out = (current_in, current_out)
 
         if index == 0:
-            # 入场视频
             self._connect_timeline_to_preview(self.intro_preview)
             self.timeline.set_in_point(self._intro_in_out[0])
             self.timeline.set_out_point(self._intro_in_out[1])
             self.timeline.show()
             logger.debug("切换到入场视频预览")
         elif index == 1:
-            # 截取帧编辑 - 连接时间轴到保存的视频预览器（如果有）
             if hasattr(
                     self,
                     '_current_video_preview') and self._current_video_preview:
                 logger.debug("连接时间轴到保存的视频预览器")
                 self._connect_timeline_to_preview(self._current_video_preview)
             else:
-                # 如果没有保存的预览器，连接到默认的预览器
                 logger.debug("连接时间轴到默认视频预览器")
                 self._connect_timeline_to_preview(self.video_preview)
             self.timeline.show()
             logger.debug("切换到截取帧编辑")
         elif index == 2:
-            # 过渡图片（静态，不需要时间轴）
             self.timeline.hide()
             logger.debug("切换到过渡图片预览")
         elif index == 3:
-            # 循环视频
             self._connect_timeline_to_preview(self.video_preview)
             self.timeline.set_in_point(self._loop_in_out[0])
             self.timeline.set_out_point(self._loop_in_out[1])
             self.timeline.show()
             logger.debug("切换到循环视频预览")
 
-        # 更新拖放上下文
         if hasattr(self, '_drop_overlay'):
             self._update_drop_context()
 
     def _on_intro_video_loaded(self, total_frames: int, fps: float):
         """入场视频加载完成"""
-        # 只在入场视频标签页激活时更新时间轴
         if self.preview_tabs.currentIndex() == 0:
             self.timeline.set_total_frames(total_frames)
             self.timeline.set_fps(fps)
             self.timeline.set_in_point(0)
             self.timeline.set_out_point(total_frames - 1)
-        # 更新存储
         self._intro_in_out = (0, total_frames - 1)
         self.status_bar.showMessage(
             f"入场视频已加载: {total_frames} 帧, {fps:.1f} FPS")
@@ -2871,7 +2671,6 @@ class MainWindow(QMainWindow):
                 f"{self.video_preview.video_width}x"
                 f"{self.video_preview.video_height}"
             )
-            # 连接时间轴
             self._connect_timeline_to_preview(self.video_preview)
         else:
             logger.error(f"无法加载图片: {path}")
@@ -2879,21 +2678,17 @@ class MainWindow(QMainWindow):
 
     def _on_loop_mode_changed(self, is_image: bool):
         """循环模式切换"""
-        # 防止在初始化期间触发
         if self._initializing:
             return
 
-        # 清空预览
         self.video_preview.clear()
         self._loop_image_path = None
 
-        # 清空时间轴
         self.timeline.set_total_frames(0)
         self._loop_in_out = (0, 0)
 
         logger.info(f"循环模式切换为: {'图片' if is_image else '视频'}")
 
-        # 更新拖放上下文
         if hasattr(self, '_drop_overlay'):
             self._update_drop_context()
 
@@ -2912,7 +2707,6 @@ class MainWindow(QMainWindow):
         self._drop_overlay.file_dropped.connect(self._on_file_dropped)
         self._update_drop_context()
 
-        # JSON预览面板拖放导入
         self.json_preview.json_file_dropped.connect(self._on_json_file_dropped)
 
     def _update_drop_context(self):
@@ -2957,7 +2751,6 @@ class MainWindow(QMainWindow):
         elif tab_index == 2:  # 过渡图片
             self._handle_drop_transition(file_path, drop_pos)
         else:
-            # Tab 1 等：按循环视频处理
             self._handle_drop_loop(file_path)
 
     def _handle_drop_loop(self, file_path: str):
@@ -2965,10 +2758,9 @@ class MainWindow(QMainWindow):
         ext = os.path.splitext(file_path)[1].lower()
         is_image = ext in SUPPORTED_IMAGE_FORMATS
 
-        # 获取活动的配置面板
         config_panel = self._get_active_config_panel()
 
-        # 自动切换循环模式（同步 radio 按钮状态）
+        # 自动切换循环模式以匹配拖放文件类型
         if hasattr(config_panel, 'radio_loop_image'):
             if is_image and not config_panel.radio_loop_image.isChecked():
                 config_panel.radio_loop_image.setChecked(True)
@@ -2977,11 +2769,9 @@ class MainWindow(QMainWindow):
             ) and not config_panel.radio_loop_video.isChecked():
                 config_panel.radio_loop_video.setChecked(True)
 
-        # 复制到项目目录
         rel_path = config_panel._copy_to_project_dir(file_path, "loop")
         config_panel.edit_loop_file.setText(rel_path or file_path)
 
-        # 发射信号
         if is_image and hasattr(config_panel, 'loop_image_selected'):
             config_panel.loop_image_selected.emit(file_path)
         else:
@@ -3009,7 +2799,6 @@ class MainWindow(QMainWindow):
     def _on_transition_image_changed(self, trans_type: str, abs_path: str):
         """过渡图片变更"""
         self.transition_preview.load_image(trans_type, abs_path)
-        # 切换到过渡图片标签页
         self.preview_tabs.setCurrentIndex(2)
 
     def _on_transition_crop_changed(self, trans_type: str):
@@ -3020,7 +2809,6 @@ class MainWindow(QMainWindow):
         import cv2
         import glob
 
-        # 查找原始图片
         pattern = os.path.join(self._base_dir, f"trans_{trans_type}_src.*")
         matches = glob.glob(pattern)
         if not matches:
@@ -3031,10 +2819,8 @@ class MainWindow(QMainWindow):
         if original is None:
             return
 
-        # 获取 cropbox 坐标
         x, y, w, h = self.transition_preview.get_cropbox(trans_type)
 
-        # 边界检查
         img_h, img_w = original.shape[:2]
         x = max(0, min(x, img_w - 1))
         y = max(0, min(y, img_h - 1))
@@ -3044,15 +2830,12 @@ class MainWindow(QMainWindow):
         if w <= 0 or h <= 0:
             return
 
-        # 裁切
         cropped = original[y:y + h, x:x + w]
 
-        # 缩放到目标分辨率
         target_w, target_h = self._get_target_resolution()
         resized = cv2.resize(cropped, (target_w, target_h),
                              interpolation=cv2.INTER_AREA)
 
-        # 保存为模拟器读取的文件
         out_path = os.path.join(
             self._base_dir,
             f"trans_{trans_type}_image.png")
@@ -3075,7 +2858,6 @@ class MainWindow(QMainWindow):
         self.timeline.set_fps(fps)
         self.timeline.set_in_point(0)
         self.timeline.set_out_point(total_frames - 1)
-        # 更新存储
         self._loop_in_out = (0, total_frames - 1)
         self.status_bar.showMessage(f"视频已加载: {total_frames} 帧, {fps:.1f} FPS")
 
@@ -3096,7 +2878,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先创建或打开项目")
             return
 
-        # 尝试从当前活跃的视频预览获取帧
         current_tab = self.preview_tabs.currentIndex()
         logger.info(f"当前标签页: {current_tab}")
 
@@ -3111,7 +2892,6 @@ class MainWindow(QMainWindow):
         logger.info(f"当前帧: {frame}")
 
         if frame is None:
-            # 尝试另一个预览
             logger.info("当前帧为 None，尝试另一个预览器")
             other = self.video_preview if source_preview is self.intro_preview else self.intro_preview
             frame = other.current_frame
@@ -3127,24 +2907,19 @@ class MainWindow(QMainWindow):
 
         from gui.widgets.video_preview import VideoPreviewWidget
 
-        # 应用旋转变换（不裁切，交给用户在截取帧编辑标签页中操作）
         frame = frame.copy()
         rotation = source_preview.get_rotation()
         logger.info(f"旋转变换: {rotation}度")
         frame = VideoPreviewWidget.apply_rotation_to_frame(frame, rotation)
 
-        # 加载到截取帧编辑预览
         logger.info(f"加载到截取帧编辑预览，帧尺寸: {frame.shape}")
         self.frame_capture_preview.load_static_image_from_array(frame)
 
-        # 保存当前的视频预览器引用，用于时间轴控制
         self._current_video_preview = source_preview
 
-        # 连接时间轴到原始的视频预览器，而不是静态图片预览器
         logger.info("连接时间轴到原始视频预览器")
         self._connect_timeline_to_preview(source_preview)
 
-        # 切换到截取帧编辑标签页
         logger.info("切换到截取帧编辑标签页")
         self.preview_tabs.setCurrentIndex(1)
 
@@ -3171,7 +2946,6 @@ class MainWindow(QMainWindow):
         try:
             import cv2
 
-            # 获取裁剪框
             cropbox = self.frame_capture_preview.get_cropbox()
             logger.info(f"裁剪框: {cropbox}")
 
@@ -3182,7 +2956,6 @@ class MainWindow(QMainWindow):
 
             x, y, w, h = cropbox
 
-            # 边界检查
             frame_h, frame_w = frame.shape[:2]
             logger.info(f"帧尺寸: {frame_w}x{frame_h}")
 
@@ -3198,12 +2971,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "错误", "裁切区域无效")
                 return
 
-            # 裁剪帧
             logger.info("开始裁剪帧")
             cropped = frame[y:y + h, x:x + w]
             logger.info(f"裁剪后的尺寸: {cropped.shape}")
 
-            # 保存图标
             icon_path = os.path.join(self._base_dir, "icon.png")
             logger.info(f"保存图标到: {icon_path}")
 
@@ -3229,7 +3000,6 @@ class MainWindow(QMainWindow):
 
         data = {}
 
-        # 收集 Logo/Icon 图片
         icon_path = self._config.icon
         if icon_path:
             if not os.path.isabs(icon_path):
@@ -3240,16 +3010,12 @@ class MainWindow(QMainWindow):
                     data['logo_mat'] = ImageProcessor.process_for_logo(
                         logo_img)
 
-        # 收集循环素材参数
         if self._config.loop.is_image:
-            # 图片模式
             if hasattr(self, '_loop_image_path') and self._loop_image_path:
                 data['loop_image_path'] = self._loop_image_path
                 data['is_loop_image'] = True
         elif self.video_preview.video_path:
-            # 视频模式
-            # 使用 get_cropbox_for_export() 获取原始坐标系的 cropbox
-            cropbox = self.video_preview.get_cropbox_for_export()
+            cropbox = self.video_preview.get_cropbox_in_rotated_space()
             rotation = self.video_preview.get_rotation()
             in_point = self.timeline.get_in_point()
             out_point = self.timeline.get_out_point()
@@ -3264,12 +3030,9 @@ class MainWindow(QMainWindow):
                 rotation=rotation
             )
 
-        # 收集入场视频参数 (如果启用)
         if self._config.intro.enabled and self._config.intro.file:
-            # 优先使用 intro_preview（如果已加载）
             if self.intro_preview.video_path:
-                # 使用 get_cropbox_for_export() 获取原始坐标系的 cropbox
-                cropbox = self.intro_preview.get_cropbox_for_export()
+                cropbox = self.intro_preview.get_cropbox_in_rotated_space()
                 rotation = self.intro_preview.get_rotation()
 
                 data['intro_video_params'] = VideoExportParams(
@@ -3282,7 +3045,6 @@ class MainWindow(QMainWindow):
                     rotation=rotation
                 )
             else:
-                # 回退：直接读取文件信息
                 intro_path = self._config.intro.file
                 if not os.path.isabs(intro_path):
                     intro_path = os.path.join(self._base_dir, intro_path)
@@ -3322,7 +3084,6 @@ class MainWindow(QMainWindow):
                     except Exception as e:
                         logger.warning(f"无法读取片头视频元数据: {e}")
 
-        # 收集 ImageOverlay 图片
         from config.epconfig import OverlayType
         if self._config.overlay.type == OverlayType.IMAGE:
             if self._config.overlay.image_options and self._config.overlay.image_options.image:
@@ -3332,11 +3093,9 @@ class MainWindow(QMainWindow):
                 if os.path.exists(img_path):
                     overlay_img = ImageProcessor.load_image(img_path)
                     if overlay_img is not None:
-                        # 获取目标分辨率
                         spec = get_resolution_spec(self._config.screen.value)
                         target_size = (spec['width'], spec['height'])
 
-                        # 缩放到目标分辨率
                         import cv2
                         overlay_img = cv2.resize(overlay_img, target_size)
                         data['overlay_mat'] = overlay_img
@@ -3360,7 +3119,6 @@ class MainWindow(QMainWindow):
         if not self._config:
             return
 
-        # 检查是否为arknights类型叠加
         if self._config.overlay.type != OverlayType.ARKNIGHTS:
             return
 
@@ -3368,7 +3126,6 @@ class MainWindow(QMainWindow):
         if not ark_opts:
             return
 
-        # 处理职业图标 (50x50)
         if ark_opts.operator_class_icon:
             src_path = ark_opts.operator_class_icon
             if not os.path.isabs(src_path):
@@ -3377,9 +3134,7 @@ class MainWindow(QMainWindow):
             if os.path.exists(src_path):
                 img = ImageProcessor.load_image(src_path)
                 if img is not None:
-                    # 缩放到目标尺寸
                     img = cv2.resize(img, ARK_CLASS_ICON_SIZE)
-                    # 保存到导出目录
                     dst_filename = "class_icon.png"
                     dst_path = os.path.join(output_dir, dst_filename)
                     success, encoded = cv2.imencode('.png', img)
@@ -3388,7 +3143,6 @@ class MainWindow(QMainWindow):
                             f.write(encoded.tobytes())
                         logger.info(f"已导出职业图标: {dst_path}")
 
-        # 处理Logo (75x35)
         if ark_opts.logo:
             src_path = ark_opts.logo
             if not os.path.isabs(src_path):
@@ -3397,9 +3151,7 @@ class MainWindow(QMainWindow):
             if os.path.exists(src_path):
                 img = ImageProcessor.load_image(src_path)
                 if img is not None:
-                    # 缩放到目标尺寸
                     img = cv2.resize(img, ARK_LOGO_SIZE)
-                    # 保存到导出目录
                     dst_filename = "ark_logo.png"
                     dst_path = os.path.join(output_dir, dst_filename)
                     success, encoded = cv2.imencode('.png', img)
@@ -3481,6 +3233,40 @@ class MainWindow(QMainWindow):
         else:
             return False
 
+    def paintEvent(self, event):
+        """绘制圆角窗口背景
+
+        CSS border-radius 仅影响绘制不裁剪窗口形状（Qt 文档：
+        "Stylesheets only affect painting. They do not change the widget's
+        geometry, mask, or hit-testing."）。
+        必须配合 WA_TranslucentBackground + QPainterPath 实现真正裁剪。
+        """
+        from PyQt6.QtGui import QPainter, QPainterPath, QColor
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # 最大化时不圆角
+        radius = 0.0 if self.isMaximized() else self._corner_radius
+        rect = self.rect().toRectF()
+
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+        painter.setClipPath(path)
+
+        if self._bg_pixmap:
+            scaled = self._bg_pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation)
+            x = (scaled.width() - self.width()) // 2
+            y = (scaled.height() - self.height()) // 2
+            painter.drawPixmap(0, 0, scaled, x, y,
+                               self.width(), self.height())
+        else:
+            painter.fillRect(rect, QColor(self._bg_color))
+
+        painter.end()
+
     def showEvent(self, event):
         """窗口显示时设置 DWM 圆角（Windows 11）"""
         super().showEvent(event)
@@ -3506,12 +3292,13 @@ class MainWindow(QMainWindow):
             self._save_settings()
             self._cleanup_temp_dir()
 
-            # 停止自动保存服务
             self._auto_save_service.stop()
 
-            # 关闭素材商城服务
             if hasattr(self, '_market_widget'):
                 self._market_widget.shutdown()
+
+            if hasattr(self, '_remote_page'):
+                self._remote_page.shutdown()
 
             event.accept()
         else:
@@ -3547,7 +3334,6 @@ class MainWindow(QMainWindow):
         rect = self.rect()
         margin = self._resize_margin
 
-        # 检查是否在窗口边缘
         if pos.x() < margin and pos.y() < margin:
             return Qt.CursorShape.SizeFDiagCursor, 'top-left'
         elif pos.x() > rect.width() - margin and pos.y() < margin:
@@ -3570,7 +3356,6 @@ class MainWindow(QMainWindow):
     def mousePressEvent(self, event):
         """鼠标按下事件，开始调整窗口大小"""
         if event.button() == Qt.MouseButton.LeftButton:
-            # 检查是否在窗口边缘
             cursor, direction = self.cursorAtPosition(event.pos())
             if direction:
                 self._is_resizing = True
@@ -3580,7 +3365,6 @@ class MainWindow(QMainWindow):
 
     def mouseMoveEvent(self, event):
         """鼠标移动事件，执行窗口大小调整或更新光标"""
-        # 如果正在调整大小
         if self._is_resizing:
             delta = event.globalPosition().toPoint() - self._resize_start_pos
             geometry = self._resize_start_geometry
@@ -3641,7 +3425,6 @@ class MainWindow(QMainWindow):
                         geometry.width(),
                         new_height)
         else:
-            # 更新光标类型
             cursor, _ = self.cursorAtPosition(event.pos())
             self.setCursor(cursor)
 

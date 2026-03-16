@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QKeySequence
 
-# Fluent Widgets导入
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, ToolButton,
     TabWidget, LineEdit, ComboBox, SpinBox, CheckBox,
@@ -22,22 +21,17 @@ from qfluentwidgets import (
     CardWidget, ScrollArea, TextEdit
 )
 
-# 创建自定义GroupBox类，应用Fluent样式
 class FluentGroupBox(CardWidget):
     def __init__(self, title="", parent=None):
         super().__init__(parent)
-        # 设置卡片样式
-        
-        # 主布局
+
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(15, 15, 15, 15)
         self.main_layout.setSpacing(10)
         
-        # 添加标题
         if title:
             self.title_label = StrongBodyLabel(title)
             self.main_layout.addWidget(self.title_label)
-            # 添加分隔线
             line = QFrame()
             line.setFrameShape(QFrame.Shape.HLine)
             line.setFrameShadow(QFrame.Shadow.Sunken)
@@ -94,25 +88,20 @@ class ConfigPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(0)
 
-        # 选项卡 - 使用Fluent TabWidget
         self.tab_widget = TabWidget()
         self.tab_widget.setTabsClosable(False)  # 禁用关闭按钮
         self.tab_widget.setMovable(False)  # 禁用标签移动
         layout.addWidget(self.tab_widget)
 
-        # 基本信息选项卡
         self.tab_basic = self._create_basic_tab()
         self.tab_widget.addTab(self.tab_basic, "基本信息")
 
-        # 视频配置选项卡
         self.tab_video = self._create_video_tab()
         self.tab_widget.addTab(self.tab_video, "视频配置")
 
-        # 过渡效果选项卡
         self.tab_transition = self._create_transition_tab()
         self.tab_widget.addTab(self.tab_transition, "过渡效果")
 
-        # 叠加UI选项卡
         self.tab_overlay = self._create_overlay_tab()
         self.tab_widget.addTab(self.tab_overlay, "叠加UI")
 
@@ -124,7 +113,6 @@ class ConfigPanel(QWidget):
         scroll = ScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(widget)
-        # 设置内部widget的边距
         widget.layout().setContentsMargins(8, 8, 8, 8)
         return scroll
 
@@ -135,7 +123,6 @@ class ConfigPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # UUID - 使用Fluent GroupBox
         group_uuid = FluentGroupBox("UUID")
         uuid_layout = QHBoxLayout()
         self.edit_uuid = LineEdit()
@@ -148,7 +135,6 @@ class ConfigPanel(QWidget):
         group_uuid.addLayout(uuid_layout)
         layout.addWidget(group_uuid)
 
-        # 基本信息 - 使用Fluent GroupBox
         group_info = FluentGroupBox("基本信息")
         info_layout = QFormLayout()
 
@@ -174,7 +160,6 @@ class ConfigPanel(QWidget):
         group_info.addLayout(info_layout)
         layout.addWidget(group_info)
 
-        # 图标 - 使用Fluent GroupBox
         group_icon = FluentGroupBox("图标")
         icon_layout = QHBoxLayout()
         self.edit_icon = LineEdit()
@@ -202,11 +187,9 @@ class ConfigPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # 循环视频 - 使用Fluent GroupBox
         group_loop = FluentGroupBox("循环视频 (必选)")
         loop_main_layout = QVBoxLayout()
 
-        # 模式选择
         mode_layout = QHBoxLayout()
         self.radio_loop_video = RadioButton("视频")
         self.radio_loop_video.setToolTip("使用视频文件作为循环背景")
@@ -222,7 +205,6 @@ class ConfigPanel(QWidget):
         mode_layout.addStretch()
         loop_main_layout.addLayout(mode_layout)
 
-        # 文件选择
         file_layout = QHBoxLayout()
         self.edit_loop_file = LineEdit()
         self.edit_loop_file.setPlaceholderText("loop.mp4")
@@ -235,7 +217,6 @@ class ConfigPanel(QWidget):
         group_loop.addLayout(loop_main_layout)
         layout.addWidget(group_loop)
 
-        # 入场视频 - 使用Fluent GroupBox
         group_intro = FluentGroupBox("入场视频 (可选)")
         intro_layout = QFormLayout()
 
@@ -276,7 +257,6 @@ class ConfigPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # 进入过渡 - 使用Fluent GroupBox
         group_in = FluentGroupBox("进入过渡 (transition_in)")
         in_layout = QFormLayout()
 
@@ -303,7 +283,6 @@ class ConfigPanel(QWidget):
         color_layout_in.addWidget(self.btn_trans_in_color)
         in_layout.addRow("背景色:", color_layout_in)
 
-        # 进入过渡图片
         image_layout_in = QHBoxLayout()
         self.edit_trans_in_image = LineEdit()
         self.edit_trans_in_image.setPlaceholderText("可选，用于过渡效果的图片")
@@ -317,7 +296,6 @@ class ConfigPanel(QWidget):
         group_in.addLayout(in_layout)
         layout.addWidget(group_in)
 
-        # 循环过渡 - 使用Fluent GroupBox
         group_loop = FluentGroupBox("循环过渡 (transition_loop)")
         loop_layout = QFormLayout()
 
@@ -344,7 +322,6 @@ class ConfigPanel(QWidget):
         color_layout_loop.addWidget(self.btn_trans_loop_color)
         loop_layout.addRow("背景色:", color_layout_loop)
 
-        # 循环过渡图片
         image_layout_loop = QHBoxLayout()
         self.edit_trans_loop_image = LineEdit()
         self.edit_trans_loop_image.setPlaceholderText("可选，用于过渡效果的图片")
@@ -368,7 +345,6 @@ class ConfigPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # 叠加类型 - 使用Fluent GroupBox
         group_type = FluentGroupBox("叠加类型")
         type_layout = QFormLayout()
 
@@ -448,7 +424,6 @@ class ConfigPanel(QWidget):
         color_layout.addWidget(self.btn_ark_color)
         ark_layout.addRow("主题颜色:", color_layout)
 
-        # 职业图标
         class_icon_layout = QHBoxLayout()
         self.edit_ark_class_icon = LineEdit()
         self.edit_ark_class_icon.setPlaceholderText("可选，50x50")
@@ -463,7 +438,6 @@ class ConfigPanel(QWidget):
         class_icon_layout.addWidget(self.btn_clear_class_icon)
         ark_layout.addRow("职业图标:", class_icon_layout)
 
-        # Logo
         logo_layout = QHBoxLayout()
         self.edit_ark_logo = LineEdit()
         self.edit_ark_logo.setPlaceholderText("可选，75x35")
@@ -520,7 +494,6 @@ class ConfigPanel(QWidget):
 
         layout.addWidget(self.overlay_stack)
 
-        # 操作按钮 - 使用Fluent GroupBox
         group_actions = FluentGroupBox("操作")
         actions_layout = QVBoxLayout()
 
@@ -542,7 +515,6 @@ class ConfigPanel(QWidget):
 
     def _connect_signals(self):
         """连接信号"""
-        # 基本信息
         self.btn_new_uuid.clicked.connect(lambda: self._on_new_uuid())
         self.edit_name.textChanged.connect(self._on_config_changed)
         self.edit_description.textChanged.connect(self._on_config_changed)
@@ -551,7 +523,6 @@ class ConfigPanel(QWidget):
         self.btn_browse_icon.clicked.connect(lambda: self._browse_icon())
         self.btn_capture_frame.clicked.connect(self.capture_frame_requested.emit)
 
-        # 视频配置
         self.edit_loop_file.textChanged.connect(self._on_config_changed)
         self.btn_browse_loop.clicked.connect(lambda: self._browse_loop())
         # 使用 buttonClicked 信号避免 toggled 触发两次的问题
@@ -561,7 +532,6 @@ class ConfigPanel(QWidget):
         self.btn_browse_intro.clicked.connect(lambda: self._browse_intro())
         self.spin_intro_duration.valueChanged.connect(self._on_intro_duration_changed)
 
-        # 过渡效果
         self.combo_trans_in_type.currentIndexChanged.connect(self._on_config_changed)
         self.spin_trans_in_duration.valueChanged.connect(self._on_config_changed)
         self.edit_trans_in_color.textChanged.connect(self._on_config_changed)
@@ -574,7 +544,6 @@ class ConfigPanel(QWidget):
         self.btn_trans_loop_color.clicked.connect(lambda: self._pick_color(self.edit_trans_loop_color))
         self.edit_trans_loop_image.textChanged.connect(self._on_config_changed)
 
-        # 叠加UI
         self.combo_overlay_type.currentIndexChanged.connect(self._on_overlay_type_changed)
         self.spin_ark_appear.valueChanged.connect(self._on_config_changed)
         self.edit_ark_name.textChanged.connect(self._on_config_changed)
@@ -591,13 +560,11 @@ class ConfigPanel(QWidget):
         self.btn_ark_logo.clicked.connect(lambda: self._on_select_logo())
         self.btn_clear_logo.clicked.connect(lambda: self._on_clear_logo())
 
-        # Image叠加信号
         self.spin_img_appear.valueChanged.connect(self._on_config_changed)
         self.spin_img_duration.valueChanged.connect(self._on_config_changed)
         self.edit_img_overlay.textChanged.connect(self._on_config_changed)
         self.btn_img_overlay.clicked.connect(lambda: self._on_select_img_overlay())
 
-        # 操作按钮
         self.btn_validate.clicked.connect(self.validate_requested.emit)
         self.btn_export.clicked.connect(self.export_requested.emit)
         self.btn_sshUpload.clicked.connect(self.ssh_upload_requested.emit)
@@ -609,30 +576,25 @@ class ConfigPanel(QWidget):
         self._updating = True
 
         try:
-            # 基本信息
             self.edit_uuid.setText(config.uuid)
             self.edit_name.setText(config.name)
             self.edit_description.setPlainText(config.description)
             self.edit_icon.setText(config.icon)
 
-            # 分辨率
             index = self.combo_screen.findData(config.screen.value)
             if index >= 0:
                 self.combo_screen.setCurrentIndex(index)
 
-            # 循环视频
             self.edit_loop_file.setText(config.loop.file)
             if config.loop.is_image:
                 self.radio_loop_image.setChecked(True)
             else:
                 self.radio_loop_video.setChecked(True)
 
-            # 入场视频
             self.check_intro_enabled.setChecked(config.intro.enabled)
             self.edit_intro_file.setText(config.intro.file)
             self.spin_intro_duration.setValue(config.intro.duration)
 
-            # 过渡效果 - 进入
             if config.transition_in.type != TransitionType.NONE:
                 index = self.combo_trans_in_type.findData(config.transition_in.type.value)
                 if index >= 0:
@@ -648,7 +610,6 @@ class ConfigPanel(QWidget):
                         if os.path.exists(abs_path):
                             self.transition_image_changed.emit("in", abs_path)
 
-            # 过渡效果 - 循环
             if config.transition_loop.type != TransitionType.NONE:
                 index = self.combo_trans_loop_type.findData(config.transition_loop.type.value)
                 if index >= 0:
@@ -664,7 +625,6 @@ class ConfigPanel(QWidget):
                         if os.path.exists(abs_path):
                             self.transition_image_changed.emit("loop", abs_path)
 
-            # 叠加UI
             index = self.combo_overlay_type.findData(config.overlay.type.value)
             if index >= 0:
                 self.combo_overlay_type.setCurrentIndex(index)
@@ -703,7 +663,6 @@ class ConfigPanel(QWidget):
         if self._config is None:
             return
 
-        # 基本信息
         self._config.name = self.edit_name.text()
         self._config.description = self.edit_description.toPlainText()
         self._config.icon = self.edit_icon.text()
@@ -711,16 +670,13 @@ class ConfigPanel(QWidget):
         screen_value = self.combo_screen.currentData()
         self._config.screen = ScreenType.from_string(screen_value)
 
-        # 循环视频
         self._config.loop.file = self.edit_loop_file.text()
         self._config.loop.is_image = self.radio_loop_image.isChecked()
 
-        # 入场视频
         self._config.intro.enabled = self.check_intro_enabled.isChecked()
         self._config.intro.file = self.edit_intro_file.text()
         self._config.intro.duration = self.spin_intro_duration.value()
 
-        # 过渡效果 - 进入
         trans_in_type = TransitionType.from_string(self.combo_trans_in_type.currentData())
         if trans_in_type != TransitionType.NONE:
             self._config.transition_in = Transition(
@@ -734,7 +690,6 @@ class ConfigPanel(QWidget):
         else:
             self._config.transition_in = Transition()
 
-        # 过渡效果 - 循环
         trans_loop_type = TransitionType.from_string(self.combo_trans_loop_type.currentData())
         if trans_loop_type != TransitionType.NONE:
             self._config.transition_loop = Transition(
@@ -748,7 +703,6 @@ class ConfigPanel(QWidget):
         else:
             self._config.transition_loop = Transition()
 
-        # 叠加UI
         overlay_type = OverlayType.from_string(self.combo_overlay_type.currentData())
         if overlay_type == OverlayType.ARKNIGHTS:
             self._config.overlay = Overlay(
@@ -814,52 +768,42 @@ class ConfigPanel(QWidget):
             "图片文件 (*.png *.jpg *.jpeg)"
         )
         if path:
-            # 如果项目目录已设置，复制文件到项目目录
             if self._base_dir:
-                # 生成目标文件名
                 filename = os.path.basename(path)
                 name, ext = os.path.splitext(filename)
                 dest_path = os.path.join(self._base_dir, f"icon{ext}")
 
-                # 如果目标文件已存在且不同，生成唯一文件名
                 if os.path.exists(dest_path) and not os.path.samefile(path, dest_path):
                     counter = 1
                     while os.path.exists(dest_path):
                         dest_path = os.path.join(self._base_dir, f"icon_{counter}{ext}")
                         counter += 1
 
-                # 复制文件（如果不是同一文件）
                 if not os.path.exists(dest_path) or not os.path.samefile(path, dest_path):
                     try:
                         shutil.copy2(path, dest_path)
                     except Exception as e:
-                        # 复制失败时使用原路径
                         self.edit_icon.setText(path)
                         return
 
-                # 使用相对路径
                 rel_path = os.path.basename(dest_path)
                 self.edit_icon.setText(rel_path)
             else:
-                # 没有项目目录时使用原路径
                 self.edit_icon.setText(path)
 
     def _browse_loop(self):
         """浏览循环视频/图片"""
         if self.radio_loop_image.isChecked():
-            # 图片模式
             path, _ = QFileDialog.getOpenFileName(
                 self, "选择循环图片", self._base_dir,
                 "图片文件 (*.png *.jpg *.jpeg)"
             )
         else:
-            # 视频模式
             path, _ = QFileDialog.getOpenFileName(
                 self, "选择循环视频", self._base_dir,
                 "视频文件 (*.mp4 *.avi *.mov)"
             )
         if path:
-            # 复制文件到项目目录，使用相对路径
             rel_path = self._copy_to_project_dir(path, "loop")
             if rel_path:
                 self.edit_loop_file.setText(rel_path)
@@ -887,10 +831,8 @@ class ConfigPanel(QWidget):
         else:
             self.edit_loop_file.setPlaceholderText("loop.mp4")
 
-        # 清空文件路径
         self.edit_loop_file.clear()
 
-        # 发出模式切换信号
         self.loop_mode_changed.emit(is_image)
 
         self._on_config_changed()
@@ -902,7 +844,6 @@ class ConfigPanel(QWidget):
             "视频文件 (*.mp4 *.avi *.mov)"
         )
         if path:
-            # 复制文件到项目目录，使用相对路径
             rel_path = self._copy_to_project_dir(path, "intro")
             if rel_path:
                 self.edit_intro_file.setText(rel_path)
@@ -926,7 +867,6 @@ class ConfigPanel(QWidget):
             "图片文件 (*.png *.jpg *.jpeg *.bmp)"
         )
         if file_path:
-            # 复制到项目目录并使用相对路径
             rel_path = self._copy_to_project_dir(file_path, "class_icon")
             if rel_path:
                 self.edit_ark_class_icon.setText(rel_path)
@@ -944,7 +884,6 @@ class ConfigPanel(QWidget):
             "图片文件 (*.png *.jpg *.jpeg *.bmp)"
         )
         if file_path:
-            # 复制到项目目录并使用相对路径
             rel_path = self._copy_to_project_dir(file_path, "ark_logo")
             if rel_path:
                 self.edit_ark_logo.setText(rel_path)
@@ -967,28 +906,23 @@ class ConfigPanel(QWidget):
             相对路径，失败返回空字符串
         """
         if not self._base_dir:
-            # 没有项目目录，返回原路径
             return src_path
 
         try:
             _, ext = os.path.splitext(src_path)
             dest_path = os.path.join(self._base_dir, f"{base_name}{ext}")
 
-            # 如果目标已存在且不同，生成唯一文件名
             counter = 1
             while os.path.exists(dest_path):
                 if os.path.samefile(src_path, dest_path):
-                    # 同一文件，直接返回相对路径
                     return f"{base_name}{ext}"
                 dest_path = os.path.join(self._base_dir, f"{base_name}_{counter}{ext}")
                 counter += 1
 
-            # 复制文件
             shutil.copy2(src_path, dest_path)
             return os.path.basename(dest_path)
 
         except Exception as e:
-            # 复制失败，返回原路径
             import logging
             logging.getLogger(__name__).warning(f"复制文件失败: {e}")
             return src_path
@@ -1029,33 +963,28 @@ class ConfigPanel(QWidget):
         from PyQt6.QtCore import Qt
         from core.image_processor import ImageProcessor
 
-        # 显示等待光标
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            # 加载原始图片（不缩放）
             img = ImageProcessor.load_image(file_path)
             if img is None:
                 return
 
-            # 保存原始图片到项目目录（用于裁切编辑）
+            # 保存原始图片供裁切编辑，同时保存一份作为模拟器使用的文件
             _, ext = os.path.splitext(file_path)
             src_filename = f"trans_{trans_type}_src{ext}"
             src_path = os.path.join(self._base_dir, src_filename)
             ImageProcessor.save_image(img, src_path)
 
-            # 同时保存一份初始版本作为模拟器使用的文件
             dest_filename = f"trans_{trans_type}_image.png"
             dest_path = os.path.join(self._base_dir, dest_filename)
             ImageProcessor.save_image(img, dest_path)
 
-            # 更新 UI 字段为模拟器使用的文件名
             if trans_type == "in":
                 self.edit_trans_in_image.setText(dest_filename)
             else:
                 self.edit_trans_loop_image.setText(dest_filename)
             self._on_config_changed()
 
-            # 发射信号，传递原始图片路径供预览加载
             self.transition_image_changed.emit(trans_type, src_path)
         finally:
             QApplication.restoreOverrideCursor()

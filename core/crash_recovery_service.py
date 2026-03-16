@@ -15,22 +15,22 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RecoveryInfo:
     """恢复信息"""
-    backup_path: str  # 备份文件路径
-    timestamp: float  # 时间戳
-    project_path: Optional[str] = None  # 原项目路径
-    is_temp: bool = False  # 是否是临时项目
+    backup_path: str
+    timestamp: float
+    project_path: Optional[str] = None
+    is_temp: bool = False
 
 
 class CrashRecoveryService(QObject):
     """崩溃恢复服务"""
 
-    recovery_found = pyqtSignal(list)  # 发现可恢复项目
-    recovery_completed = pyqtSignal(str)  # 恢复完成
-    error_occurred = pyqtSignal(str)  # 错误信号
+    recovery_found = pyqtSignal(list)
+    recovery_completed = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
-        self._recovery_dir: Optional[str] = None  # 恢复目录
+        self._recovery_dir: Optional[str] = None
 
     def initialize(self, base_dir: str):
         """初始化恢复服务"""
@@ -46,7 +46,6 @@ class CrashRecoveryService(QObject):
         recovery_list = []
 
         try:
-            # 扫描恢复目录
             for filename in os.listdir(self._recovery_dir):
                 if not filename.endswith(".json"):
                     continue
@@ -54,11 +53,9 @@ class CrashRecoveryService(QObject):
                 filepath = os.path.join(self._recovery_dir, filename)
 
                 try:
-                    # 读取恢复信息
                     with open(filepath, 'r', encoding='utf-8') as f:
                         recovery_data = json.load(f)
 
-                    # 创建恢复信息
                     recovery_info = RecoveryInfo(
                         backup_path=recovery_data.get('backup_path', filepath),
                         timestamp=recovery_data.get('timestamp', time.time()),
@@ -71,7 +68,6 @@ class CrashRecoveryService(QObject):
                 except Exception as e:
                     logger.warning(f"读取恢复文件失败 {filename}: {e}")
 
-            # 按时间戳排序（最新的在前）
             recovery_list.sort(key=lambda x: x.timestamp, reverse=True)
 
             logger.info(f"发现 {len(recovery_list)} 个可恢复项目")
@@ -87,12 +83,10 @@ class CrashRecoveryService(QObject):
             return
 
         try:
-            # 生成恢复文件名
             timestamp = int(time.time())
             recovery_filename = f"recovery_{timestamp}.json"
             recovery_path = os.path.join(self._recovery_dir, recovery_filename)
 
-            # 创建恢复信息
             recovery_data = {
                 'backup_path': backup_path,
                 'timestamp': time.time(),
@@ -100,7 +94,6 @@ class CrashRecoveryService(QObject):
                 'is_temp': is_temp
             }
 
-            # 保存恢复信息
             with open(recovery_path, 'w', encoding='utf-8') as f:
                 json.dump(recovery_data, f, indent=2, ensure_ascii=False)
 
@@ -144,15 +137,12 @@ class CrashRecoveryService(QObject):
     def recover_project(self, recovery_info: RecoveryInfo, target_path: str) -> bool:
         """恢复项目"""
         try:
-            # 检查备份文件是否存在
             if not os.path.exists(recovery_info.backup_path):
                 raise Exception(f"备份文件不存在: {recovery_info.backup_path}")
 
-            # 读取备份内容
             with open(recovery_info.backup_path, 'r', encoding='utf-8') as f:
                 backup_data = json.load(f)
 
-            # 保存到目标路径
             with open(target_path, 'w', encoding='utf-8') as f:
                 json.dump(backup_data, f, indent=2, ensure_ascii=False)
 
@@ -197,7 +187,6 @@ class CrashRecoveryService(QObject):
                 filepath = os.path.join(self._recovery_dir, filename)
 
                 try:
-                    # 检查文件年龄
                     file_age = current_time - os.path.getmtime(filepath)
 
                     if file_age > max_age_seconds:

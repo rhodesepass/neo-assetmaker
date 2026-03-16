@@ -43,13 +43,11 @@ class SettingsPage(QWidget):
         self.mainLayout = QVBoxLayout(self)
         self.mainLayout.setContentsMargins(0, 15, 0, 0)
 
-        # 标题
         self.titleLabel = SubtitleLabel("设置", self)
         self.titleLabel.setContentsMargins(30, 0, 0, 0)
         self.mainLayout.addWidget(self.titleLabel)
         self.mainLayout.addSpacing(15)
 
-        # 滚动区域
         self.scrollArea = ScrollArea(self)
         self.scrollArea.setWidgetResizable(True)
 
@@ -58,7 +56,6 @@ class SettingsPage(QWidget):
         self.scrollLayout.setContentsMargins(30, 10, 30, 30)
         self.scrollLayout.setSpacing(20)
 
-        # ---------- 1. 应用设置 ----------
         self.appGroup = SettingCardGroup("应用设置", self.scrollWidget)
 
         self.autoUpdateCard = SwitchSettingCard(
@@ -71,7 +68,6 @@ class SettingsPage(QWidget):
         self.appGroup.addSettingCards([
             self.autoUpdateCard, self.updateFreqCard])
 
-        # ---------- 2. 界面设置 ----------
         self.uiGroup = SettingCardGroup("界面设置", self.scrollWidget)
 
         self.themeCard = ComboSettingCard(
@@ -96,7 +92,6 @@ class SettingsPage(QWidget):
             self.themeCard, self.themeColorCard,
             self.themeImageCard, self.scaleCard, self.languageCard])
 
-        # ---------- 3. 个性化设置 ----------
         self.personalGroup = SettingCardGroup("个性化设置", self.scrollWidget)
 
         self.tempProjectCard = SwitchSettingCard(
@@ -116,7 +111,6 @@ class SettingsPage(QWidget):
             self.tempProjectCard, self.welcomeCard,
             self.statusBarCard, self.autoSaveCard])
 
-        # ---------- 4. 视频与导出 ----------
         self.videoGroup = SettingCardGroup("视频与导出", self.scrollWidget)
 
         self.hwAccelCard = SwitchSettingCard(
@@ -129,7 +123,6 @@ class SettingsPage(QWidget):
         self.videoGroup.addSettingCards([
             self.hwAccelCard, self.exportThreadsCard])
 
-        # ---------- 5. 网络设置 ----------
         self.networkGroup = SettingCardGroup("网络设置", self.scrollWidget)
 
         self.githubAccelCard = SwitchSettingCard(
@@ -142,7 +135,6 @@ class SettingsPage(QWidget):
         self.networkGroup.addSettingCards([
             self.githubAccelCard, self.proxyCard])
 
-        # ---------- 6. 自动上传 ----------
         self.autoUploadGroup = SettingCardGroup("自动上传", self.scrollWidget)
         self.sshIpAddressCard = LineEditSettingCard(
             FluentIcon.EDIT,
@@ -183,10 +175,9 @@ class SettingsPage(QWidget):
             FluentIcon.SYNC,
             "上传完毕后自动重启通行证程序",
             parent=self.autoUploadGroup)
-        self.autoUploadGroup.addSettingCards([self.sshIpAddressCard, self.sshPortCard, self.sshUser, 
+        self.autoUploadGroup.addSettingCards([self.sshIpAddressCard, self.sshPortCard, self.sshUser,
                                               self.sshPassword, self.sshDefaultUploadPath, self.sshAutoRestartProgram])
 
-        # ---------- 7. 关于 ----------
         self.aboutGroup = SettingCardGroup("关于", self.scrollWidget)
 
         self.shortcutsCard = PushSettingCard(
@@ -207,7 +198,6 @@ class SettingsPage(QWidget):
         self.aboutGroup.addSettingCards([
             self.shortcutsCard, self.updateCard, self.aboutCard])
 
-        # ---------- 添加到滚动布局 ----------
         for group in [self.appGroup, self.uiGroup, self.personalGroup,
                       self.videoGroup, self.networkGroup, self.autoUploadGroup, self.aboutGroup]:
             self.scrollLayout.addWidget(group)
@@ -221,13 +211,11 @@ class SettingsPage(QWidget):
     # 信号连接
     # ------------------------------------------------------------------
     def _connect_signals(self):
-        # 应用设置
         self.autoUpdateCard.checkedChanged.connect(
             lambda v: self._emit('auto_update', v))
         self.updateFreqCard.currentTextChanged.connect(
             lambda v: self._emit('update_freq', v))
 
-        # 界面设置
         self.themeCard.currentTextChanged.connect(
             lambda v: self._emit('theme', v))
         self.themeColorCard.colorChanged.connect(
@@ -239,7 +227,6 @@ class SettingsPage(QWidget):
         self.languageCard.currentTextChanged.connect(
             lambda v: self._emit('language', v))
 
-        # 个性化设置
         self.tempProjectCard.checkedChanged.connect(
             lambda v: self._emit('auto_create_temp_project', v))
         self.welcomeCard.checkedChanged.connect(
@@ -249,19 +236,16 @@ class SettingsPage(QWidget):
         self.autoSaveCard.checkedChanged.connect(
             lambda v: self._emit('auto_save', v))
 
-        # 视频与导出
         self.hwAccelCard.checkedChanged.connect(
             lambda v: self._emit('hardware_acceleration', v))
         self.exportThreadsCard.valueChanged.connect(
             lambda v: self._emit('export_threads', v))
 
-        # 网络设置
         self.githubAccelCard.checkedChanged.connect(
             lambda v: self._emit('github_acceleration', v))
         self.proxyCard.checkedChanged.connect(
             lambda v: self._emit('use_proxy', v))
 
-        # SSH 自动上传
         self.sshIpAddressCard.textChanged.connect(
             lambda v: self._emit('ssh_ip_address', v))
         self.sshPortCard.textChanged.connect(
@@ -275,7 +259,6 @@ class SettingsPage(QWidget):
         self.sshAutoRestartProgram.checkedChanged.connect(
             lambda v: self._emit('ssh_auto_restart_program', v))
 
-        # 关于
         self.shortcutsCard.clicked.connect(self.show_shortcuts_requested)
         self.updateCard.clicked.connect(self.check_update_requested)
 
@@ -328,8 +311,7 @@ class SettingsPage(QWidget):
                 settings.get('github_acceleration', True))
             self.proxyCard.setChecked(
                 settings.get('use_proxy', False))
-            
-            # SSH 自动上传设置
+
             self.sshIpAddressCard.setText(
                 settings.get('z',"192.168.137.2")
             )
@@ -352,7 +334,6 @@ class SettingsPage(QWidget):
             self._loading = False
 
 
-# 一个包含输入框的设置卡
 class LineEditSettingCard(SettingCard):
 
     textChanged = pyqtSignal(str)
@@ -375,7 +356,6 @@ class LineEditSettingCard(SettingCard):
         if placeholder:
             self.lineEdit.setPlaceholderText(placeholder)
         self.lineEdit.textChanged.connect(self.textChanged.emit)
-        # 右边距 12px
         l, t, r, b = self.hBoxLayout.getContentsMargins()
         self.hBoxLayout.setContentsMargins(l, t, 12, b)
         self.hBoxLayout.addWidget(self.lineEdit)

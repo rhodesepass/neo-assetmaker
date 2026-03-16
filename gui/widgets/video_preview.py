@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 默认目标裁剪尺寸
 DEFAULT_TARGET_WIDTH = 360
 DEFAULT_TARGET_HEIGHT = 640
 
@@ -46,14 +45,12 @@ DEFAULT_TARGET_HEIGHT = 640
 class VideoPreviewWidget(QWidget):
     """视频预览组件，支持裁剪框交互"""
 
-    # 信号
     cropbox_changed = pyqtSignal(int, int, int, int)  # x, y, w, h
     frame_changed = pyqtSignal(int)  # 当前帧号
     playback_state_changed = pyqtSignal(bool)  # 播放状态
     video_loaded = pyqtSignal(int, float)  # 总帧数, fps
     rotation_changed = pyqtSignal(int)  # 旋转角度 (0-359)
 
-    # 拖拽模式
     DRAG_NONE = 0
     DRAG_MOVE = 1
     DRAG_RESIZE_TL = 2  # 左上
@@ -64,7 +61,6 @@ class VideoPreviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # 视频状态
         self.video_path: str = ""
         self.video_fps: float = 30.0
         self.video_width: int = 0
@@ -78,29 +74,24 @@ class VideoPreviewWidget(QWidget):
         # 标记是否有活跃的视频（用于替代 self.cap is not None 的检查）
         self._has_video: bool = False
 
-        # 播放状态
         self.is_playing: bool = False
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._on_timer_tick)
 
-        # 裁剪框
         self.target_width = DEFAULT_TARGET_WIDTH
         self.target_height = DEFAULT_TARGET_HEIGHT
         self.target_aspect_ratio = self.target_width / self.target_height
         self.cropbox = [0, 0, self.target_width, self.target_height]
 
-        # 显示缩放
         self.display_scale: float = 1.0
         self.display_offset_x: int = 0
         self.display_offset_y: int = 0
 
-        # 拖拽状态
         self.drag_mode: int = self.DRAG_NONE
         self.drag_start_pos: Optional[QPoint] = None
         self.drag_start_cropbox: list = []
         self.handle_size: int = 15
 
-        # 预览模式
         self._preview_mode: bool = False
         self._epconfig: Optional["EPConfig"] = None
         self._overlay_renderer = None
@@ -130,7 +121,6 @@ class VideoPreviewWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
 
-        # 显示容器（QLabel 和 GLVideoWidget 切换）
         self._display_stack = QStackedWidget()
         self._display_stack.setMinimumSize(320, 180)
         self._display_stack.setSizePolicy(
@@ -172,7 +162,6 @@ class VideoPreviewWidget(QWidget):
 
         layout.addWidget(self._display_stack)
 
-        # 信息标签 — 透明背景，浮于深色预览区上方
         self.info_label = CaptionLabel("帧: 0/0 | 裁剪: (0, 0, 0, 0)")
         setCustomStyleSheet(
             self.info_label,
@@ -211,11 +200,9 @@ class VideoPreviewWidget(QWidget):
         )
 
         self._init_cropbox()
-        # 同步 cropbox 到工作线程
         self._sync_state_to_reader()
         self.video_loaded.emit(total_frames, fps)
 
-        # GL 模式：切换到 GPU 渲染页面
         if self._use_gl and self._gl_renderer:
             self._display_stack.setCurrentIndex(1)
 
@@ -256,7 +243,6 @@ class VideoPreviewWidget(QWidget):
         self.current_frame_index = frame_index
         self.current_frame = raw_frame  # 保存原始帧，供 cropbox 交互即时重绘
 
-        # GL 模式
         if self._use_gl and self._gl_renderer:
             if self._gl_renderer.gl_failed:
                 # GL 初始化失败，永久回退到 QLabel
@@ -338,16 +324,14 @@ class VideoPreviewWidget(QWidget):
             self.video_label.setText(f"文件不存在: {path}")
             return False
 
-        # 停止旧的读取线程和播放
         self._stop_reader_thread()
         self.pause()
-        self._loop_frame = None  # 清除图片循环状态
+        self._loop_frame = None
 
         self.video_path = path
-        self._display_stack.setCurrentIndex(0)  # 显示 QLabel 加载提示
+        self._display_stack.setCurrentIndex(0)
         self.video_label.setText("正在加载视频...")
 
-        # 创建并启动后台帧读取线程
         from gui.widgets.frame_reader_thread import FrameReaderThread
         self._reader_thread = FrameReaderThread(self)
         self._reader_thread.video_opened.connect(self._on_video_opened)
@@ -356,9 +340,7 @@ class VideoPreviewWidget(QWidget):
         self._reader_thread.yuv_frame_ready.connect(self._on_yuv_frame_ready)
         self._reader_thread.start()
 
-        # 同步当前状态到新线程，然后请求打开视频
         self._sync_state_to_reader()
-        # GL 模式：通知工作线程发射 YUV 帧
         if self._use_gl and self._gl_renderer:
             self._reader_thread.request_set_gl_mode(True)
         self._reader_thread.request_open(path)
@@ -442,10 +424,9 @@ class VideoPreviewWidget(QWidget):
 
     def _load_static_frame(self, frame: np.ndarray):
         """内部方法：设置静态图片到预览"""
-        # 释放之前的视频线程（如果有）
         self.pause()
         self._stop_reader_thread()
-        self._loop_frame = None  # 清除图片循环状态
+        self._loop_frame = None
 
         self.video_width = frame.shape[1]
         self.video_height = frame.shape[0]
@@ -454,7 +435,6 @@ class VideoPreviewWidget(QWidget):
         self.current_frame_index = 0
 
         self._init_cropbox()
-        # GL 模式：切换到 GPU 渲染页面
         if self._use_gl and self._gl_renderer:
             self._display_stack.setCurrentIndex(1)
         self._display_frame(frame)
@@ -471,7 +451,6 @@ class VideoPreviewWidget(QWidget):
         rotated_w, rotated_h = self._get_rotated_video_size()
         target_ratio = self.target_aspect_ratio
 
-        # 计算最大的、符合目标宽高比的裁剪区域
         if rotated_w / rotated_h > target_ratio:
             max_h = rotated_h
             max_w = int(max_h * target_ratio)
@@ -483,7 +462,6 @@ class VideoPreviewWidget(QWidget):
         crop_w = int(max_w * 0.75)
         crop_h = int(crop_w / target_ratio)
 
-        # 居中放置裁剪框
         x = (rotated_w - crop_w) // 2
         y = (rotated_h - crop_h) // 2
 
@@ -502,11 +480,9 @@ class VideoPreviewWidget(QWidget):
             h = rotated_h
             w = int(h * self.target_aspect_ratio)
 
-        # 最小尺寸
         w = max(w, 90)
         h = max(h, int(90 / self.target_aspect_ratio))
 
-        # 边界限制
         x = max(0, min(x, rotated_w - w))
         y = max(0, min(y, rotated_h - h))
         self.cropbox = [x, y, w, h]
@@ -545,7 +521,6 @@ class VideoPreviewWidget(QWidget):
             self._gl_renderer.update()
             return
 
-        # 其他模式需要完整重绘
         if self.current_frame is not None:
             self._display_frame(self.current_frame)
 
@@ -559,7 +534,6 @@ class VideoPreviewWidget(QWidget):
         if frame is None or not HAS_CV2:
             return
 
-        # GL 模式
         if self._use_gl and self._gl_renderer and not self._gl_renderer.gl_failed:
             if self._preview_mode:
                 # GL 预览模式：CPU 旋转+裁剪+overlay → 上传合成帧
@@ -639,14 +613,11 @@ class VideoPreviewWidget(QWidget):
         """渲染预览帧（裁剪+叠加UI）"""
         x, y, w, h = self.cropbox
 
-        # 裁剪
         cropped = frame[y:y+h, x:x+w].copy()
 
-        # 缩放到目标分辨率
         preview_frame = cv2.resize(
             cropped, (self.target_width, self.target_height))
 
-        # 应用叠加UI
         if self._epconfig and self._overlay_renderer:
             from config.epconfig import OverlayType
             if self._epconfig.overlay.type == OverlayType.ARKNIGHTS:
@@ -673,7 +644,6 @@ class VideoPreviewWidget(QWidget):
         if self._reader_thread is None:
             return
 
-        # 从缓冲区取帧（非阻塞）
         frame = self._reader_thread.frame_buffer.get()
         if frame is None:
             # 缓冲区为空 — 欠载（underrun），跳帧
@@ -694,14 +664,12 @@ class VideoPreviewWidget(QWidget):
         self.current_frame_index = frame.frame_index
         self.current_frame = frame.raw_frame
 
-        # GL 模式
         if self._use_gl and self._gl_renderer:
             if self._gl_renderer.gl_failed:
                 self._use_gl = False
                 self._display_stack.setCurrentIndex(0)
                 logger.warning("OpenGL 初始化失败，回退到 QLabel 软件渲染")
             elif frame.yuv_data is not None and not self._preview_mode:
-                # GL 编辑模式：YUV 直传 GPU
                 y, u, v, w, h = frame.yuv_data
                 self._gl_renderer.upload_yuv_frame(y, u, v, w, h)
                 self._gl_renderer.set_rotation(self._rotation)
@@ -713,14 +681,12 @@ class VideoPreviewWidget(QWidget):
                 self._update_info_label()
                 return
             else:
-                # GL 预览模式：CPU 处理后上传
                 if frame.raw_frame is not None:
                     self._display_frame(frame.raw_frame)
                 self.frame_changed.emit(frame.frame_index)
                 self._update_info_label()
                 return
 
-        # QLabel 模式
         if frame.qimage is not None and not frame.qimage.isNull():
             label_size = self.video_label.size()
             pixmap = QPixmap.fromImage(frame.qimage).scaled(
@@ -778,11 +744,9 @@ class VideoPreviewWidget(QWidget):
         if not self._has_video and self._loop_frame is None:
             return
 
-        # 重置自适应统计
         self._underrun_count = 0
         self._tick_count = 0
 
-        # 启动预读
         if self._reader_thread is not None:
             self._reader_thread.start_prefetch()
 
@@ -926,16 +890,19 @@ class VideoPreviewWidget(QWidget):
         return (rx0, ry0, rx1 - rx0, ry1 - ry0)
 
     def get_cropbox_for_export(self) -> Tuple[int, int, int, int]:
-        """获取导出用的 cropbox（原始坐标系）"""
+        """获取导出用的 cropbox（原始坐标系，供模拟器使用）"""
         x, y, w, h = self.cropbox
         return self._cropbox_to_original_coords(x, y, w, h)
+
+    def get_cropbox_in_rotated_space(self) -> Tuple[int, int, int, int]:
+        """获取旋转空间中的 cropbox（用于视频导出，无坐标转换）"""
+        return tuple(self.cropbox)
 
     def set_cropbox(self, x: int, y: int, w: int, h: int):
         """设置裁剪框"""
         self.cropbox = [x, y, w, h]
         self._bound_cropbox()
         self._emit_cropbox_changed()
-        # 同步到工作线程
         if self._reader_thread is not None:
             self._reader_thread.request_set_cropbox(self.cropbox)
         self._refresh_display()
@@ -1087,11 +1054,9 @@ class VideoPreviewWidget(QWidget):
     def set_epconfig(self, config: "EPConfig"):
         """设置配置（用于叠加UI渲染）"""
         self._epconfig = config
-        # 初始化叠加渲染器
         if self._overlay_renderer is None:
             from core.overlay_renderer import OverlayRenderer
             self._overlay_renderer = OverlayRenderer()
-        # 同步到工作线程
         if self._reader_thread is not None:
             self._reader_thread.request_set_preview_params(
                 self._preview_mode, self.target_width, self.target_height,
@@ -1101,7 +1066,6 @@ class VideoPreviewWidget(QWidget):
 
     def _display_to_rotated_coords(self, pos: QPoint) -> Tuple[int, int]:
         """将显示坐标转换为旋转后视频坐标"""
-        # GL 模式：使用 GL 渲染器的 display_rect 计算坐标
         if self._use_gl and self._gl_renderer and not self._gl_renderer.gl_failed:
             gl_pos = self._gl_renderer.mapFrom(self, pos)
             dx, dy, dw, dh = self._gl_renderer._display_rect
@@ -1112,7 +1076,6 @@ class VideoPreviewWidget(QWidget):
             vy = int((gl_pos.y() - dy) / dh * rotated_h)
             return (max(0, vx), max(0, vy))
 
-        # QLabel 模式
         label_pos = self.video_label.mapFrom(self, pos)
         rx = (int((label_pos.x() - self.display_offset_x) / self.display_scale)
               if self.display_scale > 0 else 0)
@@ -1178,8 +1141,11 @@ class VideoPreviewWidget(QWidget):
 
             self._bound_cropbox()
             self._emit_cropbox_changed()
-            # 同步 cropbox 到工作线程
-            if self._reader_thread is not None:
+
+            # GL 编辑模式下 cropbox 由 GPU 绘制，无需同步到后台线程
+            if self._reader_thread is not None and (
+                    not self._use_gl or self._preview_mode
+                    or (self._gl_renderer and self._gl_renderer.gl_failed)):
                 self._reader_thread.request_set_cropbox(self.cropbox)
             if self.current_frame is not None:
                 self._refresh_display()
@@ -1218,7 +1184,6 @@ class VideoPreviewWidget(QWidget):
         # 仅在无修饰键时处理，避免拦截 Ctrl+S 等全局快捷键
         has_modifier = modifiers != Qt.KeyboardModifier.NoModifier
 
-        # 播放/帧跳转操作需要视频
         if (key == Qt.Key.Key_Space and self._has_video
                 and not has_modifier):
             self.toggle_play()
@@ -1243,7 +1208,6 @@ class VideoPreviewWidget(QWidget):
 
         self._bound_cropbox()
         self._emit_cropbox_changed()
-        # 同步 cropbox 到工作线程
         if self._reader_thread is not None:
             self._reader_thread.request_set_cropbox(self.cropbox)
         if self.current_frame is not None:

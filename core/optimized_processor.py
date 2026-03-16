@@ -50,9 +50,6 @@ class OptimizedVideoProcessor:
                 logger.warning(f"无法读取帧: {frame_path}")
                 return None
 
-            # 这里可以添加帧处理逻辑
-            # 例如：调整大小、应用滤镜等
-
             return frame
         except Exception as e:
             logger.error(f"处理帧失败: {e}")
@@ -77,21 +74,17 @@ class OptimizedVideoProcessor:
         """
         def process():
             try:
-                # 使用 PyAV 解码视频
                 container = av.open(video_path)
                 stream = container.streams.video[0]
-                stream.thread_type = "AUTO"  # 启用多线程解码
+                stream.thread_type = "AUTO"
 
-                # 从 stream 元数据获取总帧数
                 total_frames = stream.frames if stream.frames else 0
                 frames = []
 
                 for av_frame in container.decode(stream):
-                    # 转换为 BGR numpy 数组（与 cv2 兼容）
                     frame = av_frame.to_ndarray(format='bgr24')
                     frames.append(frame)
 
-                    # 进度回调
                     if progress_callback:
                         progress_callback(len(frames), total_frames)
 
@@ -128,7 +121,6 @@ class OptimizedVideoProcessor:
                 stream = container.streams.video[0]
                 stream.thread_type = "AUTO"
 
-                # 精确 seek 到目标帧
                 fps = float(stream.average_rate) if stream.average_rate else 30.0
                 time_base = stream.time_base
 
@@ -137,7 +129,6 @@ class OptimizedVideoProcessor:
                     target_pts = int(target_sec / time_base)
                     container.seek(target_pts, stream=stream, backward=True)
 
-                # 解码并跳过到目标帧
                 frame = None
                 for av_frame in container.decode(stream):
                     if av_frame.pts is not None and time_base and fps > 0:
@@ -164,12 +155,10 @@ class OptimizedVideoProcessor:
             results = []
             futures = []
 
-            # 并行提取帧
             for index in frame_indices:
                 future = self.executor.submit(extract_single_frame, index)
                 futures.append(future)
 
-            # 等待所有任务完成
             for future in futures:
                 result = future.result()
                 results.append(result)
@@ -195,18 +184,15 @@ class OptimizedVideoProcessor:
             progress_callback: 进度回调函数
         """
         try:
-            # 使用 PyAV 解码视频
             container = av.open(video_path)
             stream = container.streams.video[0]
-            stream.thread_type = "AUTO"  # 启用多线程解码
+            stream.thread_type = "AUTO"
 
-            # 从 stream 元数据获取视频属性
             fps = float(stream.average_rate) if stream.average_rate else 30.0
             width = stream.width
             height = stream.height
             total_frames = stream.frames if stream.frames else 0
 
-            # 创建视频写入器（仍使用 cv2.VideoWriter）
             writer = None
             if output_path:
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -215,23 +201,18 @@ class OptimizedVideoProcessor:
             frame_count = 0
 
             for av_frame in container.decode(stream):
-                # 转换为 BGR numpy 数组
                 frame = av_frame.to_ndarray(format='bgr24')
 
-                # 处理帧
                 processed_frame = frame_processor(frame)
 
-                # 写入输出
                 if writer:
                     writer.write(processed_frame)
 
                 frame_count += 1
 
-                # 进度回调
                 if progress_callback and frame_count % 10 == 0:
                     progress_callback(frame_count, total_frames)
 
-            # 清理
             container.close()
             if writer:
                 writer.release()
@@ -296,7 +277,6 @@ class OptimizedVideoProcessor:
                 return self._cache[cache_key]
 
         try:
-            # 使用 PyAV 获取视频元数据
             container = av.open(video_path)
             stream = container.streams.video[0]
 
@@ -322,12 +302,10 @@ class OptimizedVideoProcessor:
 
             container.close()
 
-            # 缓存结果
             with self._lock:
                 self._cache[cache_key] = info
                 self._cache_order.append(cache_key)
 
-                # 限制缓存大小
                 if len(self._cache_order) > self.cache_size:
                     oldest_key = self._cache_order.pop(0)
                     del self._cache[oldest_key]
@@ -385,7 +363,6 @@ class LargeFileProcessor:
                     processor(chunk)
                     processed_size += len(chunk)
 
-                    # 进度回调
                     if progress_callback and processed_size % (10 * self.chunk_size) == 0:
                         progress_callback(processed_size, file_size)
 
@@ -413,7 +390,6 @@ class LargeFileProcessor:
             with open(dst_path, 'ab') as f:
                 f.write(chunk)
 
-        # 确保目标文件不存在
         if os.path.exists(dst_path):
             os.remove(dst_path)
 
@@ -446,7 +422,6 @@ class LargeFileProcessor:
         return md5_hash.hexdigest()
 
 
-# 全局处理器实例
 _global_video_processor: Optional[OptimizedVideoProcessor] = None
 _global_file_processor: Optional[LargeFileProcessor] = None
 

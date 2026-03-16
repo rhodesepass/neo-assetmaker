@@ -61,11 +61,8 @@ class OverlayRenderer:
         result = frame.copy()
         h, w = result.shape[:2]
 
-        # 获取主题色
         color = self.hex_to_bgr(options.color)
-        # 白色用于文字
         white = (255, 255, 255)
-        # 半透明背景色
         overlay_bg = (30, 30, 30)
 
         # === 顶部区域：干员名称和代号 ===
@@ -75,7 +72,6 @@ class OverlayRenderer:
             overlay_bg, alpha=0.7
         )
 
-        # 干员名称 (大字)
         name_font_scale = h / 400
         name_thickness = max(1, int(h / 200))
         cv2.putText(
@@ -84,7 +80,6 @@ class OverlayRenderer:
             self._font, name_font_scale, white, name_thickness, cv2.LINE_AA
         )
 
-        # 干员代号 (小字)
         code_font_scale = h / 800
         code_thickness = max(1, int(h / 400))
         cv2.putText(
@@ -134,7 +129,6 @@ class OverlayRenderer:
             overlay_bg, alpha=0.7
         )
 
-        # 条码文字
         barcode_font_scale = h / 900
         barcode_thickness = max(1, int(h / 500))
         cv2.putText(
@@ -143,7 +137,6 @@ class OverlayRenderer:
             self._font, barcode_font_scale, white, barcode_thickness, cv2.LINE_AA
         )
 
-        # 绘制模拟条码线
         self._draw_barcode(
             result,
             int(w * 0.05), int(h * 0.95),
@@ -151,7 +144,6 @@ class OverlayRenderer:
             white
         )
 
-        # Staff文字（右下角）
         staff_font_scale = h / 800
         staff_thickness = max(1, int(h / 400))
         staff_size = cv2.getTextSize(
@@ -182,19 +174,15 @@ class OverlayRenderer:
         corner_size = int(min(w, h) * 0.03)
         corner_thickness = max(1, int(min(w, h) / 200))
 
-        # 左上角
         cv2.line(result, (0, corner_size), (0, 0), color, corner_thickness)
         cv2.line(result, (0, 0), (corner_size, 0), color, corner_thickness)
 
-        # 右上角
         cv2.line(result, (w - corner_size, 0), (w, 0), color, corner_thickness)
         cv2.line(result, (w - 1, 0), (w - 1, corner_size), color, corner_thickness)
 
-        # 左下角
         cv2.line(result, (0, h - corner_size), (0, h - 1), color, corner_thickness)
         cv2.line(result, (0, h - 1), (corner_size, h - 1), color, corner_thickness)
 
-        # 右下角
         cv2.line(result, (w - corner_size, h - 1), (w, h - 1), color, corner_thickness)
         cv2.line(result, (w - 1, h - corner_size), (w - 1, h - 1), color, corner_thickness)
 
@@ -221,7 +209,6 @@ class OverlayRenderer:
         text_img = Image.new('RGBA', (height, width), (0, 0, 0, 0))
         draw = ImageDraw.Draw(text_img)
 
-        # 使用默认字体，按比例缩放
         font_size = max(8, int(font_scale))
         try:
             font = ImageFont.truetype("arial", font_size)
@@ -233,10 +220,8 @@ class OverlayRenderer:
         # 顺时针旋转90° (PIL的rotate是逆时针，所以用270°或-90°)
         rotated = text_img.rotate(-90, expand=True)
 
-        # 裁剪到目标尺寸
         rotated = rotated.crop((0, 0, min(rotated.width, width), min(rotated.height, height)))
 
-        # 转为 numpy array 并叠加到帧上
         rot_array = np.array(rotated)
         if rot_array.shape[2] == 4:
             alpha = rot_array[:, :, 3] / 255.0

@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
-# Fluent Widgets导入
 from qfluentwidgets import (
     PushButton, PrimaryPushButton,
     LineEdit, ComboBox, SubtitleLabel, StrongBodyLabel,
@@ -20,7 +19,6 @@ from qfluentwidgets import (
     setCustomStyleSheet
 )
 
-# 创建自定义GroupBox类，应用Fluent样式
 from PyQt6.QtWidgets import QGroupBox as QtGroupBox
 from PyQt6.QtCore import Qt
 
@@ -41,11 +39,11 @@ from config.operator_db import get_operator_db
 class BasicConfigPanel(QWidget):
     """基础设置面板"""
 
-    config_changed = pyqtSignal()  # 配置变更信号
-    video_file_selected = pyqtSignal(str)  # 视频文件选择信号
-    validate_requested = pyqtSignal()  # 验证配置请求信号
-    export_requested = pyqtSignal()  # 导出素材请求信号
-    ssh_upload_requested = pyqtSignal()  # SSH上传请求信号
+    config_changed = pyqtSignal()
+    video_file_selected = pyqtSignal(str)
+    validate_requested = pyqtSignal()
+    export_requested = pyqtSignal()
+    ssh_upload_requested = pyqtSignal()
 
 
     def __init__(self, parent=None):
@@ -67,7 +65,6 @@ class BasicConfigPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(20)
 
-        # 基本信息 - 使用Fluent GroupBox
         group_basic = FluentGroupBox("基本信息")
         basic_layout = QFormLayout(group_basic)
 
@@ -83,11 +80,9 @@ class BasicConfigPanel(QWidget):
 
         layout.addWidget(group_basic)
 
-        # 视频设置 - 使用Fluent GroupBox
         group_video = FluentGroupBox("视频设置")
         video_layout = QVBoxLayout(group_video)
 
-        # 循环视频
         loop_layout = QFormLayout()
         self.edit_loop_file = LineEdit()
         self.edit_loop_file.setPlaceholderText("选择循环视频")
@@ -100,24 +95,20 @@ class BasicConfigPanel(QWidget):
         video_layout.addLayout(loop_layout)
         layout.addWidget(group_video)
 
-        # 一键模板 - 使用Fluent GroupBox
         group_template = FluentGroupBox("一键模板")
-        # 减少到现在高度的3/4
         group_template.setMinimumHeight(180)
         template_layout = QVBoxLayout(group_template)
 
-        # 创建滚动区域，只用于一键模板板块
         scroll_area = ScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
-        # 滚动区域内容
+
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(10)
-        
+
         template_desc = StrongBodyLabel("选择一个模板，快速创建素材")
         scroll_layout.addWidget(template_desc)
 
@@ -125,50 +116,41 @@ class BasicConfigPanel(QWidget):
         self.combo_template.addItems(["默认模板", "明日方舟模板", "自定义模板"])
         scroll_layout.addWidget(self.combo_template)
 
-        # 明日方舟干员信息（仅在明日方舟模板时显示）- 使用Fluent GroupBox
         self.group_arknights = FluentGroupBox("明日方舟干员信息")
         arknights_layout = QVBoxLayout(self.group_arknights)
         arknights_layout.setContentsMargins(10, 10, 10, 10)
         arknights_layout.setSpacing(10)
-        
-        # 创建表单布局
+
         form_layout = QFormLayout()
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(8)
-        
-        # 干员名称输入框（带自动完成）
+
         self.edit_ark_name = SearchLineEdit()
         self.edit_ark_name.setPlaceholderText("例如：新约能天使")
         self.edit_ark_name.setToolTip("干员名称，显示在UI顶部\n支持模糊搜索，输入部分名称即可")
-        
-        # 设置自动完成 - SearchLineEdit内置了自动完成功能
+
         self._update_completer()
         form_layout.addRow("干员名称:", self.edit_ark_name)
-        
-        # 职业下拉框
+
         self.combo_ark_class = ComboBox()
         self.combo_ark_class.addItem("无", userData="")
         for class_name, class_value in OPERATOR_CLASS_PRESETS.items():
             self.combo_ark_class.addItem(class_name, userData=class_value)
         self.combo_ark_class.setToolTip("选择干员职业\n输入干员名称后自动匹配")
         form_layout.addRow("职业:", self.combo_ark_class)
-        
-        # 将表单布局添加到垂直布局
+
         arknights_layout.addLayout(form_layout)
-        
-        # 默认隐藏明日方舟干员信息
+
         self.group_arknights.setVisible(False)
-        
+
         scroll_layout.addWidget(self.group_arknights)
         scroll_layout.addStretch()
-        
-        # 设置滚动区域内容
+
         scroll_area.setWidget(scroll_content)
         template_layout.addWidget(scroll_area)
-        
+
         layout.addWidget(group_template)
 
-        # 操作按钮 - 使用Fluent GroupBox
         group_actions = FluentGroupBox("操作")
         actions_layout = QVBoxLayout(group_actions)
 
@@ -191,8 +173,7 @@ class BasicConfigPanel(QWidget):
         self.combo_screen.currentIndexChanged.connect(self._on_config_changed)
         self.edit_loop_file.textChanged.connect(self._on_config_changed)
         self.combo_template.currentIndexChanged.connect(self._on_template_changed)
-        
-        # 明日方舟干员信息信号
+
         self.edit_ark_name.textChanged.connect(self._on_operator_name_changed)
         self.combo_ark_class.currentIndexChanged.connect(self._on_config_changed)
 
@@ -204,25 +185,22 @@ class BasicConfigPanel(QWidget):
         """干员名称变更处理"""
         if self._updating or self._is_updating_from_db:
             return
-        
+
         if not text:
-            self.combo_ark_class.setCurrentIndex(0)  # 选择"无"
+            self.combo_ark_class.setCurrentIndex(0)
             self._on_config_changed()
             return
-        
-        # 搜索干员
+
         results = self._operator_db.search(text, limit=1)
         if results:
             operator_name, similarity = results[0]
             if similarity > 0.5:  # 相似度阈值
-                # 获取干员职业
                 profession = self._operator_db.get_operator_profession(operator_name)
                 if profession:
-                    # 自动选择职业
                     index = self.combo_ark_class.findData(profession)
                     if index >= 0:
                         self.combo_ark_class.setCurrentIndex(index)
-        
+
         self._on_config_changed()
 
     def set_config(self, config: EPConfig, base_dir: str = ""):
@@ -235,35 +213,28 @@ class BasicConfigPanel(QWidget):
             if config:
                 self.edit_name.setText(config.name)
 
-                # 分辨率
                 index = self.combo_screen.findData(config.screen.value)
                 if index >= 0:
                     self.combo_screen.setCurrentIndex(index)
 
-                # 循环视频
                 self.edit_loop_file.setText(config.loop.file)
 
-                # 根据overlay类型同步模板下拉框
                 if config.overlay.type == OverlayType.ARKNIGHTS:
-                    self.combo_template.setCurrentIndex(1)  # 明日方舟模板
+                    self.combo_template.setCurrentIndex(1)
 
-                # 根据模板显示/隐藏干员信息
                 self.group_arknights.setVisible(
                     config.overlay.type == OverlayType.ARKNIGHTS
                 )
 
-                # 明日方舟干员信息
                 if config.overlay.arknights_options:
                     self.edit_ark_name.setText(config.overlay.arknights_options.operator_name)
-                    # 设置职业图标
                     class_icon = config.overlay.arknights_options.operator_class_icon or ""
                     index = self.combo_ark_class.findData(class_icon)
                     if index >= 0:
                         self.combo_ark_class.setCurrentIndex(index)
                     else:
-                        self.combo_ark_class.setCurrentIndex(0)  # 选择"无"
+                        self.combo_ark_class.setCurrentIndex(0)
 
-                # 更新自动完成列表
                 self._update_completer()
         finally:
             self._updating = False
@@ -283,21 +254,17 @@ class BasicConfigPanel(QWidget):
         if self._config is None:
             return
 
-        # 基本信息
         self._config.name = self.edit_name.text()
 
-        # 分辨率
         screen_value = self.combo_screen.currentData()
         self._config.screen = ScreenType.from_string(screen_value)
 
         # 循环视频文件路径（不修改 loop.is_image，基础面板无此控件，保留高级面板设置的值）
         self._config.loop.file = self.edit_loop_file.text()
 
-        # 根据模板设置其他参数
         template = self.combo_template.currentText()
         try:
             if template == "明日方舟模板":
-                # 设置明日方舟模板的默认值
                 from config.epconfig import OverlayType
                 self._config.overlay.type = OverlayType.ARKNIGHTS
                 if not self._config.overlay.arknights_options:
@@ -309,20 +276,15 @@ class BasicConfigPanel(QWidget):
                         aux_text="Operator of Rhodes Island",
                         staff_text="STAFF"
                     )
-                
-                # 更新干员名称和职业图标
+
                 if self._config.overlay.arknights_options:
                     self._config.overlay.arknights_options.operator_name = self.edit_ark_name.text()
-                    # 获取职业图标
                     class_value = self.combo_ark_class.currentData()
                     if class_value:
-                        # 使用内置职业图标
                         self._config.overlay.arknights_options.operator_class_icon = f"class_icons/{class_value}.png"
                     else:
-                        # 清除职业图标
                         self._config.overlay.arknights_options.operator_class_icon = ""
             elif template == "自定义模板":
-                # 可以在这里添加自定义模板的逻辑
                 pass
         except Exception as e:
             print(f"设置模板时出错: {e}")
@@ -341,42 +303,34 @@ class BasicConfigPanel(QWidget):
         if self._updating:
             return
         template = self.combo_template.currentText()
-        # 显示或隐藏明日方舟干员信息
         self.group_arknights.setVisible(template == "明日方舟模板")
-        
-        # 如果显示明日方舟干员信息，更新自动完成列表
+
         if template == "明日方舟模板":
             self._update_completer()
-        
+
         self._on_config_changed()
 
     def _browse_file(self, title: str, filters: list):
         """浏览文件"""
-        # 确保基础目录存在
         import os
         import pathlib
-        
-        # 如果基础目录为空或者不存在，使用桌面目录
+
         if not self._base_dir or not os.path.exists(self._base_dir):
-            # 获取用户桌面目录
             desktop_dir = str(pathlib.Path.home() / "Desktop")
             initial_dir = desktop_dir
         else:
             initial_dir = self._base_dir
-        
+
         path, _ = QFileDialog.getOpenFileName(
             self, f"选择{title}", initial_dir,
             ";;".join(filters)
         )
         if path:
-            # 复制文件到项目目录，使用相对路径
             rel_path = self._copy_to_project_dir(path, "loop")
             display_path = rel_path if rel_path else path
             self.edit_loop_file.setText(display_path)
-            # 更新配置
             if self._config:
                 self._config.loop.file = display_path
-                # 检查文件类型
                 ext = os.path.splitext(path)[1].lower()
                 image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".gif"]
                 self._config.loop.is_image = ext in image_extensions
