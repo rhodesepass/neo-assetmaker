@@ -1,3 +1,6 @@
+'''此处所有的函数都应被try catch包裹，抛出异常由调用者处理'''
+
+
 import time
 import json
 import paramiko
@@ -8,17 +11,14 @@ import re
 import logging
 import shutil
 
-
 logger = logging.getLogger(__name__)
 
 debug = True
 
-def startDrmApp(ssh):
+def StartDrmApp(ssh):
     '''使用脚本启动DRM'''
     # 为  什  么  白  银  要  把  启  动  外  部  程  序  的  功  能  塞  在  s  h  e  l  l  里  🤬  🤬
-    scp = SCPClient(ssh.get_transport())
-    scp.put(os.path.join(os.getcwd(),"core","scripts","hostStartDrm.sh"), "/root/hostStartDrm.sh")
-    scp.close()
+    UploadFile(ssh,os.path.join(os.getcwd(),"core","scripts","hostStartDrm.sh"), "/root/hostStartDrm.sh")
     stdin, stdout, stderr = ssh.exec_command("chmod +x /root/hostStartDrm.sh")
     stdout.channel.recv_exit_status()
     stdin, stdout, stderr = ssh.exec_command("cd /root/ && nohup ./hostStartDrm.sh > output.log 2>&1 &")
@@ -46,7 +46,6 @@ def RefreshRemoteMaterialList(ssh):
 
     scp = SCPClient(ssh.get_transport())
     for targetJsonFile in jsonList:
-
         # 重置tmp目录
         if os.path.exists(os.path.join(localPath, "tmp")):
             shutil.rmtree(os.path.join(localPath, "tmp"))
@@ -81,6 +80,8 @@ def RefreshRemoteMaterialList(ssh):
         finally:
             if os.path.exists(os.path.join(localPath, "tmp")):
                 shutil.rmtree(os.path.join(localPath, "tmp"))
+    
+    scp.close()
 
 def GetIconPath(jsonPath):
     try:
@@ -99,7 +100,7 @@ def FindJsonPath(text):
     matches = re.findall(pattern, text, flags=re.UNICODE)
     return matches
 
-def stopDrmApp(ssh) -> bool:
+def StopDrmApp(ssh) -> bool:
     '''停止DRM'''
     stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
     stdout.channel.recv_exit_status()
@@ -116,8 +117,23 @@ def stopDrmApp(ssh) -> bool:
         time.sleep(0.5)
     return True
 
+def DelRemoteFile(ssh, remotePath) -> bool:
+    '''删除远程文件'''
+    stdin, stdout, stderr = ssh.exec_command(f"rm -rf {remotePath}")
+    stdout.channel.recv_exit_status()
 
+    if stdout.read().decode().strip() != "":
+        logger.error(f"删除远程文件失败: {remotePath}")
+        return False
+    else:
+        logger.info(f"删除远程文件成功: {remotePath}")
+        return True
 
+def UploadFile(ssh, localPath, remotePath):
+    '''上传文件'''
+    scp = SCPClient(ssh.get_transport())
+    scp.put(localPath, remotePath)
+    scp.close() 
 
 
 

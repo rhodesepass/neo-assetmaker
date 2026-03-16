@@ -111,8 +111,8 @@ def ssh_auto_upload(
                 time.sleep(0.5)
                 
             _report(100, "正在尝试启动主程序")
-            from core.sshOperation import startDrmApp
-            startDrmApp(ssh)
+            from core.sshOperation import StartDrmApp
+            StartDrmApp(ssh)
             _report(100, "重启命令已发送，等待程序启动...")
 
         return True
