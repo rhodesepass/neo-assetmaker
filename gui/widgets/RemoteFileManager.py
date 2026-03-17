@@ -69,6 +69,37 @@ class FileItem:
         self.type = type_
 
 
+class DropListWidget(QListWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [url.toLocalFile() for url in event.mimeData().urls()]
+
+        files = []
+        folders = []
+
+        for path in paths:
+            if os.path.isfile(path):
+                files.append(path)
+            elif os.path.isdir(path):
+                folders.append(path)
+
+        # 调用父窗口方法
+        if self.parent():
+            self.parent().handle_drop(files, folders)
+
+
 class RemoteFileManagerWindow(QWidget):
     def __init__(
         self, parent, mainwindow, sshIp, sshPort, sshUser, sshPassword, sshDefaultFolder
@@ -118,8 +149,8 @@ class RemoteFileManagerWindow(QWidget):
         self.containerLayout.setContentsMargins(10, 10, 10, 10)
         self.fileWarpper.setWidget(self.container)
 
-        # 列表控件
-        self.fileManagerList = QListWidget()
+        # 列表控件 支持拖拽
+        self.fileManagerList = DropListWidget(self)
         self.fileManagerList.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         setCustomStyleSheet(
             self.fileManagerList,
@@ -128,6 +159,9 @@ class RemoteFileManagerWindow(QWidget):
         )
         self.fileManagerList.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.containerLayout.addWidget(self.fileManagerList)
+
+        self.fileManagerList.setAcceptDrops(True)
+        self.fileManagerList.setDragEnabled(False)  # 防止内部拖拽干扰
 
         # 底部工具栏
         self.buttomGrid = QWidget()
@@ -189,6 +223,22 @@ class RemoteFileManagerWindow(QWidget):
         self.containerLayout.addWidget(self.progressBar)
 
         self._on_refresh()
+
+    def handle_drop(self, files, folders):
+        print("文件:", files)
+        print("文件夹:", folders)
+
+        # 展开文件夹
+        all_files = list(files)
+        for folder in folders:
+            for root, dirs, fs in os.walk(folder):
+                for f in fs:
+                    all_files.append(os.path.join(root, f))
+
+        print("最终:", all_files)
+
+        # 调你原来的上传逻辑
+        # self.upload_files(all_files)
 
     def _on_goParentFolder(self):
         self.DirChanged("..")
@@ -334,7 +384,34 @@ class RemoteFileManagerWindow(QWidget):
             self._on_refresh()
 
     def _on_file_download_clicked(self):
-        print(f"按钮点击:")
+        item = self.fileManagerList.currentItem()
+        if not item:
+            return
+        filename = item.data(Qt.ItemDataRole.UserRole)[2:]
+        if not DetectProtectedPath(filename):
+            return
+        currentPath = self.lb_currentPath.text()
+        try:
+            if not self.TryStartSSH():
+                raise ValueError("初始化SSH失败")
+            localPath = QFileDialog.getExistingDirectory(self, "打开文件夹", "")
+            if not localPath:
+                return
+            import threading
+
+            downloadThead = threading.Thread(
+                target=sshOperation.DownloadFile,
+                args=(
+                    self.ssh,
+                    f"{currentPath}/{filename}",
+                    f"{localPath}/",
+                    self.reportProcess,
+                ),
+                daemon=True,
+            )
+            downloadThead.start()
+        except Exception as ex:
+            logger.error(f"下载文件失败：{ex}", stack_info=True)
         return
 
     def _on_upload(self):
@@ -344,7 +421,7 @@ class RemoteFileManagerWindow(QWidget):
             from core.sshOperation import UploadFile
 
             # 检查SSH
-            remotePath = "/assets/tmp/"
+            remotePath = self.lb_currentPath.text()
             if not self.TryStartSSH():
                 raise ValueError("初始化SSH失败")
 
