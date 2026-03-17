@@ -263,10 +263,16 @@ class SshDownloadWorker(QThread):
         self._args = (host, port, user, password, remote_path, target_name, local_save_dir, remoteAbsPath)
         self._cancel_event.clear()
 
+
+
     def cancel(self):
         self._cancel_event.set()
 
     def run(self):
+
+        def _report(progress: int, message: str):
+            self.progress_updated.emit(progress, message)
+
         if not self._args:
             self.download_failed.emit("参数不足")
             return
@@ -283,8 +289,12 @@ class SshDownloadWorker(QThread):
             full_remote = remoteAbsPath
             os.makedirs(local_save_dir, exist_ok=True)
 
-            self.progress_updated.emit(10, "正在下载文件...")
-            scp_client.get(full_remote, local_path=local_save_dir, recursive=True)
+            self.progress_updated.emit(0, "正在下载文件...")
+
+            from core.sshOperation import DownloadFile
+            DownloadFile(ssh, full_remote, local_save_dir, report=_report)
+
+            # scp_client.get(full_remote, local_path=local_save_dir, recursive=True)
 
             if self._cancel_event.is_set():
                 self.log_message.emit("INFO", "下载已取消")

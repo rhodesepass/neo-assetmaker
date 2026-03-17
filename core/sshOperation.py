@@ -141,14 +141,15 @@ def UploadFile(ssh, localPath, remotePath, report = None, finishedSize : int = 0
     if report == None:
         scp = SCPClient(ssh.get_transport())
     else:
-        scp = SCPClient(ssh.get_transport(), progress = partial(CalcSpeed, report, finishedSize, totalSize))    
+        scp = SCPClient(ssh.get_transport(), progress = partial(CalcUploadSpeed, report, finishedSize, totalSize))    
     scp.put(localPath, remotePath)
 
     scp.close() 
 
 sshUploadSpeedCalculatorLastTime = time.time()
 sshUploadSpeedCalculatorLastSent = 0
-def CalcSpeed(report, finishedSize, totalSize, filename, size, sent):
+def CalcUploadSpeed(report, finishedSize, totalSize, filename, size, sent):
+    '''计算上传速度'''
     global sshUploadSpeedCalculatorLastTime, sshUploadSpeedCalculatorLastSent, currentSize
     now = time.time()
     dt = now - sshUploadSpeedCalculatorLastTime
@@ -158,6 +159,31 @@ def CalcSpeed(report, finishedSize, totalSize, filename, size, sent):
         report(int(((finishedSize + sent) / totalSize) * 100), f"正在上传文件 ({sent}/{size})... {speed/1024:.2f} KB/s")
     sshUploadSpeedCalculatorLastTime = now
     sshUploadSpeedCalculatorLastSent = sent
+
+
+def DownloadFile(ssh, remotePath, localPath, report = None):
+    '''下载文件'''
+    if report == None:
+        scp = SCPClient(ssh.get_transport())
+    else:
+        scp = SCPClient(ssh.get_transport(), progress = partial(CalcDownloadSpeed, report))    
+    scp.get(remotePath, localPath, recursive=True)
+
+    scp.close()
+
+sshDownloadSpeedCalculatorLastTime = time.time()
+sshDownloadSpeedCalculatorLastSent = 0
+def CalcDownloadSpeed(report, filename, size, sent):
+    '''计算下载速度'''
+    global sshDownloadSpeedCalculatorLastTime, sshDownloadSpeedCalculatorLastSent, currentSize
+    now = time.time()
+    dt = now - sshDownloadSpeedCalculatorLastTime
+    ds = sent - sshDownloadSpeedCalculatorLastSent
+    if dt > 0:
+        speed = ds / dt   # B/s
+        report(int((sent / size) * 100), f"正在下载文件 ({sent}/{size})... {speed/1024:.2f} KB/s")
+    sshDownloadSpeedCalculatorLastTime = now
+    sshDownloadSpeedCalculatorLastSent = sent
 
 if __name__ == "__main__" and debug == True:
     ssh = paramiko.SSHClient()

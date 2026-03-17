@@ -1067,7 +1067,9 @@ class MainWindow(QMainWindow):
             return
 
         self._cleanup_temp_dir()
+        self.ReadProjectFromJson(path)
 
+    def ReadProjectFromJson(self, path: str):
         try:
             self._config = EPConfig.load_from_file(path)
             self._project_path = path
@@ -1131,6 +1133,8 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             show_error(e, "打开文件", self)
+
+
 
     def _load_project(self, path: str):
         """加载指定路径的项目文件（供最近打开和崩溃恢复调用）"""

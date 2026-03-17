@@ -6,6 +6,7 @@ import os
 import logging
 import tempfile
 from datetime import datetime
+from typing import List
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QFont
@@ -765,6 +766,15 @@ class RemotePage(QWidget):
             InfoBar.info("提示", f"素材已下载到: {local_path}",
                          parent=self, position=InfoBarPosition.TOP,
                          duration=5000)
+            
+            # 查找JSON配置文件
+            json_files = self.ListChildrenDirs(local_path)
+            from gui.main_window import MainWindow
+            main_window = self.window()
+
+            # 发送配置路径给主窗口
+            main_window.ReadProjectFromJson(os.path.join(json_files[0], "epconfig.json"))
+            main_window._on_sidebar_material()
 
     def _on_edit_for_asset(self, asset_data: dict):
         if self._is_busy:
@@ -807,3 +817,18 @@ class RemotePage(QWidget):
                 if hasattr(w, 'cancel'):
                     w.cancel()
                 w.wait(3000)
+    
+    def ListChildrenDirs(self, path: str) -> List[str]:
+        """
+        返回指定路径下的所有子目录（不递归）
+        """
+        try:
+            return [
+                os.path.join(path, name)
+                for name in os.listdir(path)
+                if os.path.isdir(os.path.join(path, name))
+            ]
+        except FileNotFoundError:
+            return []
+        except PermissionError:
+            return []
