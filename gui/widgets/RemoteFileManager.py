@@ -24,7 +24,7 @@ class FileItem:
         self.name = name
         self.type = type_
 
-class RemoteFileManagerDialog(QDialog):
+class RemoteFileManagerWindow(QWidget):
     def __init__(self, parent, mainwindow, sshIp, sshPort, sshUser, sshPassword, sshDefaultFolder):
         super().__init__()
         self.main_window = mainwindow
@@ -35,7 +35,9 @@ class RemoteFileManagerDialog(QDialog):
         self.sshDefaultFolder = sshDefaultFolder
 
         self.setWindowTitle("远程文件管理")
-        self.resize(600, 400)
+        self.resize(1000, 400)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal) #阻塞主窗口
+
 
         # 主布局
         self.mainLayout = QVBoxLayout(self)
@@ -53,7 +55,7 @@ class RemoteFileManagerDialog(QDialog):
         self.lb_currentPathlb = QLabel("当前位置：")
         self.topPathLayout.addWidget(self.lb_currentPathlb)
         
-        self.lb_currentPath = QLabel("当前12312312")
+        self.lb_currentPath = QLabel("/")
         self.topPathLayout.addWidget(self.lb_currentPath)
 
         # 挤占右边空间
@@ -90,7 +92,14 @@ class RemoteFileManagerDialog(QDialog):
         # 挤占左边空间
         self.buttomLayout.addStretch()  
 
-        buttonWidth = 150
+        buttonWidth = 130
+
+        self.btn_refresh = PushButton("刷新")
+        self.btn_refresh.setIcon(FluentIcon.UPDATE)
+        self.btn_refresh.setMinimumWidth(buttonWidth)
+        self.btn_refresh.setContentsMargins(10, 10, 10, 10)
+        self.btn_refresh.clicked.connect(self._on_refresh)
+        self.buttomLayout.addWidget(self.btn_refresh, 0, Qt.AlignmentFlag.AlignRight)
 
         self.btn_goParentFolder = PushButton("上一级")
         self.btn_goParentFolder.setIcon(FluentIcon.UP)
@@ -99,12 +108,17 @@ class RemoteFileManagerDialog(QDialog):
         self.btn_goParentFolder.clicked.connect(self._on_refresh)
         self.buttomLayout.addWidget(self.btn_goParentFolder, 0, Qt.AlignmentFlag.AlignRight)
 
-        self.btn_refresh = PushButton("刷新")
-        self.btn_refresh.setIcon(FluentIcon.UPDATE)
-        self.btn_refresh.setMinimumWidth(buttonWidth)
-        self.btn_refresh.setContentsMargins(10, 10, 10, 10)
-        self.btn_refresh.clicked.connect(self._on_refresh)
-        self.buttomLayout.addWidget(self.btn_refresh, 0, Qt.AlignmentFlag.AlignRight)
+        self.btn_Delete = PushButton("删除")
+        self.btn_Delete.setIcon(FluentIcon.DELETE)
+        self.btn_Delete.setMinimumWidth(buttonWidth)
+        self.buttomLayout.addWidget(self.btn_Delete, 0, Qt.AlignmentFlag.AlignRight)
+        self.btn_Delete.clicked.connect(self._on_file_delete_clicked)
+
+        self.btn_Download = PushButton("下载")
+        self.btn_Download.setIcon(FluentIcon.DOWNLOAD)
+        self.btn_Download.setMinimumWidth(buttonWidth)
+        self.buttomLayout.addWidget(self.btn_Download, 0, Qt.AlignmentFlag.AlignRight)
+        self.btn_Download.clicked.connect(self._on_file_download_clicked)
 
         self.btn_uploadFile = PushButton("上传")
         self.btn_uploadFile.setIcon(FluentIcon.SEND)
@@ -114,61 +128,68 @@ class RemoteFileManagerDialog(QDialog):
         self.buttomLayout.addWidget(self.btn_uploadFile, 0, Qt.AlignmentFlag.AlignRight)
 
 
-        # 生成大量列表项
-        self.LoadFiles()
 
-    def LoadFiles(self):
-        for i in range(10):  # 示例10个文件
-            filename = f"示例文件_{i}.txt"
+    def LoadFiles(self, fileList : list):
+        for file in fileList:
+            filename = file.name
             
             item_widget = QWidget()
+
             layout = QHBoxLayout(item_widget)
             layout.setContentsMargins(10, 10, 10, 10)
-
 
             label = CaptionLabel(filename)
             layout.addWidget(label, 1, Qt.AlignmentFlag.AlignLeft)
 
-            btn_Delete = PushButton("删除")
-            btn_Delete.setIcon(FluentIcon.DELETE)
-            layout.addWidget(btn_Delete, 0, Qt.AlignmentFlag.AlignRight)
-            btn_Delete.clicked.connect(lambda _, f=filename: self._on_file_delete_clicked(f))
 
-            btn_Download = PushButton("下载")
-            btn_Download.setIcon(FluentIcon.DOWNLOAD)
-            layout.addWidget(btn_Download, 0, Qt.AlignmentFlag.AlignRight)
-            btn_Download.clicked.connect(lambda _, f=filename: self._on_file_download_clicked(f))
 
             list_item = QListWidgetItem(self.fileManagerList)
             list_item.setSizeHint(item_widget.sizeHint())
+            list_item.setData(Qt.ItemDataRole.UserRole, filename)  # 存文件名
             self.fileManagerList.addItem(list_item)
             self.fileManagerList.setItemWidget(list_item, item_widget)
+
     
-    def StartSSH(self) -> paramiko.SSHClient:
-        ssh = paramiko.SSHClient()
-        ssh.connect(host = self.host,
-                    port = self.port,
-                    username = self.sshUser, 
-                    password = self.sshPassword,
+    def StartSSH(self):
+        self.ssh = paramiko.SSHClient()
+        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # 自动接受新主机
+        self.ssh.connect(self.host,
+                    self.port,
+                    self.sshUser, 
+                    self.sshPassword,
                     timeout = 10, 
                     banner_timeout = 10, 
                     auth_timeout = 10)
-        return ssh
+        return
 
-    def _on_file_delete_clicked(self, filename):
+    def TryStartSSH(self) -> bool:
+        for i in range (0, 3):
+            try:
+                stdin, stdout, stderr = self.ssh.exec_command("help")
+                if (stdout.read() == None):
+                    self.StartSSH()
+                    continue
+                else:
+                    return True
+            except Exception as e:
+                logger.error(f"载入SSH失败")
+                self.StartSSH()                
+        return False
+
+    def _on_file_delete_clicked(self):
         try:
-            ssh = self.StartSSH()
+            ssh = self.TryStartSSH()
 
             # 此处需要拼接路径
 
 
-            sshOperation.DelRemoteFile(ssh, filename)
+            #sshOperation.DelRemoteFile(ssh)
         except Exception as e:
             logger.error(f"刷新失败{e}")
         return
 
-    def _on_file_download_clicked(self, filename):
-        print(f"按钮点击: {filename}")
+    def _on_file_download_clicked(self):
+        print(f"按钮点击:")
         return
     
     def _on_upload(self):
@@ -176,8 +197,12 @@ class RemoteFileManagerDialog(QDialog):
 
     def _on_refresh(self):
         try:
-            ssh = self.StartSSH()
-            fileList = self.getFolder(ssh)
+            currentFolder = self.lb_currentPath.text()
+            self.TryStartSSH()
+            fileList = []
+            fileList = self.getAllFiles(self.ssh, currentFolder, fileList)
+            fileList = self.getFolder(self.ssh, currentFolder, fileList)
+            self.LoadFiles(fileList)
         except Exception as e:
             logger.error(f"刷新失败{e}")
         return
@@ -185,9 +210,23 @@ class RemoteFileManagerDialog(QDialog):
     def CalcCurrentPath(self) -> str:
         
         return ""
-    
-    # def getFolder(self, ssh : ) -> list:
 
-    #     return [
-    #         FileItem("file", "folder")
-    #     ]
+    def getAllFiles(self, ssh : paramiko.SSHClient, currentFolder, list = []) -> list:
+        stdin, stdout, stderr = ssh.exec_command(
+                         f'''cd {currentFolder} && find . -maxdepth 1''')
+        lines = stdout.read().decode().splitlines()
+        for line in lines :
+            list.append(FileItem(line, "file"))
+        return list
+
+
+    def getFolder(self, ssh : paramiko.SSHClient, currentFolder, fileList = []) -> list:
+        '''此函数会将传入的list中为folder的项目进行标记'''
+        stdin, stdout, stderr = ssh.exec_command(
+                         f'''cd {currentFolder} && find . -type f -maxdepth 1''')
+        lines = stdout.read().decode().splitlines()
+        for i in range(0, len(lines)):
+            for j in range(0, len(fileList)):
+                if (lines[i] == fileList[j].name and i < j):
+                    fileList[j].type = "folder"
+        return fileList
