@@ -313,19 +313,25 @@ class RemoteFileManagerWindow(QWidget):
         item = self.fileManagerList.currentItem()
         if not item:
             return
-        filename = item.data(Qt.ItemDataRole.UserRole)
+        filename = item.data(Qt.ItemDataRole.UserRole)[2:]
+        if not DetectProtectedPath(filename):
+            return
         result = QMessageBox.question(
             self,
             "删除...",
-            "是否确认删除：{}",
+            f"是否确认删除：（此操作不可逆）{self.lb_currentPath.text()}/{filename}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
+        if result != QMessageBox.StandardButton.Yes:
+            return
         try:
-            if self.TryStartSSH():
+            if not self.TryStartSSH():
                 raise ValueError("初始化SSH失败")
             self.ssh.exec_command(f"rm -rf {self.lb_currentPath.text()}/{filename}")
         except Exception as ex:
-            logger.error(f"重命名失败{ex}", stack_info=True)
+            logger.error(f"删除失败{ex}", stack_info=True)
+        finally:
+            self._on_refresh()
 
     def _on_file_download_clicked(self):
         print(f"按钮点击:")
@@ -496,10 +502,7 @@ def CheckValidFileName(name: str) -> bool:
 
 def DetectProtectedPath(path: str):
     """检测当前文件夹/文件夹是否允许被更改"""
-    protectedDirList = [
-        ".",
-        "..",
-    ]
+    protectedDirList = [".", "..", "//", "/"]
     for prt in protectedDirList:
         if path == prt:
             return False
