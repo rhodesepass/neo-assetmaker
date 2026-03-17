@@ -1,4 +1,4 @@
-'''此处所有的函数都应被try catch包裹，抛出异常由调用者处理'''
+"""此处所有的函数都应被try catch包裹，抛出异常由调用者处理"""
 
 from functools import partial
 import time
@@ -15,32 +15,39 @@ logger = logging.getLogger(__name__)
 
 debug = False
 
+
 def StartDrmApp(ssh):
-    '''使用脚本启动DRM'''
+    """使用脚本启动DRM"""
     # 为  什  么  白  银  要  把  启  动  外  部  程  序  的  功  能  塞  在  s  h  e  l  l  里  🤬  🤬
-    UploadFile(ssh,os.path.join(os.getcwd(),"core","scripts","hostStartDrm.sh"), "/root/hostStartDrm.sh")
+    UploadFile(
+        ssh,
+        os.path.join(os.getcwd(), "core", "scripts", "hostStartDrm.sh"),
+        "/root/hostStartDrm.sh",
+    )
     stdin, stdout, stderr = ssh.exec_command("chmod +x /root/hostStartDrm.sh")
     stdout.channel.recv_exit_status()
-    stdin, stdout, stderr = ssh.exec_command("cd /root/ && nohup ./hostStartDrm.sh > output.log 2>&1 &")
+    stdin, stdout, stderr = ssh.exec_command(
+        "cd /root/ && nohup ./hostStartDrm.sh > output.log 2>&1 &"
+    )
     logger.info(stdout.read().decode())
     stdout.channel.recv_exit_status()
     return
 
+
 def RefreshRemoteMaterialListCache(ssh):
-    '''刷新通行证上的素材列表'''
+    """刷新通行证上的素材列表"""
 
     from core.sshAutoUpload import FindUUIDInJson
+
     # 清空tmp目录
     localPath = os.path.join(os.getcwd(), "tmp")
     if os.path.exists(localPath):
         shutil.rmtree(localPath)
     os.makedirs(localPath)
     os.makedirs(os.path.join(localPath, "tmp"))
-    
+
     # 远程获取
-    stdin, stdout, stderr = ssh.exec_command(
-        '''find /assets/'''
-    )
+    stdin, stdout, stderr = ssh.exec_command("""find /assets/""")
     fileListCache = stdout.read().decode()
     jsonList = FindJsonPath(fileListCache)
 
@@ -54,7 +61,7 @@ def RefreshRemoteMaterialListCache(ssh):
         # 此处需要放置在临时目录的临时目录
         baseJsonFileName = os.path.basename(targetJsonFile)
         scp.get(targetJsonFile, os.path.join(localPath, "tmp", baseJsonFileName))
-        
+
         # 通过UUID移动
         UUID = FindUUIDInJson(os.path.join(localPath, "tmp"))
         if UUID is None:
@@ -76,7 +83,9 @@ def RefreshRemoteMaterialListCache(ssh):
             scp.get(targetPath + iconPath, os.path.join(currentPath, iconPath))
 
             # 保存远程文件路径
-            with open(os.path.join(currentPath, "remoteFolderPath.cfg"), "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(currentPath, "remoteFolderPath.cfg"), "w", encoding="utf-8"
+            ) as f:
                 f.write(targetPath)
 
         except Exception as e:
@@ -91,6 +100,7 @@ def RefreshRemoteMaterialListCache(ssh):
     finally:
         scp.close()
 
+
 def GetIconPath(jsonPath):
     try:
         with open(jsonPath, "r", encoding="utf-8") as f:
@@ -101,14 +111,16 @@ def GetIconPath(jsonPath):
         logger.error(f"读取JSON文件失败: {e}")
         return None
 
+
 def FindJsonPath(text):
-    '''使用正则匹配 */*.json'''
-    pattern = r'/assets/[^/]+/[^/]+\.json'
+    """使用正则匹配 */*.json"""
+    pattern = r"/assets/[^/]+/[^/]+\.json"
     matches = re.findall(pattern, text, flags=re.UNICODE)
     return matches
 
+
 def StopDrmApp(ssh) -> bool:
-    '''停止DRM'''
+    """停止DRM"""
     stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
     stdout.channel.recv_exit_status()
     stdin, stdout, stderr = ssh.exec_command(f"kill {stdout.read().decode().strip()}")
@@ -124,8 +136,9 @@ def StopDrmApp(ssh) -> bool:
         time.sleep(0.5)
     return True
 
+
 def DelRemoteFile(ssh, remotePath) -> bool:
-    '''删除远程文件'''
+    """删除远程文件"""
     stdin, stdout, stderr = ssh.exec_command(f"rm -rf {remotePath}")
     stdout.channel.recv_exit_status()
 
@@ -136,54 +149,75 @@ def DelRemoteFile(ssh, remotePath) -> bool:
         logger.info(f"删除远程文件成功: {remotePath}")
         return True
 
-def UploadFile(ssh, localPath, remotePath, report = None, finishedSize : int = 0, totalSize : int = 0):
-    '''上传文件'''
+
+def UploadFile(
+    ssh, localPath, remotePath, report=None, finishedSize: int = 0, totalSize: int = 0
+):
+    """上传文件"""
     if report == None:
         scp = SCPClient(ssh.get_transport())
     else:
-        scp = SCPClient(ssh.get_transport(), progress = partial(CalcUploadSpeed, report, finishedSize, totalSize))    
+        scp = SCPClient(
+            ssh.get_transport(),
+            progress=partial(CalcUploadSpeed, report, finishedSize, totalSize),
+        )
     scp.put(localPath, remotePath)
+    scp.close()
 
-    scp.close() 
 
 sshUploadSpeedCalculatorLastTime = time.time()
 sshUploadSpeedCalculatorLastSent = 0
+
+
 def CalcUploadSpeed(report, finishedSize, totalSize, filename, size, sent):
-    '''计算上传速度'''
+    """计算上传速度"""
     global sshUploadSpeedCalculatorLastTime, sshUploadSpeedCalculatorLastSent, currentSize
     now = time.time()
     dt = now - sshUploadSpeedCalculatorLastTime
     ds = sent - sshUploadSpeedCalculatorLastSent
     if dt > 0:
-        speed = ds / dt   # B/s
-        report(int(((finishedSize + sent) / totalSize) * 100), f"正在上传文件 ({sent}/{size})... {speed/1024:.2f} KB/s")
+        speed = ds / dt  # B/s
+        report(
+            int(((finishedSize + sent) / totalSize) * 100),
+            f"正在上传文件 ({sent}/{size})... {speed/1024:.2f} KB/s",
+        )
     sshUploadSpeedCalculatorLastTime = now
     sshUploadSpeedCalculatorLastSent = sent
 
 
-def DownloadFile(ssh, remotePath, localPath, report = None):
-    '''下载文件'''
+def DownloadFile(ssh, remotePath, localPath, report=None):
+    """下载文件"""
     if report == None:
         scp = SCPClient(ssh.get_transport())
     else:
-        scp = SCPClient(ssh.get_transport(), progress = partial(CalcDownloadSpeed, report))    
+        scp = SCPClient(
+            ssh.get_transport(), progress=partial(CalcDownloadSpeed, report)
+        )
     scp.get(remotePath, localPath, recursive=True)
 
     scp.close()
 
+
 sshDownloadSpeedCalculatorLastTime = time.time()
 sshDownloadSpeedCalculatorLastSent = 0
+
+
 def CalcDownloadSpeed(report, filename, size, sent):
-    '''计算下载速度'''
+    """计算下载速度"""
     global sshDownloadSpeedCalculatorLastTime, sshDownloadSpeedCalculatorLastSent, currentSize
     now = time.time()
     dt = now - sshDownloadSpeedCalculatorLastTime
     ds = sent - sshDownloadSpeedCalculatorLastSent
     if dt > 0:
-        speed = ds / dt   # B/s
-        report(int((sent / size) * 100), f"正在下载文件 ({sent}/{size})... {speed/1024:.2f} KB/s")
+        speed = ds / dt  # B/s
+        report(
+            int((sent / size) * 100),
+            f"正在下载文件 ({sent}/{size})... {speed/1024:.2f} KB/s",
+        )
+        print((sent / size) * 100)
     sshDownloadSpeedCalculatorLastTime = now
     sshDownloadSpeedCalculatorLastSent = sent
+
 
 if __name__ == "__main__" and debug == True:
     ssh = paramiko.SSHClient()
@@ -200,3 +234,57 @@ if __name__ == "__main__" and debug == True:
     RefreshRemoteMaterialListCache(ssh)
     StopDrmApp(ssh)
     StartDrmApp(ssh)
+
+
+def GetPathSize(path: str) -> int:
+    """
+    计算文件或文件夹的大小（字节为单位）
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"{path} 不存在")
+
+    if os.path.isfile(path):
+        return os.path.getsize(path)
+
+    # 文件夹递归计算所有子文件大小
+    total_size = 0
+    for root, dirs, files in os.walk(path):
+        for f in files:
+            fp = os.path.join(root, f)
+            if os.path.exists(fp):
+                total_size += os.path.getsize(fp)
+    return total_size
+
+
+currentUploadedSize = 0
+
+
+def UploadDir(
+    ssh,
+    local_dir: str,
+    remote_dir: str,
+    report=None,
+):
+    """
+    上传 local_dir 下的所有文件和文件夹到 remote_dir。
+    """
+    global currentUploadedSize
+    if not os.path.isdir(local_dir):
+        raise ValueError(f"{local_dir} 不是有效目录")
+
+    totalSize = GetPathSize(local_dir)
+    for item in os.listdir(local_dir):
+        local_path = os.path.join(local_dir, item)
+        remote_path = f"{remote_dir}/{item}"
+        if os.path.isfile(local_path):
+            UploadFile(
+                ssh, local_path, remote_dir, report, currentUploadedSize, totalSize
+            )
+            currentUploadedSize += os.path.getsize(local_path)
+        elif os.path.isdir(local_path):
+            # 创建远程目录
+            stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {remote_path}")
+            stdout.channel.recv_exit_status()
+            # 递归上传子目录
+            UploadDir(ssh, local_path, remote_path)
+    currentUploadedSize = 0

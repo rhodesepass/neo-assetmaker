@@ -80,7 +80,9 @@ def ssh_auto_upload(
         ssh.exec_command(f"mkdir -p {remote_path}/{uuid}")
 
         _report(10, "正在上传文件...")
-        _upload_dir_with_progress(scp, ssh, local_path, f"{remote_path}/{uuid}", cancel_event, _report)
+        _upload_dir_with_progress(
+            scp, ssh, local_path, f"{remote_path}/{uuid}", cancel_event, _report
+        )
 
         if _check_cancel():
             _report(0, "已取消")
@@ -93,7 +95,9 @@ def ssh_auto_upload(
             _report(100, "正在尝试重启远程程序...")
             stdin, stdout, stderr = ssh.exec_command("pidof epass_drm_app")
             stdout.channel.recv_exit_status()
-            stdin, stdout, stderr = ssh.exec_command(f"kill {stdout.read().decode().strip()}")
+            stdin, stdout, stderr = ssh.exec_command(
+                f"kill {stdout.read().decode().strip()}"
+            )
 
             # 某个神秘应用退出的时候磨磨蹭蹭（）（）（）（）
             start_time = time.time()
@@ -110,9 +114,10 @@ def ssh_auto_upload(
                     _report(100, "退出失败，请手动重启通行证上的程序")
                     return False
                 time.sleep(0.5)
-                
+
             _report(100, "正在尝试启动主程序")
             from core.sshOperation import StartDrmApp
+
             StartDrmApp(ssh)
             _report(100, "重启命令已发送，等待程序启动...")
 
@@ -163,8 +168,8 @@ def _upload_dir_with_progress(
     ssh,
     local_dir: str,
     remote_dir: str,
-    cancel_event: Optional[threading.Event],
-    report: Callable[[int, str], None],
+    cancel_event: Optional[threading.Event] = None,
+    report: Callable[[int, str], None] = None,
 ):
     """上传 local_dir 下的所有文件和文件夹到 remote_dir，并通过 report 报告进度"""
 
@@ -175,7 +180,7 @@ def _upload_dir_with_progress(
     uploaded = 0
 
     def _count_bytes_in_dir(path: str) -> int:
-        '''递归计算目录下的所有文件的总字节数'''
+        """递归计算目录下的所有文件的总字节数"""
         total = 0
         for root, _, files in os.walk(path):
             for f in files:
@@ -183,7 +188,7 @@ def _upload_dir_with_progress(
                 if os.path.isfile(fp):
                     total += os.path.getsize(fp)
         return total
-    
+
     total_size = _count_bytes_in_dir(local_dir)
     finished_size = 0
     for item in os.listdir(local_dir):
@@ -195,10 +200,18 @@ def _upload_dir_with_progress(
 
         if os.path.isfile(local_path):
             from core.sshOperation import UploadFile
-            UploadFile(ssh, local_path, remote_path, report, finished_size, totalSize=total_size)
+
+            UploadFile(
+                ssh,
+                local_path,
+                remote_path,
+                report,
+                finished_size,
+                totalSize=total_size,
+            )
             finished_size += os.path.getsize(local_path)
             uploaded += 1
-            
+
         elif os.path.isdir(local_path):
             ssh.exec_command(f"mkdir -p {remote_path}")
             _upload_dir_with_progress(
@@ -209,6 +222,7 @@ def _upload_dir_with_progress(
     if uploaded == total_files:
         report(100, "上传完成")
 
+
 def FindUUIDInJson(path):
     """
     在指定的path下查找*.json文件（只会查找一次），找到后返回uuid字段，仅包含字母、数字和连字符，失败返回空文本
@@ -216,44 +230,25 @@ def FindUUIDInJson(path):
     try:
         if not os.path.isdir(path):
             return ""
-        
+
         # 查找.json文件
-        json_files = [f for f in os.listdir(path) if f.endswith('.json')]
+        json_files = [f for f in os.listdir(path) if f.endswith(".json")]
         if not json_files:
             return ""
-        
+
         # 只取第一个.json文件
         json_file = json_files[0]
         json_path = os.path.join(path, json_file)
-        
+
         # 读取并解析JSON
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
-        uuid_raw = data.get('uuid', '')
-        
+
+        uuid_raw = data.get("uuid", "")
+
         # 过滤，只保留字母、数字和连字符
-        uuid_clean = re.sub(r'[^a-zA-Z0-9\-]', '', uuid_raw)
+        uuid_clean = re.sub(r"[^a-zA-Z0-9\-]", "", uuid_raw)
         return uuid_clean
-    
+
     except Exception:
         return ""
-
-def upload_dir(scp: SCPClient, ssh, local_dir: str, remote_dir: str):
-    """
-    上传 local_dir 下的所有文件和文件夹到 remote_dir。
-    """
-    if not os.path.isdir(local_dir):
-        raise ValueError(f"{local_dir} 不是有效目录")
-
-    for item in os.listdir(local_dir):
-        local_path = os.path.join(local_dir, item)
-        remote_path = f"{remote_dir}/{item}"
-        
-        if os.path.isfile(local_path):
-            scp.put(local_path, remote_path=remote_path)
-        elif os.path.isdir(local_path):
-            # 创建远程目录
-            ssh.exec_command(f"mkdir -p {remote_path}")
-            # 递归上传子目录
-            upload_dir(scp, ssh, local_path, remote_path)

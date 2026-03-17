@@ -16,16 +16,27 @@ from core.sshAutoUpload import ssh_auto_upload
 logger = logging.getLogger(__name__)
 
 
-def _create_ssh_client(host: str, port: int, user: str, password: str) -> paramiko.SSHClient:
+def _create_ssh_client(
+    host: str, port: int, user: str, password: str
+) -> paramiko.SSHClient:
     """创建并连接 SSH 客户端（各 Worker 复用）"""
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(host, port=port, username=user, password=password,
-                timeout=10, banner_timeout=10, auth_timeout=10)
+    ssh.connect(
+        host,
+        port=port,
+        username=user,
+        password=password,
+        timeout=10,
+        banner_timeout=10,
+        auth_timeout=10,
+    )
     return ssh
+
 
 def GetJsonFatherKey(jsonPath, key):
     import json
+
     try:
         with open(jsonPath, "r", encoding="utf-8") as f:
             cache = f.read()
@@ -58,7 +69,15 @@ class SshUploadWorker(QThread):
         remote_path: str,
         enable_restart: bool,
     ):
-        self._args = (host, port, user, password, local_path, remote_path, enable_restart)
+        self._args = (
+            host,
+            port,
+            user,
+            password,
+            local_path,
+            remote_path,
+            enable_restart,
+        )
         self._cancel_event.clear()
 
     def cancel(self):
@@ -122,11 +141,14 @@ class SshConnectTestWorker(QThread):
             ssh = _create_ssh_client(host, port, user, password)
             self.log_message.emit("INFO", f"SSH 连接成功 ({host}:{port})")
             from datetime import datetime
+
             now = datetime.now()
             formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
-            stdin, stdout, stderr = ssh.exec_command(f"date -s \"{formatted_time}\"", timeout=15)
-            exit_status = stdout.channel.recv_exit_status()
+            stdin, stdout, stderr = ssh.exec_command(
+                f'date -s "{formatted_time}"', timeout=15
+            )
+            stdout.channel.recv_exit_status()
 
             self.log_message.emit("INFO", f"SSH 已同步通行证时间 ({formatted_time})")
             self.connect_succeeded.emit()
@@ -178,23 +200,41 @@ class SshRemoteListWorker(QThread):
             self.log_message.emit("INFO", "正在获取远程素材列表...")
             ssh = _create_ssh_client(host, port, user, password)
             from core.sshOperation import RefreshRemoteMaterialListCache
+
             RefreshRemoteMaterialListCache(ssh)
             localPath = os.path.join(os.getcwd(), "tmp")
 
-            childrenFolders = [name for name in os.listdir(localPath) if os.path.isdir(os.path.join(localPath, name))]
+            childrenFolders = [
+                name
+                for name in os.listdir(localPath)
+                if os.path.isdir(os.path.join(localPath, name))
+            ]
             self.log_message.emit("INFO", f"找到 {len(childrenFolders)} 个素材包")
             items = []
             for folder in childrenFolders:
                 # 读取远程文件路径
-                with open(os.path.join(localPath, folder, "remoteFolderPath.cfg"), "r", encoding="utf-8") as f:
+                with open(
+                    os.path.join(localPath, folder, "remoteFolderPath.cfg"),
+                    "r",
+                    encoding="utf-8",
+                ) as f:
                     remoteAbsPath = f.read()
                 jsonPath = os.path.join(localPath, folder, "epconfig.json")
-                items.append({"name": GetJsonFatherKey(jsonPath, "name"), "size": 0, "date": 0, "uuid": GetJsonFatherKey(jsonPath, "uuid"), "path": remoteAbsPath})
+                items.append(
+                    {
+                        "name": GetJsonFatherKey(jsonPath, "name"),
+                        "size": 0,
+                        "date": 0,
+                        "uuid": GetJsonFatherKey(jsonPath, "uuid"),
+                        "path": remoteAbsPath,
+                    }
+                )
             self.list_completed.emit(items)
         except Exception as e:
             self.log_message.emit("ERROR", f"获取远程素材列表失败: {e}")
             self.list_failed.emit(str(e))
             return
+
 
 class SshDeleteWorker(QThread):
     """SSH 删除远程素材工作线程"""
@@ -207,8 +247,17 @@ class SshDeleteWorker(QThread):
         super().__init__(parent)
         self._args = None
 
-    def setup(self, host: str, port: int, user: str, password: str,
-              remote_path: str, target_name: str,uuid: str, path: str):
+    def setup(
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        remote_path: str,
+        target_name: str,
+        uuid: str,
+        path: str,
+    ):
         self._args = (host, port, user, password, remote_path, target_name, uuid, path)
 
     def run(self):
@@ -258,12 +307,28 @@ class SshDownloadWorker(QThread):
         self._cancel_event = threading.Event()
         self._args = None
 
-    def setup(self, host: str, port: int, user: str, password: str,
-              remote_path: str, target_name: str, local_save_dir: str, remoteAbsPath: str):
-        self._args = (host, port, user, password, remote_path, target_name, local_save_dir, remoteAbsPath)
+    def setup(
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        remote_path: str,
+        target_name: str,
+        local_save_dir: str,
+        remoteAbsPath: str,
+    ):
+        self._args = (
+            host,
+            port,
+            user,
+            password,
+            remote_path,
+            target_name,
+            local_save_dir,
+            remoteAbsPath,
+        )
         self._cancel_event.clear()
-
-
 
     def cancel(self):
         self._cancel_event.set()
@@ -276,7 +341,16 @@ class SshDownloadWorker(QThread):
         if not self._args:
             self.download_failed.emit("参数不足")
             return
-        host, port, user, password, remote_path, target_name, local_save_dir, remoteAbsPath = self._args
+        (
+            host,
+            port,
+            user,
+            password,
+            remote_path,
+            target_name,
+            local_save_dir,
+            remoteAbsPath,
+        ) = self._args
         ssh = None
         scp_client = None
         try:
@@ -292,6 +366,7 @@ class SshDownloadWorker(QThread):
             self.progress_updated.emit(0, "正在下载文件...")
 
             from core.sshOperation import DownloadFile
+
             DownloadFile(ssh, full_remote, local_save_dir, report=_report)
 
             # scp_client.get(full_remote, local_path=local_save_dir, recursive=True)
