@@ -12,6 +12,13 @@ from qfluentwidgets import (
     FluentIcon, InfoBar, InfoBarPosition,
     setCustomStyleSheet,
 )
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QSplitter, QMenuBar, QMenu, QStatusBar,
+    QFileDialog, QMessageBox, QLabel, QScrollArea,
+    QGroupBox, QCheckBox, QComboBox, QDoubleSpinBox,
+    QSpinBox, QLineEdit, QTabWidget, QDialog
+)
 from core import sshOperation
 import paramiko
 from scp import SCPClient
@@ -37,7 +44,6 @@ class RemoteFileManagerWindow(QWidget):
         self.setWindowTitle("远程文件管理")
         self.resize(1000, 400)
         self.setWindowModality(Qt.WindowModality.ApplicationModal) #阻塞主窗口
-
 
         # 主布局
         self.mainLayout = QVBoxLayout(self)
@@ -127,6 +133,9 @@ class RemoteFileManagerWindow(QWidget):
         self.btn_uploadFile.clicked.connect(self._on_upload)
         self.buttomLayout.addWidget(self.btn_uploadFile, 0, Qt.AlignmentFlag.AlignRight)
 
+        self.progressBar = ProgressBar()
+        self.containerLayout.addWidget(self.progressBar)
+
 
 
     def LoadFiles(self, fileList : list):
@@ -140,8 +149,6 @@ class RemoteFileManagerWindow(QWidget):
 
             label = CaptionLabel(filename)
             layout.addWidget(label, 1, Qt.AlignmentFlag.AlignLeft)
-
-
 
             list_item = QListWidgetItem(self.fileManagerList)
             list_item.setSizeHint(item_widget.sizeHint())
@@ -193,6 +200,19 @@ class RemoteFileManagerWindow(QWidget):
         return
     
     def _on_upload(self):
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "打开文件", "",
+                "所有文件 (*.*)"
+            )
+            if not path:
+                return
+            if not self.TryStartSSH():
+                raise ValueError("初始化SSH失败")
+            from core.sshOperation import UploadFile
+            UploadFile(self.ssh, path, self.lb_currentPath.text(), )
+        except Exception as e:
+            logger.error(f"上传失败:{e}")
         return
 
     def _on_refresh(self):
@@ -230,3 +250,7 @@ class RemoteFileManagerWindow(QWidget):
                 if (lines[i] == fileList[j].name and i < j):
                     fileList[j].type = "folder"
         return fileList
+
+    def reportProcess(self, processBarPositon : int, text : str):
+        
+        return
