@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from qtpy.QtCore import QObject, QTimer, Signal, Slot
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal as Signal, pyqtSlot as Slot
 
 from _mext.core.constants import USB_POLL_INTERVAL_MS
 from _mext.services.api_worker import UsbScanWorker

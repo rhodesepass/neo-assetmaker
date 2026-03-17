@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from qtpy.QtCore import QObject, QThread, Signal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal as Signal
 
 from _mext.services.api_client import ApiClient, ApiError
 
@@ -188,7 +188,7 @@ class ApiCallWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
-# Market: load materials
+# Forum: load materials
 # ---------------------------------------------------------------------------
 
 class MaterialsLoadWorker(QThread):
@@ -221,7 +221,7 @@ class MaterialsLoadWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
-# Market: resolve download URL (two-step)
+# Forum: resolve download URL (two-step)
 # ---------------------------------------------------------------------------
 
 class DownloadUrlWorker(QThread):

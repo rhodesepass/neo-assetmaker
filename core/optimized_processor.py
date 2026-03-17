@@ -126,14 +126,14 @@ class OptimizedVideoProcessor:
 
                 if time_base and fps > 0:
                     target_sec = index / fps
-                    target_pts = int(target_sec / time_base)
+                    target_pts = round(target_sec / time_base)
                     container.seek(target_pts, stream=stream, backward=True)
 
                 frame = None
                 for av_frame in container.decode(stream):
                     if av_frame.pts is not None and time_base and fps > 0:
                         current_sec = float(av_frame.pts * time_base)
-                        current_idx = int(current_sec * fps)
+                        current_idx = round(current_sec * fps)
                     else:
                         current_idx = 0
 

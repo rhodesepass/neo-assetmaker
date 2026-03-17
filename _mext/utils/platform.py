@@ -73,14 +73,5 @@ def get_system_info() -> dict[str, str]:
 
 
 def get_qt_binding() -> str:
-    """Return the name of the active Qt binding (e.g., 'PySide6', 'PyQt6').
-
-    Uses qtpy's API_NAME which is set at import time based on the
-    QT_API environment variable or auto-detection.
-    """
-    try:
-        import qtpy
-
-        return qtpy.API_NAME
-    except ImportError:
-        return "unknown"
+    """Return the name of the active Qt binding."""
+    return "PyQt6"

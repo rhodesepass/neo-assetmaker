@@ -21,8 +21,8 @@ from qfluentwidgets import (
     TableWidget,
     ToolButton,
 )
-from qtpy.QtCore import Qt, Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QTableWidgetItem,
@@ -90,7 +90,7 @@ class LibraryPage(QWidget):
         self._search_edit.setFixedWidth(250)
         header_layout.addWidget(self._search_edit)
 
-        self._grid_btn = ToolButton(FluentIcon.GRID, self)
+        self._grid_btn = ToolButton(FluentIcon.TILES, self)
         self._grid_btn.setToolTip("卡片视图")
         self._grid_btn.setCheckable(True)
         self._grid_btn.setChecked(True)

@@ -99,9 +99,28 @@ class Config:
         self._load_overrides()
 
     def _ensure_directories(self) -> None:
-        """Create configuration, cache, and download directories if missing."""
-        for directory in (self.config_dir, self.cache_dir, self.download_dir):
-            directory.mkdir(parents=True, exist_ok=True)
+        """Create configuration, cache, and download directories if missing.
+
+        Falls back to a temp directory if creation fails (e.g. permission error).
+        """
+        import logging
+        import tempfile
+
+        _logger = logging.getLogger(__name__)
+        for attr in ("config_dir", "cache_dir", "download_dir"):
+            directory = getattr(self, attr)
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                fallback = Path(tempfile.gettempdir()) / APP_NAME / attr
+                _logger.warning(
+                    "无法创建目录 %s (%s)，回退到 %s", directory, exc, fallback
+                )
+                try:
+                    fallback.mkdir(parents=True, exist_ok=True)
+                except OSError:
+                    pass
+                setattr(self, attr, fallback)
 
     def _load_overrides(self) -> None:
         """Load overrides from .env file and environment variables.

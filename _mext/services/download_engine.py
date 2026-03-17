@@ -10,7 +10,7 @@ import logging
 import uuid
 from typing import Optional
 
-from qtpy.QtCore import QObject, QThreadPool, Signal
+from PyQt6.QtCore import QObject, QThreadPool, pyqtSignal as Signal
 
 from _mext.core.config import Config, get_config
 from _mext.models.download import DownloadStatus, DownloadTask

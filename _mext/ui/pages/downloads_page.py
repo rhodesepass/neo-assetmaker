@@ -17,8 +17,8 @@ from qfluentwidgets import (
     ScrollArea,
     SubtitleLabel,
 )
-from qtpy.QtCore import Qt, Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
@@ -50,6 +50,7 @@ class DownloadsPage(QWidget):
         super().__init__(parent)
         self._services = service_manager
         self._widgets: dict[str, DownloadProgressWidget] = {}
+        self._service_signals_connected = False
 
         self._setup_ui()
         self._connect_signals()
@@ -99,26 +100,30 @@ class DownloadsPage(QWidget):
 
         # Empty state
         self._empty_label = BodyLabel(
-            "No downloads yet. Browse the Market to start downloading.", self
+            "No downloads yet. Browse the Forum to start downloading.", self
         )
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setVisible(True)
         layout.addWidget(self._empty_label)
 
     def _connect_signals(self) -> None:
-        """Wire button clicks and download engine signals."""
-        engine = self._services.download_engine
-
-        engine.download_started.connect(self._on_download_started)
-        engine.progress_updated.connect(self._on_progress_updated)
-        engine.download_completed.connect(self._on_download_completed)
-        engine.download_failed.connect(self._on_download_failed)
-        engine.queue_changed.connect(self._refresh_empty_state)
-
+        """Wire button clicks (engine signals deferred to showEvent)."""
         self._pause_all_btn.clicked.connect(self._on_pause_all)
         self._resume_all_btn.clicked.connect(self._on_resume_all)
         self._cancel_all_btn.clicked.connect(self._on_cancel_all)
         self._clear_btn.clicked.connect(self._on_clear_completed)
+
+    def showEvent(self, event: object) -> None:  # noqa: N802
+        """Connect download engine signals on first show to avoid eager service creation."""
+        super().showEvent(event)
+        if not self._service_signals_connected:
+            self._service_signals_connected = True
+            engine = self._services.download_engine
+            engine.download_started.connect(self._on_download_started)
+            engine.progress_updated.connect(self._on_progress_updated)
+            engine.download_completed.connect(self._on_download_completed)
+            engine.download_failed.connect(self._on_download_failed)
+            engine.queue_changed.connect(self._refresh_empty_state)
 
     @Slot(str)
     def _on_download_started(self, task_id: str) -> None:

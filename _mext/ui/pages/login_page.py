@@ -23,8 +23,8 @@ from qfluentwidgets import (
     TitleLabel,
     setCustomStyleSheet,
 )
-from qtpy.QtCore import Qt, Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
@@ -67,6 +67,7 @@ class LoginPage(QWidget):
         self._services = service_manager
         self._is_registering = False
         self._pending_fido2 = False
+        self._service_signals_connected = False
 
         self._setup_ui()
         self._connect_signals()
@@ -84,7 +85,7 @@ class LoginPage(QWidget):
         form_layout.setContentsMargins(32, 32, 32, 32)
 
         # Title
-        self._title_label = TitleLabel("素材商城", form_container)
+        self._title_label = TitleLabel("素材论坛", form_container)
         self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         form_layout.addWidget(self._title_label)
 
@@ -158,16 +159,20 @@ class LoginPage(QWidget):
         outer_layout.addWidget(form_container, alignment=Qt.AlignmentFlag.AlignCenter)
 
     def _connect_signals(self) -> None:
-        """Wire button clicks and auth service signals."""
+        """Wire button clicks (service signals deferred to showEvent)."""
         self._login_btn.clicked.connect(self._on_login_clicked)
         self._drm_login_btn.clicked.connect(self._on_drm_login_clicked)
         self._fido2_btn.clicked.connect(self._on_fido2_login_clicked)
         self._toggle_link.clicked.connect(self._toggle_register_mode)
         self._password_edit.returnPressed.connect(self._on_login_clicked)
 
-        # Auth service signals
-        self._services.auth_service.login_error.connect(self._on_login_error)
-        self._services.auth_service.fido2_required.connect(self._on_fido2_required)
+    def showEvent(self, event: object) -> None:  # noqa: N802
+        """Connect service signals on first show to avoid eager service creation."""
+        super().showEvent(event)
+        if not self._service_signals_connected:
+            self._service_signals_connected = True
+            self._services.auth_service.login_error.connect(self._on_login_error)
+            self._services.auth_service.fido2_required.connect(self._on_fido2_required)
 
     @Slot()
     def _on_login_clicked(self) -> None:
@@ -250,7 +255,7 @@ class LoginPage(QWidget):
 
         def _wait_for_callback() -> None:
             success = self._services.auth_service.handle_callback()
-            from qtpy.QtCore import QMetaObject
+            from PyQt6.QtCore import QMetaObject
 
             if success:
                 QMetaObject.invokeMethod(

@@ -1,16 +1,5 @@
 """
 后台视频帧读取线程 — 使用 PyAV (FFmpeg) 解码
-
-PyAV 官方文档依据：
-- Container.seek() 支持精确 seek (https://pyav.org/docs/develop/api/container.html)
-- VideoFrame.to_ndarray() 零拷贝 numpy 转换 (https://pyav.org/docs/develop/cookbook/numpy.html)
-- stream.thread_type='AUTO' 启用多线程解码 (https://pyav.org/docs/develop/api/stream.html)
-
-Qt 6 官方文档依据：
-- QImage 可安全在非 GUI 线程创建 (https://doc.qt.io/qt-6/qimage.html#details)
-- QThread.run() 在新线程执行 (https://doc.qt.io/qt-6/qthread.html#run)
-- 跨线程信号自动使用 QueuedConnection (https://doc.qt.io/qt-6/threads-qobjects.html)
-- QPixmap 必须在主线程创建 (https://doc.qt.io/qt-6/qpixmap.html#details)
 """
 import logging
 import queue
@@ -76,15 +65,18 @@ class FrameRingBuffer:
      from either side of the deque with approximately the same O(1)
      performance in either direction."
 
-    threading.Lock 文档依据:
+    threading.Lock + Condition 文档依据:
     https://docs.python.org/3/library/threading.html#lock-objects
+    https://docs.python.org/3/library/threading.html#condition-objects
     deque 单操作线程安全，但复合操作（检查长度+操作）需要 Lock。
+    Condition 用于生产者在缓冲区满时阻塞等待，替代 Event 自旋。
     """
 
     def __init__(self, max_size: int = 5):
         self._buffer: deque = deque(maxlen=max_size)
         self._lock = threading.Lock()
         self._max_size = max_size
+        self._not_full = threading.Condition(self._lock)
 
     def put(self, frame: 'BufferedFrame') -> bool:
         """生产者：放入一帧。缓冲区满时返回 False。"""
@@ -99,12 +91,23 @@ class FrameRingBuffer:
         with self._lock:
             if len(self._buffer) == 0:
                 return None
-            return self._buffer.popleft()
+            frame = self._buffer.popleft()
+            self._not_full.notify()
+            return frame
 
     def clear(self):
         """清空缓冲区"""
         with self._lock:
             self._buffer.clear()
+            self._not_full.notify_all()
+
+    def wait_not_full(self, timeout=None) -> bool:
+        """生产者等待缓冲区有空位。"""
+        with self._not_full:
+            if len(self._buffer) < self._max_size:
+                return True
+            self._not_full.wait(timeout=timeout)
+            return len(self._buffer) < self._max_size
 
     def size(self) -> int:
         with self._lock:
@@ -128,6 +131,7 @@ class FrameRingBuffer:
             self._max_size = value
             # 用现有数据重建 deque（新 maxlen）
             self._buffer = deque(self._buffer, maxlen=value)
+            self._not_full.notify_all()
 
 
 class FrameReaderThread(QThread):
@@ -247,14 +251,15 @@ class FrameReaderThread(QThread):
                 break  # CMD_STOP
 
             # 阶段 2: 预读填充缓冲区
-            if (self._container is not None
-                    and self._prefetch_enabled.is_set()
-                    and not self._frame_buffer.is_full()):
-                self._prefetch_next_frame()
+            if self._container is not None and self._prefetch_enabled.is_set():
+                if not self._frame_buffer.is_full():
+                    self._prefetch_next_frame()
+                else:
+                    # 缓冲区满 — 使用 Condition.wait 真正阻塞，避免 CPU 空转
+                    self._frame_buffer.wait_not_full(timeout=0.05)
             else:
-                # 缓冲区满或未在预读模式 — 短暂等待避免 CPU 空转
-                # 仍需快速响应命令，所以用 Event.wait 带超时
-                self._prefetch_enabled.wait(timeout=0.005)
+                # 未在预读模式 — 等待预读启用
+                self._prefetch_enabled.wait(timeout=0.05)
 
         # 线程结束，释放资源
         if self._container is not None:
@@ -462,12 +467,12 @@ class FrameReaderThread(QThread):
         total_frames = stream.frames
         if total_frames == 0 and stream.duration is not None and stream.time_base:
             duration_sec = float(stream.duration * stream.time_base)
-            total_frames = max(1, int(duration_sec * fps))
+            total_frames = max(1, round(duration_sec * fps))
         if total_frames == 0:
             # 最后手段：使用容器级 duration
             if container.duration is not None:
                 duration_sec = container.duration / av.time_base
-                total_frames = max(1, int(duration_sec * fps))
+                total_frames = max(1, round(duration_sec * fps))
             else:
                 total_frames = 1
 
@@ -514,7 +519,7 @@ class FrameReaderThread(QThread):
 
             # 计算目标时间戳 (pts)
             target_sec = target_frame / fps
-            target_pts = int(target_sec / time_base)
+            target_pts = round(target_sec / time_base)
 
             # seek 到最近的关键帧（backward=True 确保不会跳过目标）
             container.seek(target_pts, stream=stream, backward=True)
@@ -525,7 +530,7 @@ class FrameReaderThread(QThread):
                 frame = av_frame
                 if av_frame.pts is not None:
                     current_sec = float(av_frame.pts * time_base)
-                    current_frame_idx = int(current_sec * fps)
+                    current_frame_idx = round(current_sec * fps)
                     if current_frame_idx >= target_frame:
                         break
                 else:

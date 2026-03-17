@@ -1,6 +1,5 @@
 """
 EPConfig 统一数据模型 - 电子通行证素材配置文件
-融合 ep_material_maker 和 decompiled 两个项目的配置模型
 """
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
@@ -8,6 +7,8 @@ from enum import Enum
 import uuid as uuid_lib
 import json
 import os
+
+CONFIG_FILENAME = "epconfig.json"
 
 
 class ScreenType(Enum):

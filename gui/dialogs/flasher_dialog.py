@@ -95,27 +95,31 @@ class FlasherWorker(QThread):
         try:
             # 设置环境变量
             os.environ["PATH"] += os.pathsep + self.bin_path
-            
+
             # 1. 检查驱动
             self.status_updated.emit("检查驱动...")
             self._check_driver()
-            
+            self.progress_updated.emit("驱动检查完成", 5)
+
             # 2. 获取烧录文件
             self.status_updated.emit("获取烧录文件...")
             files = self._get_flash_files()
-            
+            self.progress_updated.emit("文件准备完成", 30)
+
             # 3. 等待设备连接
             self.status_updated.emit("等待设备连接...")
             self._wait_for_device()
-            
+            self.progress_updated.emit("设备已连接", 35)
+
             # 4. 开始烧录
             self.status_updated.emit("开始烧录...")
             self._flash_device(files)
-            
+
             # 5. 完成
+            self.progress_updated.emit("烧录完成", 100)
             self.status_updated.emit("烧录完成，设备正在重启...")
             self.finished.emit()
-            
+
         except Exception as e:
             self.error_occurred.emit(str(e))
     
@@ -309,98 +313,123 @@ class FlasherWorker(QThread):
         return result
     
     def _wait_for_device(self):
-        # 等待设备进入FEL模式
-        self.status_updated.emit("请按住FEL按钮并打开设备电源...")
-        time.sleep(5)  # 给用户时间操作
-        
-        # 检查设备连接
-        max_attempts = 30
-        for attempt in range(max_attempts):
-            if not self.is_running:
-                break
-            
+        """等待设备进入FEL模式，对应 epass_flasher/main.py:298-316 xfel_spinand_check()"""
+        self.status_updated.emit("等待FEL模式连接...")
+        while self.is_running:
             try:
                 result = subprocess.run(
                     [os.path.join(self.bin_path, "xfel.exe"), "spinand"],
-                    capture_output=True, text=True, timeout=2
+                    capture_output=True, text=True, timeout=5, shell=True
                 )
                 if "Found spi nand flash" in result.stdout:
-                    self.status_updated.emit("设备连接成功！")
+                    self.status_updated.emit("XFEL spinand检测成功！")
                     return
                 elif "ERROR: No FEL device found!" in result.stdout:
-                    self.status_updated.emit(f"等待设备... ({attempt+1}/{max_attempts})")
+                    self.status_updated.emit("等待设备...")
+                    time.sleep(0.5)
+                elif "0x00000000" in result.stdout:
+                    self.status_updated.emit(
+                        "SPINAND读取失败。先松开FEL按钮。"
+                        "如果你松开了还是提示这个信息，请检查NAND是否虚焊。"
+                    )
+                    self.status_updated.emit(result.stdout.strip())
                     time.sleep(1)
                 else:
-                    self.status_updated.emit(f"设备状态: {result.stdout.strip()}")
-                    time.sleep(1)
+                    raise Exception(f"XFEL报错！\n{result.stdout.strip()}")
+            except subprocess.TimeoutExpired:
+                self.status_updated.emit("等待设备...")
+                time.sleep(0.5)
             except Exception as e:
+                if "XFEL报错" in str(e):
+                    raise
                 self.status_updated.emit(f"检查设备失败: {str(e)}")
-                time.sleep(1)
-        
-        raise Exception("设备连接超时，请检查设备连接状态")
+                time.sleep(0.5)
+        raise Exception("烧录已取消")
     
+    def _dfu_device_present(self) -> bool:
+        """检测DFU设备是否存在，对应 epass_flasher/main.py:265-270"""
+        try:
+            result = subprocess.run(
+                [os.path.join(self.bin_path, "dfu-util.exe"), "-l"],
+                capture_output=True, text=True, timeout=5, shell=True
+            )
+            return "Found DFU: [1f3a:1010]" in result.stdout
+        except Exception:
+            return False
+
+    def _wait_for_dfu(self):
+        """轮询等待DFU设备就绪，对应 epass_flasher/main.py:272-279"""
+        self.status_updated.emit("等待设备重启进入DFU模式...")
+        while self.is_running:
+            if self._dfu_device_present():
+                self.status_updated.emit("DFU设备已检测到！")
+                return
+            time.sleep(0.5)
+        raise Exception("烧录已取消")
+
     def _flash_device(self, files):
+        """执行烧录，对应 epass_flasher/main.py:282-296 flash()"""
         # 创建bootenv.txt在缓存目录中
         bootenv_path = os.path.join(self.cache_path, "bootenv.txt")
         with open(bootenv_path, "wb") as f:
             f.write(f"device_rev={self.rev}\n".encode("utf-8"))
             f.write(f"screen={self.screen}\n".encode("utf-8"))
             f.write(b"\x00")
-        
-        # 执行烧录命令
-        commands = [
-            ["xfel.exe", "spinand", "erase", "0x100000", "0xC00000"],
-            ["xfel.exe", "spinand", "write", "0", files["uboot"]],
-            ["xfel.exe", "spinand", "write", "0xfa000", bootenv_path],
-            ["xfel.exe", "reset"]
+
+        # 阶段1: xfel 写入
+        xfel_commands = [
+            (["xfel.exe", "spinand", "erase", "0x100000", "0xC00000"], 38),
+            (["xfel.exe", "spinand", "write", "0", files["uboot"]], 42),
+            (["xfel.exe", "spinand", "write", "0xfa000", bootenv_path], 46),
+            (["xfel.exe", "reset"], 50),
         ]
-        
-        for cmd in commands:
+
+        for cmd, progress in xfel_commands:
             if not self.is_running:
-                break
-            
+                raise Exception("烧录已取消")
+
             cmd_path = os.path.join(self.bin_path, cmd[0])
             cmd_full = [cmd_path] + cmd[1:]
-            
+
             self.status_updated.emit(f"执行: {' '.join(cmd)}")
-            result = subprocess.run(cmd_full, capture_output=True, text=True)
-            
+            result = subprocess.run(cmd_full, capture_output=True, text=True, shell=True)
+
             if result.returncode != 0:
-                raise Exception(f"命令执行失败: {' '.join(cmd)}\n{result.stderr}")
-            
+                self.status_updated.emit(f"警告: {' '.join(cmd)} 返回码 {result.returncode}")
+                if result.stderr:
+                    self.status_updated.emit(result.stderr.strip())
+
             self.status_updated.emit(f"完成: {' '.join(cmd)}")
-        
-        # 等待DFU模式
-        self.status_updated.emit("等待设备进入DFU模式...")
-        time.sleep(3)
-        
-        # 烧录boot和rootfs
-        dfu_commands = [
-            ["dfu-util.exe", "-d", "1f3a:1010", "-R", "-a", "boot", "-D", files["boot"]],
-            ["dfu-util.exe", "-d", "1f3a:1010", "-R", "-a", "rootfs", "-D", files["rootfs"]]
-        ]
-        
-        for cmd in dfu_commands:
-            if not self.is_running:
-                break
-            
-            cmd_path = os.path.join(self.bin_path, cmd[0])
-            cmd_full = [cmd_path] + cmd[1:]
-            
-            self.status_updated.emit(f"执行DFU命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd_full, capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                # DFU命令可能需要重试
-                self.status_updated.emit(f"DFU命令失败，重试...")
-                time.sleep(2)
-                result = subprocess.run(cmd_full, capture_output=True, text=True)
-                
-                if result.returncode != 0:
-                    raise Exception(f"DFU命令执行失败: {' '.join(cmd)}\n{result.stderr}")
-            
-            self.status_updated.emit(f"DFU命令完成: {' '.join(cmd)}")
-            time.sleep(2)  # 给设备时间重启
+            self.progress_updated.emit(f"xfel: {' '.join(cmd[1:])}", progress)
+
+        # 阶段2: 第一次等待DFU设备
+        self._wait_for_dfu()
+        self.progress_updated.emit("DFU设备就绪", 55)
+
+        # 阶段3: DFU烧录boot分区（带 -R 重启）
+        if not self.is_running:
+            raise Exception("烧录已取消")
+        boot_cmd = [os.path.join(self.bin_path, "dfu-util.exe"),
+                     "-d", "1f3a:1010", "-R", "-a", "boot", "-D", files["boot"]]
+        self.status_updated.emit(f"烧录boot分区...")
+        subprocess.run(boot_cmd, capture_output=True, text=True, shell=True)
+        self.status_updated.emit("boot分区烧录完成")
+        self.progress_updated.emit("boot分区烧录完成", 70)
+
+        # 阶段4: 第二次等待DFU设备（boot烧录带-R会重启设备）
+        time.sleep(2)
+        self._wait_for_dfu()
+        self.progress_updated.emit("DFU设备就绪", 75)
+
+        # 阶段5: DFU烧录rootfs分区
+        if not self.is_running:
+            raise Exception("烧录已取消")
+        rootfs_cmd = [os.path.join(self.bin_path, "dfu-util.exe"),
+                       "-d", "1f3a:1010", "-R", "-a", "rootfs", "-D", files["rootfs"]]
+        self.status_updated.emit(f"烧录rootfs分区...")
+        subprocess.run(rootfs_cmd, capture_output=True, text=True, shell=True)
+        self.status_updated.emit("rootfs分区烧录完成")
+        self.progress_updated.emit("rootfs分区烧录完成", 95)
     
     def stop(self):
         self.is_running = False
@@ -663,8 +692,10 @@ class FlasherDialog(QDialog):
         # 启动工作线程
         self.worker = FlasherWorker(self.flasher_dir, rev, screen, version_info, mirror_url)
         self.worker.status_updated.connect(self._on_status_update)
+        self.worker.progress_updated.connect(self._on_progress_update)
         self.worker.error_occurred.connect(self._on_error)
         self.worker.finished.connect(self._on_finished)
+        self.progress_bar.setValue(0)
         self.worker.start()
     
     def _on_cancel(self):
@@ -684,17 +715,23 @@ class FlasherDialog(QDialog):
         self.status_text.append(message)
         self.status_text.verticalScrollBar().setValue(self.status_text.verticalScrollBar().maximum())
     
+    def _on_progress_update(self, message, progress):
+        """烧录进度更新"""
+        self.progress_bar.setValue(progress)
+
     def _on_error(self, error):
         """错误处理"""
         self.status_text.append(f"错误: {error}")
         self.status_text.append("烧录失败")
+        self.progress_bar.setValue(0)
         self.start_button.setEnabled(True)
         QMessageBox.critical(self, "错误", f"烧录失败: {error}")
-    
+
     def _on_finished(self):
         """烧录完成"""
         self.status_text.append("=== 烧录完成 ===")
         self.status_text.append("设备正在重启，请耐心等待...")
+        self.progress_bar.setValue(100)
         self.start_button.setEnabled(True)
         QMessageBox.information(self, "完成", "烧录完成！设备正在重启，请耐心等待。")
     

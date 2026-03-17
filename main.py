@@ -1,4 +1,3 @@
-#超 级 多 的 屎 山 ciallo~ 修的我想哭
 #!/usr/bin/env python3
 """
 明日方舟通行证素材制作器
@@ -41,7 +40,6 @@ else:
 
 sys.path.insert(0, APP_DIR)
 
-os.environ["QT_API"] = "pyqt6"
 
 
 def check_dependencies():
@@ -98,6 +96,11 @@ def check_dependencies():
 
 def _main_inner():
     """应用程序实际入口"""
+    # 创建命名互斥量，配合 installer.iss 的 AppMutex 防止安装时应用正在运行
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.kernel32.CreateMutexW(None, False, "ArknightsPassMakerMutex")
+
     # 禁用QFluentWidgets启动提示（必须在导入QFluentWidgets之前设置）
     os.environ["QFluentWidgets_SUPPRESS_TIPS"] = "1"
 
@@ -172,6 +175,7 @@ def _main_inner():
 
     exit_code = app.exec()
     logger.info(f"应用程序退出，退出码: {exit_code}")
+    logging.shutdown()
     sys.exit(exit_code)
 
 

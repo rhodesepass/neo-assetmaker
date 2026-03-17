@@ -1,4 +1,6 @@
-"""自定义设置卡片 — 不依赖 qconfig，兼容 user_settings.json"""
+"""
+自定义设置卡片 — 不依赖 qconfig，兼容 user_settings.json
+"""
 
 from typing import Union
 

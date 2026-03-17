@@ -1,5 +1,5 @@
 """
-明日方舟通行证素材制作器 - cx_Freeze + Inno Setup 打包工具
+明日方舟通行证素材工具箱 - cx_Freeze + Inno Setup 打包工具
 """
 import os
 import sys
@@ -498,7 +498,10 @@ def create_installer():
     os.makedirs(DIST_DIR, exist_ok=True)
 
     try:
-        result = subprocess.run([iscc, ISS_FILE], capture_output=True, text=True)
+        result = subprocess.run(
+            [iscc, f"/DMyAppVersion={VERSION}", ISS_FILE],
+            capture_output=True, text=True,
+        )
         if result.returncode != 0:
             print(f"Inno Setup failed: {result.stderr}")
             return False

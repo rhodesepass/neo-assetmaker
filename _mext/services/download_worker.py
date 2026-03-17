@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from qtpy.QtCore import QObject, QRunnable, Signal
+from PyQt6.QtCore import QObject, QRunnable, pyqtSignal as Signal
 
 from _mext.core.constants import DOWNLOAD_CHUNK_SIZE
 from _mext.services.api_client import ApiClient

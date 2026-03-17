@@ -1,6 +1,6 @@
 """Material asset data model.
 
-Represents a downloadable material in the marketplace with metadata,
+Represents a downloadable material in the forum with metadata,
 preview information, and download details.
 """
 
@@ -50,7 +50,7 @@ class MaterialCategory(str, Enum):
 
 @dataclass
 class Material:
-    """Represents a material asset available in the marketplace.
+    """Represents a material asset available in the forum.
 
     Attributes
     ----------

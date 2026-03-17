@@ -15,8 +15,8 @@ from qfluentwidgets import (
     PushButton,
     SubtitleLabel,
 )
-from qtpy.QtCore import Qt, QTimer
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QWidget,

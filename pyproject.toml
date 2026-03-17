@@ -18,7 +18,6 @@ dependencies = [
     "python-Levenshtein>=0.25.0",
     "requests>=2.32.0",
     # 扩展模块依赖
-    "qtpy>=2.4",
     "httpx>=0.27",
     "keyring>=25",
     "platformdirs>=4",

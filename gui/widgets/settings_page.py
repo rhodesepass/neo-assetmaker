@@ -1,4 +1,6 @@
-"""设置页面 — 使用 QFluentWidgets SettingCard 组件，自动适配主题"""
+"""
+设置页面 — 使用 QFluentWidgets SettingCard 组件，自动适配主题
+"""
 
 import os
 import logging
@@ -285,8 +287,8 @@ class SettingsPage(QWidget):
                 settings.get('theme_color', '#ff6b8b'))
             self.themeImageCard.setImagePath(
                 settings.get('theme_image', ''))
-            # self.scaleCard.setValue(
-            #     settings.get('scale', 1.0))
+            self.scaleCard.setValue(
+                settings.get('scale', 1.0))
             self.languageCard.setCurrentText(
                 settings.get('language', '简体中文'))
 
@@ -299,9 +301,6 @@ class SettingsPage(QWidget):
             self.autoSaveCard.setChecked(
                 settings.get('auto_save', False))
 
-            self.autoUpdateCard.setChecked(
-                settings.get('auto_update', True))
-
             self.hwAccelCard.setChecked(
                 settings.get('hardware_acceleration', True))
             self.exportThreadsCard.setValue(
@@ -313,7 +312,7 @@ class SettingsPage(QWidget):
                 settings.get('use_proxy', False))
 
             self.sshIpAddressCard.setText(
-                settings.get('z',"192.168.137.2")
+                settings.get('ssh_ip_address', "192.168.137.2")
             )
             self.sshPortCard.setText(
                 settings.get('ssh_port', "22")

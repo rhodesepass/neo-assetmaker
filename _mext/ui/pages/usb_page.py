@@ -20,8 +20,8 @@ from qfluentwidgets import (
     ScrollArea,
     SubtitleLabel,
 )
-from qtpy.QtCore import Qt, Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QSplitter,
@@ -62,6 +62,7 @@ class UsbPage(QWidget):
         self._services = service_manager
         self._device_cards: dict[str, UsbDeviceCard] = {}
         self._selected_device_id: Optional[str] = None
+        self._service_signals_connected = False
 
         self._setup_ui()
         self._connect_signals()
@@ -155,17 +156,21 @@ class UsbPage(QWidget):
         layout.addWidget(self._splitter, stretch=1)
 
     def _connect_signals(self) -> None:
-        """Wire button and service signals."""
-        usb_service = self._services.usb_service
-
+        """Wire button clicks (USB service signals deferred to showEvent)."""
         self._scan_btn.clicked.connect(self._on_scan)
         self._monitoring_btn.clicked.connect(self._toggle_monitoring)
         self._transfer_to_device_btn.clicked.connect(self._on_transfer_to_device)
         self._transfer_from_device_btn.clicked.connect(self._on_transfer_from_device)
 
-        usb_service.device_connected.connect(self._on_device_connected)
-        usb_service.device_disconnected.connect(self._on_device_disconnected)
-        usb_service.scan_error.connect(self._on_scan_error)
+    def showEvent(self, event: object) -> None:  # noqa: N802
+        """Connect USB service signals on first show to avoid eager service creation."""
+        super().showEvent(event)
+        if not self._service_signals_connected:
+            self._service_signals_connected = True
+            usb_service = self._services.usb_service
+            usb_service.device_connected.connect(self._on_device_connected)
+            usb_service.device_disconnected.connect(self._on_device_disconnected)
+            usb_service.scan_error.connect(self._on_scan_error)
 
     @Slot()
     def _on_scan(self) -> None:

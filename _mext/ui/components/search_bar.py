@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import Optional
 
 from qfluentwidgets import SearchLineEdit
-from qtpy.QtCore import QTimer, Signal, Slot
-from qtpy.QtWidgets import QHBoxLayout, QWidget
+from PyQt6.QtCore import QTimer, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import QHBoxLayout, QWidget
 
 from _mext.core.constants import SEARCH_DEBOUNCE_MS
 

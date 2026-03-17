@@ -1,4 +1,6 @@
-'''此处所有的函数都应被try catch包裹，抛出异常由调用者处理'''
+'''
+此处所有的函数都应被try catch包裹，抛出异常由调用者处理
+'''
 
 from functools import partial
 import time

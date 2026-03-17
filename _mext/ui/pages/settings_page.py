@@ -22,8 +22,8 @@ from qfluentwidgets import (
     SwitchButton,
     TitleLabel,
 )
-from qtpy.QtCore import Qt, Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QVBoxLayout,
@@ -70,10 +70,17 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self._services = service_manager
         self._credential_cards: list[Fido2CredentialCard] = []
+        self._settings_loaded = False
 
         self._setup_ui()
         self._connect_signals()
-        self._load_settings()
+
+    def showEvent(self, event: object) -> None:  # noqa: N802
+        """Load settings on first show to avoid eager service access."""
+        super().showEvent(event)
+        if not self._settings_loaded:
+            self._settings_loaded = True
+            self._load_settings()
 
     def _setup_ui(self) -> None:
         """Build the settings page layout with card groups."""
@@ -107,6 +114,10 @@ class SettingsPage(QWidget):
 
         self._logout_btn = PushButton("退出登录", content)
         account_row.addWidget(self._logout_btn, alignment=Qt.AlignmentFlag.AlignTop)
+
+        self._login_btn = PrimaryPushButton("登录", content)
+        self._login_btn.setVisible(False)
+        account_row.addWidget(self._login_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
         layout.addLayout(account_row)
 
@@ -216,6 +227,7 @@ class SettingsPage(QWidget):
     def _connect_signals(self) -> None:
         """Wire settings change signals."""
         self._logout_btn.clicked.connect(self._on_logout)
+        self._login_btn.clicked.connect(self._on_login_requested)
         self._browse_btn.clicked.connect(self._on_browse_download_dir)
         self._register_key_btn.clicked.connect(self._on_register_fido2_key)
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
@@ -236,16 +248,31 @@ class SettingsPage(QWidget):
             self._email_label.setText(info.get("email", ""))
             role = info.get("role", "user")
             self._role_label.setText(f"Role: {role.title()}")
+            self._logout_btn.setVisible(True)
+            self._login_btn.setVisible(False)
+            self._register_key_btn.setEnabled(True)
         else:
             self._username_label.setText("未登录")
-            self._email_label.setText("")
+            self._email_label.setText("登录后可管理账户和安全密钥")
             self._role_label.setText("")
+            self._logout_btn.setVisible(False)
+            self._login_btn.setVisible(True)
+            self._register_key_btn.setEnabled(False)
 
     @Slot()
     def _on_logout(self) -> None:
         """Handle logout button click."""
         self._services.auth_service.logout()
         self.logout_requested.emit()
+
+    @Slot()
+    def _on_login_requested(self) -> None:
+        """Handle login button click — open login dialog."""
+        forum_widget = self.parent()
+        while forum_widget and not hasattr(forum_widget, 'require_auth'):
+            forum_widget = forum_widget.parent()
+        if forum_widget:
+            forum_widget.require_auth(on_success=self._load_settings)
 
     @Slot(bool)
     def _on_auth_changed(self, authenticated: bool) -> None:
