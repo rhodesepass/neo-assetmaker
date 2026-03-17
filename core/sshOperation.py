@@ -153,6 +153,8 @@ def DelRemoteFile(ssh, remotePath) -> bool:
 def UploadFile(
     ssh, localPath, remotePath, report=None, finishedSize: int = 0, totalSize: int = 0
 ):
+    # stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {os.path.dirname(remotePath)}")
+    # stdout.channel.recv_exit_status()
     """上传文件"""
     if report == None:
         scp = SCPClient(ssh.get_transport())

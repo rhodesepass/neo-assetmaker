@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPalette, QColor
+from pathlib import Path
 from qtpy.QtGui import QColor, QPixmap
 import os
 from PyQt6.QtWidgets import (
@@ -58,6 +59,8 @@ from core import sshOperation
 import paramiko
 from scp import SCPClient
 import logging
+import difflib
+from PyQt6.QtCore import QMetaObject, Qt
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,7 @@ class DropListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
+        self.par = parent
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -96,8 +100,8 @@ class DropListWidget(QListWidget):
                 folders.append(path)
 
         # 调用父窗口方法
-        if self.parent():
-            self.parent().handle_drop(files, folders)
+        if self.par:
+            self.par.handle_drop(files, folders)
 
 
 class RemoteFileManagerWindow(QWidget):
@@ -224,21 +228,59 @@ class RemoteFileManagerWindow(QWidget):
 
         self._on_refresh()
 
+    def show_error(self, message: str, title: str = "错误"):
+        msg = QMessageBox()
+        msg.setWindowTitle(title)
+        msg.setText(message)
+        msg.setIcon(QMessageBox.Icon.Critical)  # 错误图标
+        msg.exec()
+
     def handle_drop(self, files, folders):
+        import threading
+
         print("文件:", files)
         print("文件夹:", folders)
 
         # 展开文件夹
         all_files = list(files)
+
+        # offset
+        offetPath = []
+        for file in files:
+            offetPath.append(os.path.dirname(file))
+
         for folder in folders:
             for root, dirs, fs in os.walk(folder):
                 for f in fs:
                     all_files.append(os.path.join(root, f))
+                    offetPath.append(get_relative_path(folder, os.path.join(root, f)))
+        try:
+            if not self.TryStartSSH():
+                raise ValueError("初始化SSH失败")
+            uploadThread = threading.Thread(
+                target=self.DragUploadLoop,
+                args=(all_files, offetPath),
+                daemon=True,
+            )
+            uploadThread.start()
+        except Exception as e:
+            self.show_error(f"拖拽上传失败{e}")
+            logger.error(f"拖拽上传失败{e}", stack_info=True)
 
-        print("最终:", all_files)
-
-        # 调你原来的上传逻辑
-        # self.upload_files(all_files)
+    def DragUploadLoop(self, all_files, offetPath):
+        try:
+            for i in range(0, len(all_files)):
+                sshOperation.UploadFile(
+                    self.ssh,
+                    all_files[i],
+                    f"{self.lb_currentPath.text()}/{offetPath[i]}",
+                    self.reportProcess,
+                    0,
+                    os.path.getsize(all_files[i]),
+                )
+        except Exception as e:
+            self.show_error(f"拖拽上传失败{e}")
+            logger.error(f"拖拽上传失败{e}", stack_info=True)
 
     def _on_goParentFolder(self):
         self.DirChanged("..")
@@ -274,6 +316,7 @@ class RemoteFileManagerWindow(QWidget):
             stdout.channel.recv_exit_status()
             self._on_refresh()
         except Exception as ex:
+            self.show_error(f"重命名失败{ex}")
             logger.error(f"重命名失败{ex}", stack_info=True)
 
     def LoadFiles(self, fileList: list):
@@ -379,6 +422,7 @@ class RemoteFileManagerWindow(QWidget):
                 raise ValueError("初始化SSH失败")
             self.ssh.exec_command(f"rm -rf {self.lb_currentPath.text()}/{filename}")
         except Exception as ex:
+            self.show_error(f"删除失败{ex}")
             logger.error(f"删除失败{ex}", stack_info=True)
         finally:
             self._on_refresh()
@@ -411,6 +455,7 @@ class RemoteFileManagerWindow(QWidget):
             )
             downloadThead.start()
         except Exception as ex:
+            self.show_error(f"重命名失败{ex}")
             logger.error(f"下载文件失败：{ex}", stack_info=True)
         return
 
@@ -474,6 +519,7 @@ class RemoteFileManagerWindow(QWidget):
                 )
                 uploadThread.start()
         except Exception as e:
+            self.show_error(f"上传失败:{e}")
             logger.error(f"上传失败:{e}", exc_info=True)
         return
 
@@ -488,6 +534,7 @@ class RemoteFileManagerWindow(QWidget):
             fileList = self.getFolder(self.ssh, currentFolder, fileList)
             self.LoadFiles(fileList)
         except Exception as e:
+            self.show_error(f"刷新失败{e}")
             logger.error(f"刷新失败{e}", stack_info=True)
         return
 
@@ -521,13 +568,21 @@ class RemoteFileManagerWindow(QWidget):
         return fileList
 
     def reportProcess(self, processBarPositon: int, text: str):
-        """修改进度条和文本"""
+        QMetaObject.invokeMethod(
+            self,
+            "RemoteFileManagerWindow.updateGUI",
+            Qt.ConnectionType.QueuedConnection,
+            processBarPositon,
+            text,
+        )
+
+    def updateGUI(self, processBarPositon: int, text: str):
         self.progressBar.setValue(processBarPositon)
         self.lb_process.setText(text)
         if processBarPositon == 100:
             self.lb_process.setText("完成")
             self.progressBar.setValue(0)
-        return
+            self._on_refresh()
 
     def on_item_double_clicked(self, item: QListWidgetItem):
         fileName = item.data(Qt.ItemDataRole.UserRole)  # 之前存的文件名
@@ -584,3 +639,24 @@ def DetectProtectedPath(path: str):
         if path == prt:
             return False
     return True
+
+
+def GetOffsetPath(a: str, b: str) -> str:
+    s = difflib.SequenceMatcher(None, a, b)
+    result = []
+    for tag, i1, i2, j1, j2 in s.get_opcodes():
+        if tag in ("insert"):
+            result.append(b[j1:j2])
+    return "".join(result)
+
+
+def get_relative_path(root: str, full_path: str) -> str:
+    root_path = Path(root).resolve()
+    full_path = Path(full_path).resolve()
+    try:
+        relative = full_path.relative_to(root_path)
+    except ValueError:
+        # full_path 不在 root 下
+        return None
+    # 转成 / 分隔
+    return "/" + str(relative).replace("\\", "/")
