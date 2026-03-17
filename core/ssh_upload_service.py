@@ -121,6 +121,14 @@ class SshConnectTestWorker(QThread):
             self.log_message.emit("INFO", f"正在连接 {host}:{port}...")
             ssh = _create_ssh_client(host, port, user, password)
             self.log_message.emit("INFO", f"SSH 连接成功 ({host}:{port})")
+            from datetime import datetime
+            now = datetime.now()
+            formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")
+
+            stdin, stdout, stderr = ssh.exec_command(f"date -s \"{formatted_time}\"", timeout=15)
+            exit_status = stdout.channel.recv_exit_status()
+
+            self.log_message.emit("INFO", f"SSH 已同步通行证时间 ({formatted_time})")
             self.connect_succeeded.emit()
         except socket.timeout:
             self.log_message.emit("ERROR", "连接超时")

@@ -172,11 +172,10 @@ class RemotePage(QWidget):
     def _init_ui(self):
         self.mainLayout = QVBoxLayout(self)
         self.mainLayout.setContentsMargins(0, 15, 0, 0)
-
+        self.mainLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         # 标题
         self.titleLabel = SubtitleLabel("远程管理", self)
         self.titleLabel.setContentsMargins(30, 0, 0, 0)
-        self.titleLabel.setFixedHeight(30)
         self.mainLayout.addWidget(self.titleLabel)
         self.mainLayout.addSpacing(10)
 
@@ -197,7 +196,33 @@ class RemotePage(QWidget):
         self.splitter.setStretchFactor(1, 3)
         self.splitter.setStretchFactor(2, 1)
 
-        self.mainLayout.addWidget(self.splitter)
+        self.mainLayout.addWidget(self.splitter, 1)
+
+        
+        # 连接状态
+        self.connectionStatusLabel = CaptionLabel("未连接")
+        setCustomStyleSheet(
+            self.connectionStatusLabel,
+            "CaptionLabel { color: #999999; }",
+            "CaptionLabel { color: #777777; }",
+        )
+
+        # 进度条
+        self.progressBar = ProgressBar()
+        self.progressBar.setVisible(False)
+
+        self.progressLabel = CaptionLabel(" ")
+        self.progressLabel.setWordWrap(True)
+
+        wrapper = QVBoxLayout()
+        wrapper.setContentsMargins(10, 0, 10, 0)  # 左偏移
+
+        wrapper.addWidget(self.connectionStatusLabel)
+        wrapper.addWidget(self.progressBar)
+        wrapper.addWidget(self.progressLabel)
+
+        self.mainLayout.addLayout(wrapper)
+        # self.mainLayout.addWidget(self.progressLabel)
 
     def _build_left_panel(self):
         """左栏: 操作按钮 + 状态显示"""
@@ -208,6 +233,7 @@ class RemotePage(QWidget):
         layout = QVBoxLayout(self.leftPanel)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # 按钮
         self.btnConnect = PrimaryPushButton("连接")
@@ -229,28 +255,17 @@ class RemotePage(QWidget):
         self.btnRestartDrm.setEnabled(False)
         layout.addWidget(self.btnRestartDrm)
 
+        self.btnUploadDisplayImg = PushButton("上传扩列图")
+        self.btnUploadDisplayImg.setIcon(FluentIcon.SEND)
+        self.btnUploadDisplayImg.setEnabled(False)
+        layout.addWidget(self.btnUploadDisplayImg)
+
         # 分隔线
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
         line1.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(line1)
 
-        # 连接状态
-        self.connectionStatusLabel = CaptionLabel("未连接")
-        setCustomStyleSheet(
-            self.connectionStatusLabel,
-            "CaptionLabel { color: #999999; }",
-            "CaptionLabel { color: #777777; }",
-        )
-        layout.addWidget(self.connectionStatusLabel)
-
-        # 进度条
-        self.progressBar = ProgressBar()
-        self.progressBar.setVisible(False)
-        layout.addWidget(self.progressBar)
-
-        self.progressLabel = CaptionLabel("")
-        layout.addWidget(self.progressLabel)
 
     def _build_middle_panel(self):
         """中栏: 素材详细列表"""
