@@ -1,3 +1,4 @@
+from PyQt6.QtCore import QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPalette, QColor, QPixmap
 from pathlib import Path
@@ -403,6 +404,7 @@ class RemoteFileManagerWindow(QWidget):
             list_item.setData(Qt.ItemDataRole.UserRole, filename)  # 存文件名
             self.fileManagerList.addItem(list_item)
             self.fileManagerList.setItemWidget(list_item, item_widget)
+        self.on_busy(False)
 
     def StartSSH(self):
         self.ssh = paramiko.SSHClient()
@@ -416,6 +418,17 @@ class RemoteFileManagerWindow(QWidget):
             banner_timeout=10,
             auth_timeout=10,
         )
+        return
+
+    def on_busy(self, status: bool):
+        self.btn_Delete.setEnabled(not status)
+        self.btn_Download.setEnabled(not status)
+        self.btn_goParentFolder.setEnabled(not status)
+        self.btn_NewFolder.setEnabled(not status)
+        self.btn_refresh.setEnabled(not status)
+        self.btn_Rename.setEnabled(not status)
+        self.btn_uploadFile.setEnabled(not status)
+        logger.debug(f"set button: {not status}")
         return
 
     def TryStartSSH(self) -> bool:
@@ -533,20 +546,47 @@ class RemoteFileManagerWindow(QWidget):
             logger.error(f"上传失败:{e}", exc_info=True)
         return
 
+    def _on_refresh_done(self, fileList):
+        self.fileManagerList.clear()
+        self.LoadFiles(fileList)
+
+    def _on_refresh_error(self, err):
+        self.show_error(f"刷新失败 {err}")
+        logger.error(f"刷新失败 {err}", stack_info=True)
+        self.on_busy(False)
+
+    def _refresh_worker(self):
+        if not self.TryStartSSH():
+            raise ValueError("初始化SSH失败")
+
+        currentFolder = self.lb_currentPath.text()
+        fileList = []
+
+        fileList = self.getAllFiles(self.ssh, currentFolder, fileList)
+        fileList = self.getFolder(self.ssh, currentFolder, fileList)
+
+        return fileList
+
     def _on_refresh(self):
-        try:
-            self.fileManagerList.clear()
-            currentFolder = self.lb_currentPath.text()
-            if not self.TryStartSSH():
-                raise ValueError("初始化SSH失败")
-            fileList = []
-            fileList = self.getAllFiles(self.ssh, currentFolder, fileList)
-            fileList = self.getFolder(self.ssh, currentFolder, fileList)
-            self.LoadFiles(fileList)
-        except Exception as e:
-            self.show_error(f"刷新失败{e}")
-            logger.error(f"刷新失败{e}", stack_info=True)
-        return
+        self.on_busy(True)
+        self.thread = QThread()
+        self.worker = RefreshWorker(self)
+
+        self.worker.moveToThread(self.thread)
+
+        self.thread.started.connect(self.worker.run)
+
+        # 成功 → 回UI线程更新
+        self.worker.finished.connect(self._on_refresh_done)
+
+        # 失败 → UI提示
+        self.worker.error.connect(self._on_refresh_error)
+
+        # 清理线程
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.error.connect(self.thread.quit)
+
+        self.thread.start()
 
     def CalcCurrentPath(self) -> str:
 
@@ -661,3 +701,19 @@ def get_relative_path(root: str, full_path: str) -> str:
         return None
     # 转成 / 分隔
     return "/" + str(relative).replace("\\", "/")
+
+
+class RefreshWorker(QObject):
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
+
+    def run(self):
+        try:
+            result = self.parent._refresh_worker()
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
