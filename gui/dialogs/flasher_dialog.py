@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon
 
-from qfluentwidgets import setCustomStyleSheet, PushButton as FluentPushButton, PrimaryPushButton
+from qfluentwidgets import setCustomStyleSheet, PushButton as FluentPushButton, PrimaryPushButton, themeColor
 from gui.widgets.fluent_group_box import FluentGroupBox
 from config.constants import APP_NAME
 from utils.file_utils import get_app_dir
@@ -451,7 +451,8 @@ class FlasherDialog(QDialog):
         title_label = QLabel("电子通行证烧录程序")
         title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        setCustomStyleSheet(title_label, "color: #ff6b8b; margin: 10px 0;", "color: #ff6b8b; margin: 10px 0;")
+        _tc = themeColor().name()
+        setCustomStyleSheet(title_label, f"color: {_tc}; margin: 10px 0;", f"color: {_tc}; margin: 10px 0;")
         layout.addWidget(title_label)
         
         # 版本信息
@@ -476,8 +477,8 @@ class FlasherDialog(QDialog):
         self.rev_combo.addItems(["0.2系列", "0.3/0.4系列(0.3/0.3.1/0.4/....)", "0.5系列(0.5/0.5.1)", "0.6系列"])
         setCustomStyleSheet(
             self.rev_combo,
-            "QComboBox { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }",
-            "QComboBox { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }"
+            f"QComboBox {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }}",
+            f"QComboBox {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }}"
         )
         device_layout.addRow("设备版本:", self.rev_combo)
         
@@ -486,8 +487,8 @@ class FlasherDialog(QDialog):
         self.screen_combo.addItems(["京东方/BOE（没法旋转，冠显等商家）", "瀚彩/HSD（金逸晨、鑫睿等商家）", "老五电子买的3块钱的屏幕"])
         setCustomStyleSheet(
             self.screen_combo,
-            "QComboBox { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }",
-            "QComboBox { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }"
+            f"QComboBox {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }}",
+            f"QComboBox {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }}"
         )
         device_layout.addRow("屏幕类型:", self.screen_combo)
         
@@ -507,8 +508,8 @@ class FlasherDialog(QDialog):
         self.version_combo.addItem("请先获取版本信息...")
         setCustomStyleSheet(
             self.version_combo,
-            "QComboBox { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }",
-            "QComboBox { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }"
+            f"QComboBox {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }}",
+            f"QComboBox {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }}"
         )
         version_layout.addWidget(self.version_combo)
         
@@ -520,8 +521,8 @@ class FlasherDialog(QDialog):
         self.mirror_combo.addItem("请先获取版本信息...")
         setCustomStyleSheet(
             self.mirror_combo,
-            "QComboBox { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }",
-            "QComboBox { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; } QComboBox:hover { border-color: #ff6b8b; } QComboBox::drop-down { border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; } QComboBox QAbstractItemView { background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }"
+            f"QComboBox {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #ddd; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; }}",
+            f"QComboBox {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; min-width: 200px; }} QComboBox:hover {{ border-color: {_tc}; }} QComboBox::drop-down {{ border-left: 1px solid #555; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }} QComboBox QAbstractItemView {{ background-color: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px; }}"
         )
         version_layout.addWidget(self.mirror_combo)
         
@@ -596,8 +597,8 @@ class FlasherDialog(QDialog):
         self.progress_bar.setValue(0)
         setCustomStyleSheet(
             self.progress_bar,
-            "QProgressBar { background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; padding: 2px; text-align: center; } QProgressBar::chunk { background-color: #ff6b8b; border-radius: 2px; }",
-            "QProgressBar { background-color: #2b2b2b; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 2px; text-align: center; } QProgressBar::chunk { background-color: #ff6b8b; border-radius: 2px; }"
+            f"QProgressBar {{ background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; padding: 2px; text-align: center; }} QProgressBar::chunk {{ background-color: {_tc}; border-radius: 2px; }}",
+            f"QProgressBar {{ background-color: #2b2b2b; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 2px; text-align: center; }} QProgressBar::chunk {{ background-color: {_tc}; border-radius: 2px; }}"
         )
         status_layout.addWidget(self.progress_bar)
         

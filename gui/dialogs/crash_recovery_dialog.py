@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from qfluentwidgets import (
-    setCustomStyleSheet, PushButton, PrimaryPushButton
+    setCustomStyleSheet, PushButton, PrimaryPushButton, themeColor
 )
 from gui.widgets.fluent_group_box import FluentGroupBox
 from core.crash_recovery_service import RecoveryInfo, CrashRecoveryService
@@ -31,10 +31,11 @@ class RecoveryListWidget(QListWidget):
         super().__init__(parent)
         self._recovery_items: List[RecoveryInfo] = []
 
+        _tc = themeColor().name()
         setCustomStyleSheet(
             self,
-            "QListWidget { border: 1px solid #ddd; border-radius: 5px; padding: 5px; background-color: white; } QListWidget::item { padding: 10px; margin: 2px; border-radius: 3px; } QListWidget::item:hover { background-color: #f0f0f0; } QListWidget::item:selected { background-color: #ff6b8b; color: white; }",
-            "QListWidget { border: 1px solid #555; border-radius: 5px; padding: 5px; background-color: #2b2b2b; color: #ddd; } QListWidget::item { padding: 10px; margin: 2px; border-radius: 3px; } QListWidget::item:hover { background-color: #404040; } QListWidget::item:selected { background-color: #ff6b8b; color: white; }"
+            f"QListWidget {{ border: 1px solid #ddd; border-radius: 5px; padding: 5px; background-color: white; }} QListWidget::item {{ padding: 10px; margin: 2px; border-radius: 3px; }} QListWidget::item:hover {{ background-color: #f0f0f0; }} QListWidget::item:selected {{ background-color: {_tc}; color: white; }}",
+            f"QListWidget {{ border: 1px solid #555; border-radius: 5px; padding: 5px; background-color: #2b2b2b; color: #ddd; }} QListWidget::item {{ padding: 10px; margin: 2px; border-radius: 3px; }} QListWidget::item:hover {{ background-color: #404040; }} QListWidget::item:selected {{ background-color: {_tc}; color: white; }}"
         )
 
         self.itemClicked.connect(self._on_item_clicked)
@@ -101,7 +102,8 @@ class CrashRecoveryDialog(QDialog):
         title_label = QLabel("发现未保存的项目")
         title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        setCustomStyleSheet(title_label, "color: #ff6b8b; margin-bottom: 10px;", "color: #ff6b8b; margin-bottom: 10px;")
+        _tc = themeColor().name()
+        setCustomStyleSheet(title_label, f"color: {_tc}; margin-bottom: 10px;", f"color: {_tc}; margin-bottom: 10px;")
         layout.addWidget(title_label)
 
         desc_label = QLabel(

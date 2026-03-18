@@ -16,6 +16,7 @@ from qfluentwidgets import (
 
 from config.epconfig import EPConfig
 from core.validator import EPConfigValidator, ValidationLevel
+from gui.styles import COLOR_TEXT_MUTED, COLOR_ERROR, COLOR_WARNING, COLOR_SUCCESS
 from gui.widgets.drop_overlay import DropOverlayWidget
 
 
@@ -126,17 +127,17 @@ class JsonPreviewWidget(QWidget):
         status_layout.addWidget(self.status_icon)
 
         self.status_label = CaptionLabel("未加载配置")
-        setCustomStyleSheet(self.status_label, "color: #999;", "color: #888;")
+        setCustomStyleSheet(self.status_label, f"color: {COLOR_TEXT_MUTED[0]};", f"color: {COLOR_TEXT_MUTED[1]};")
         status_layout.addWidget(self.status_label)
 
         status_layout.addStretch()
 
         self.error_count_label = CaptionLabel()
-        setCustomStyleSheet(self.error_count_label, "color: #dc3545;", "color: #f44;")
+        setCustomStyleSheet(self.error_count_label, f"color: {COLOR_ERROR[0]};", f"color: {COLOR_ERROR[1]};")
         status_layout.addWidget(self.error_count_label)
 
         self.warning_count_label = CaptionLabel()
-        setCustomStyleSheet(self.warning_count_label, "color: #e68a00;", "color: #fa0;")
+        setCustomStyleSheet(self.warning_count_label, f"color: {COLOR_WARNING[0]};", f"color: {COLOR_WARNING[1]};")
         status_layout.addWidget(self.warning_count_label)
 
         layout.addWidget(self.status_frame)
@@ -189,14 +190,14 @@ class JsonPreviewWidget(QWidget):
 
         if len(errors) == 0:
             self.status_icon.setText("✓")
-            setCustomStyleSheet(self.status_icon, "color: #2e7d32; font-size: 16px;", "color: #4a4; font-size: 16px;")
+            setCustomStyleSheet(self.status_icon, f"color: {COLOR_SUCCESS[0]}; font-size: 16px;", f"color: {COLOR_SUCCESS[1]}; font-size: 16px;")
             self.status_label.setText("配置有效")
-            setCustomStyleSheet(self.status_label, "color: #2e7d32;", "color: #4a4;")
+            setCustomStyleSheet(self.status_label, f"color: {COLOR_SUCCESS[0]};", f"color: {COLOR_SUCCESS[1]};")
         else:
             self.status_icon.setText("✗")
-            setCustomStyleSheet(self.status_icon, "color: #dc3545; font-size: 16px;", "color: #f44; font-size: 16px;")
+            setCustomStyleSheet(self.status_icon, f"color: {COLOR_ERROR[0]}; font-size: 16px;", f"color: {COLOR_ERROR[1]}; font-size: 16px;")
             self.status_label.setText("配置无效")
-            setCustomStyleSheet(self.status_label, "color: #dc3545;", "color: #f44;")
+            setCustomStyleSheet(self.status_label, f"color: {COLOR_ERROR[0]};", f"color: {COLOR_ERROR[1]};")
 
         if len(errors) > 0:
             self.error_count_label.setText(f"{len(errors)} 个错误")

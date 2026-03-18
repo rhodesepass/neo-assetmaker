@@ -22,11 +22,12 @@ from config.epconfig import EPConfig, CONFIG_FILENAME
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, ToolButton,
     TabWidget, SegmentedWidget,
-    SubtitleLabel,
+    SubtitleLabel, StrongBodyLabel, BodyLabel, CaptionLabel,
+    CardWidget, HyperlinkButton,
     ComboBox, SpinBox,
     DoubleSpinBox, CheckBox, LineEdit,
     ScrollArea, FluentIcon,
-    setCustomStyleSheet, isDarkTheme
+    setCustomStyleSheet, isDarkTheme, setThemeColor, themeColor
 )
 from PyQt6.QtGui import QAction, QKeySequence, QIcon, QShortcut
 from PyQt6.QtWidgets import (
@@ -36,7 +37,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox,
     QSpinBox, QLineEdit, QTabWidget, QDialog
 )
-from PyQt6.QtCore import Qt, QSettings, QTimer, QUrl, QCoreApplication
+from PyQt6.QtCore import Qt, QSettings, QTimer
 import os
 import sys
 import logging
@@ -45,8 +46,6 @@ import shutil
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
 
 class MainWindow(QMainWindow):
@@ -177,10 +176,10 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(20, 8, 20, 8)
         header_layout.setSpacing(24)
 
-        logo_label = QLabel("PRTS")
+        self.logo_label = QLabel("PRTS")
         _logo_qss = "QLabel { background-color: white; color: #ff6b8b; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }"
-        setCustomStyleSheet(logo_label, _logo_qss, _logo_qss)
-        header_layout.addWidget(logo_label)
+        setCustomStyleSheet(self.logo_label, _logo_qss, _logo_qss)
+        header_layout.addWidget(self.logo_label)
 
         title_label = QLabel(APP_NAME)
         setCustomStyleSheet(title_label, "font-size: 16px; font-weight: bold;", "font-size: 16px; font-weight: bold;")
@@ -644,8 +643,18 @@ class MainWindow(QMainWindow):
         qconfig.themeChanged.connect(self._on_system_theme_changed)
 
     def _on_system_theme_changed(self):
-        """系统亮/暗主题切换时，刷新窗口背景为对应中性色"""
+        """系统亮/暗主题切换时，刷新窗口背景和自定义样式"""
         self._bg_color = self._dark_bg_color if isDarkTheme() else self._light_bg_color
+
+        # 重新应用当前主题色到自定义控件（header_bar、sidebar 等）
+        settings = self._read_user_settings()
+        theme_color = settings.get('theme_color', '#ff6b8b')
+        self._apply_theme_color(theme_color)
+
+        # 如果当前有背景图片，重新应用图片模式样式（content_bg 等值依赖 isDarkTheme）
+        if self._bg_pixmap is not None:
+            self._apply_image_mode_styles()
+
         self.update()
 
     def _on_ssh_upload(self):
@@ -822,10 +831,11 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(15)
 
         title_label = QLabel("欢迎使用明日方舟通行证素材制作器 v2.0")
+        _tc = themeColor().name()
         setCustomStyleSheet(
             title_label,
-            "font-size: 20px; font-weight: bold; color: #ff6b8b; text-align: center;",
-            "font-size: 20px; font-weight: bold; color: #ff6b8b; text-align: center;"
+            f"font-size: 20px; font-weight: bold; color: {_tc}; text-align: center;",
+            f"font-size: 20px; font-weight: bold; color: {_tc}; text-align: center;"
         )
         main_layout.addWidget(title_label)
 
@@ -1410,10 +1420,17 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # 安装模式路径（扁平化）
         simulator_path = os.path.join(
             self._app_dir,
-            "simulator", "target", "release", "arknights_pass_simulator.exe"
+            "simulator", "arknights_pass_simulator.exe"
         )
+        # 开发模式 fallback：Cargo 默认输出路径
+        if not os.path.exists(simulator_path):
+            simulator_path = os.path.join(
+                self._app_dir,
+                "simulator", "target", "release", "arknights_pass_simulator.exe"
+            )
 
         if not os.path.exists(simulator_path):
             QMessageBox.information(
@@ -1478,7 +1495,8 @@ class MainWindow(QMainWindow):
 
             # 设置工作目录为应用根目录，确保模拟器能找到 FFmpeg DLL
             # Windows DLL 搜索顺序：exe 所在目录 → system32 → PATH
-            # 模拟器 exe 在 simulator/target/release/ 子目录，无法找到根目录的 DLL
+            # 模拟器 exe 在 simulator/ 子目录（安装模式）或 simulator/target/release/（开发模式），
+            # 均无法直接找到根目录的 FFmpeg DLL，需要通过 cwd 和 PATH 解决
             popen_kwargs['cwd'] = self._app_dir
 
             # 双保险：将 app_dir 加入 PATH 环境变量
@@ -1486,13 +1504,18 @@ class MainWindow(QMainWindow):
             env['PATH'] = self._app_dir + os.pathsep + env.get('PATH', '')
             popen_kwargs['env'] = env
 
+            # Detect current theme to pass to simulator
+            from qfluentwidgets import isDarkTheme
+            theme = "dark" if isDarkTheme() else "light"
+
             proc = subprocess.Popen([
                 simulator_path,
                 "--config", config_path,
                 "--base-dir", self._base_dir,
                 "--app-dir", self._app_dir,
                 "--cropbox", f"{cropbox[0]},{cropbox[1]},{cropbox[2]},{cropbox[3]}",
-                "--rotation", str(rotation)
+                "--rotation", str(rotation),
+                "--theme", theme,
             ], **popen_kwargs)
 
             logger.info(f"模拟器已启动: {simulator_path}")
@@ -1825,84 +1848,105 @@ class MainWindow(QMainWindow):
             self._remote_page.setVisible(False)
 
         if not hasattr(self, '_about_widget'):
-            from PyQt6.QtWidgets import QLabel, QVBoxLayout, QTextBrowser
-
             self._about_widget = QWidget()
             self._about_widget.setVisible(False)
 
             about_layout = QVBoxLayout(self._about_widget)
-            about_layout.setContentsMargins(20, 10, 20, 10)  # 减小上下边距
+            about_layout.setContentsMargins(20, 10, 20, 10)
             about_layout.setSpacing(15)
 
-            title_label = QLabel("项目介绍")
-            setCustomStyleSheet(
-                title_label,
-                "font-size: 18px; font-weight: bold; color: #333;",
-                "font-size: 18px; font-weight: bold; color: #eee;"
-            )
+            title_label = SubtitleLabel("项目介绍")
             about_layout.addWidget(title_label)
 
-            try:
-                from PyQt6.QtWebEngineWidgets import QWebEngineView
-                web_view = QWebEngineView()
-                web_view.setUrl(QUrl("https://ep.iccmc.cc"))
-                setCustomStyleSheet(
-                    web_view,
-                    "border: 1px solid #e9ecef; border-radius: 8px;",
-                    "border: 1px solid #555; border-radius: 8px;"
-                )
-                about_layout.addWidget(web_view)
+            # 滚动区域
+            scroll_area = ScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.enableTransparentBackground()
 
-                url_label = QLabel(
-                    f"网站链接: <a href='https://ep.iccmc.cc'>https://ep.iccmc.cc</a>")
-                url_label.setOpenExternalLinks(True)
-                setCustomStyleSheet(
-                    url_label,
-                    "color: #ff6b8b; text-decoration: underline;",
-                    "color: #ff6b8b; text-decoration: underline;"
-                )
-                about_layout.addWidget(url_label)
+            scroll_content = QWidget()
+            scroll_layout = QVBoxLayout(scroll_content)
+            scroll_layout.setContentsMargins(0, 0, 10, 0)
+            scroll_layout.setSpacing(12)
 
-            except Exception as e:
-                text_browser = QTextBrowser()
-                text_browser.setOpenExternalLinks(True)
-                setCustomStyleSheet(
-                    text_browser,
-                    "border: 1px solid #e9ecef; border-radius: 8px;",
-                    "border: 1px solid #555; border-radius: 8px;"
-                )
-                error_html = f"""
-                <div style="color: #ff6b8b; padding: 10px;">
-                    <h3>无法加载网页视图</h3>
-                    <p>错误信息: {str(e)}</p>
-                    <p>请直接访问: <a href='https://ep.iccmc.cc'>https://ep.iccmc.cc</a></p>
-                    <h3>项目简介</h3>
-                    <p>迷你Linux手持开发板基于F1C200S的开源硬件项目一款面向折腾与二次开发的迷你 Linux 手持开发板</p>
-                    <h4>主要特性</h4>
-                    <ul>
-                        <li>高性能主控基于F1C200S (ARM926EJ-S)，默认408MHz，支持超频至720MHz，内置64MB RAM</li>
-                        <li>高清竖屏显示3.0英寸 360×640 高分辨率竖屏，ST7701S驱动，支持H.264硬件解码</li>
-                        <li>完善供电方案1500mAh锂电池，TP4056充电管理，续航持久（大概）</li>
-                        <li>丰富扩展接口I²C、UART×2、SPI、GPIO×3、ADC，满足各种硬件实验需求</li>
-                        <li>主线Linux支持Buildroot构建系统，Linux主线5.4.77内核，完整Linux生态</li>
-                        <li>完全开源硬件/软件资料完全开源，欢迎社区共同完善</li>
-                    </ul>
-                    <h4>最新版本</h4>
-                    <p>当前版本：Ver.0.6</p>
-                </div>
-                """
-                text_browser.setHtml(error_html)
-                about_layout.addWidget(text_browser)
+            # 卡片 1 — 项目概述
+            card_overview = CardWidget()
+            card_overview_layout = QVBoxLayout(card_overview)
+            card_overview_layout.setContentsMargins(20, 16, 20, 16)
+            card_overview_layout.setSpacing(8)
+            card_overview_layout.addWidget(StrongBodyLabel("项目概述"))
+            card_overview_layout.addWidget(BodyLabel(
+                "一款基于 F1C200S 的迷你 Linux 手持开发板，"
+                "面向折腾与二次开发的开源硬件项目。"
+            ))
+            link_btn = HyperlinkButton("https://ep.iccmc.cc", "访问项目官网")
+            card_overview_layout.addWidget(link_btn)
+            scroll_layout.addWidget(card_overview)
 
-                url_label = QLabel(
-                    f"网站链接: <a href='https://ep.iccmc.cc'>https://ep.iccmc.cc</a>")
-                url_label.setOpenExternalLinks(True)
-                setCustomStyleSheet(
-                    url_label,
-                    "color: #ff6b8b; text-decoration: underline;",
-                    "color: #ff6b8b; text-decoration: underline;"
-                )
-                about_layout.addWidget(url_label)
+            # 卡片 2 — 硬件规格
+            card_hw = CardWidget()
+            card_hw_layout = QVBoxLayout(card_hw)
+            card_hw_layout.setContentsMargins(20, 16, 20, 16)
+            card_hw_layout.setSpacing(6)
+            card_hw_layout.addWidget(StrongBodyLabel("硬件规格"))
+            hw_specs = [
+                ("主控", "F1C200S (ARM926EJ-S)，默认 408MHz，可超频至 720MHz，内置 64MB RAM"),
+                ("存储", "TF 卡 / SPI Flash"),
+                ("屏幕", "3.0 英寸 360×640 竖屏，ST7701S 驱动，支持 H.264 硬件解码"),
+                ("电池", "1500mAh 锂电池，TP4056 充电管理"),
+                ("接口", "I²C、UART×2、SPI、GPIO×3、ADC"),
+            ]
+            for key, value in hw_specs:
+                row = QHBoxLayout()
+                row.setSpacing(8)
+                key_label = CaptionLabel(key)
+                key_label.setFixedWidth(40)
+                row.addWidget(key_label)
+                row.addWidget(BodyLabel(value), 1)
+                card_hw_layout.addLayout(row)
+            scroll_layout.addWidget(card_hw)
+
+            # 卡片 3 — 软件平台
+            card_sw = CardWidget()
+            card_sw_layout = QVBoxLayout(card_sw)
+            card_sw_layout.setContentsMargins(20, 16, 20, 16)
+            card_sw_layout.setSpacing(6)
+            card_sw_layout.addWidget(StrongBodyLabel("软件平台"))
+            sw_specs = [
+                ("系统", "Buildroot 构建，Linux 主线 5.4.77 内核"),
+                ("协议", "完全开源（硬件 / 软件资料）"),
+                ("版本", f"素材制作器 v{APP_VERSION}"),
+            ]
+            for key, value in sw_specs:
+                row = QHBoxLayout()
+                row.setSpacing(8)
+                key_label = CaptionLabel(key)
+                key_label.setFixedWidth(40)
+                row.addWidget(key_label)
+                row.addWidget(BodyLabel(value), 1)
+                card_sw_layout.addLayout(row)
+            scroll_layout.addWidget(card_sw)
+
+            # 卡片 4 — 主要特性
+            card_features = CardWidget()
+            card_features_layout = QVBoxLayout(card_features)
+            card_features_layout.setContentsMargins(20, 16, 20, 16)
+            card_features_layout.setSpacing(6)
+            card_features_layout.addWidget(StrongBodyLabel("主要特性"))
+            features = [
+                "高性能主控 — ARM926EJ-S 核心，支持超频至 720MHz",
+                "高清竖屏显示 — 3.0 英寸 360×640，H.264 硬件解码",
+                "完善供电方案 — 1500mAh 锂电池 + TP4056 充电管理",
+                "丰富扩展接口 — I²C / UART / SPI / GPIO / ADC",
+                "主线 Linux 支持 — Buildroot + Linux 5.4.77 内核",
+                "完全开源 — 硬件与软件资料全部开源，欢迎社区共建",
+            ]
+            for feat in features:
+                card_features_layout.addWidget(BodyLabel(f"• {feat}"))
+            scroll_layout.addWidget(card_features)
+
+            scroll_layout.addStretch()
+            scroll_area.setWidget(scroll_content)
+            about_layout.addWidget(scroll_area)
 
             self.content_layout.addWidget(self._about_widget)
 
@@ -2400,6 +2444,9 @@ class MainWindow(QMainWindow):
 
         elif setting_name == 'theme_color':
             self._apply_theme_color(value)
+            # 如果当前有自定义背景图片，刷新图片模式的 QMainWindow 级 QSS（使用新主题色）
+            if self._bg_pixmap is not None:
+                self._apply_image_mode_styles()
 
         elif setting_name == 'theme_image':
             if value:
@@ -2446,10 +2493,9 @@ class MainWindow(QMainWindow):
                     settings = json.load(f)
 
             if theme_name == '默认':
+                self._bg_pixmap = None
+                self.setStyleSheet("")
                 self._apply_default_theme()
-            elif theme_name == '自定义':
-                theme_color = settings.get('theme_color', '#ff6b8b')
-                self._apply_theme_color(theme_color)
             elif theme_name == '自定义图片':
                 theme_color = settings.get('theme_color', '#ff6b8b')
                 self._apply_theme_color(theme_color)
@@ -2464,20 +2510,16 @@ class MainWindow(QMainWindow):
         """应用默认主题"""
         self._apply_theme_color('#ff6b8b')
 
-    def _apply_light_theme(self):
-        """应用浅色主题"""
-        self._apply_theme_color('#4CAF50')
-
-    def _apply_dark_theme(self):
-        """应用深色主题"""
-        self._apply_theme_color('#2196F3')
-
     def _apply_theme_color(self, color_hex):
         """应用主题颜色到界面"""
-        self._bg_color = self._dark_bg_color if isDarkTheme() else self._light_bg_color
-        self._bg_pixmap = None
-        self.setStyleSheet("")  # 清除 _apply_theme_image 残留的全局 QSS
-        self.update()
+        # 同步 QFluentWidgets 全局主题色（驱动 PrimaryPushButton 等内置控件）
+        setThemeColor(color_hex, lazy=True)
+
+        # 仅在当前没有自定义背景图片时，才重置为纯色背景
+        if self._bg_pixmap is None:
+            self._bg_color = self._dark_bg_color if isDarkTheme() else self._light_bg_color
+            self.setStyleSheet("")
+            self.update()
 
         if hasattr(self, 'header_bar'):
             header_qss = f"QWidget {{ background-color: {color_hex}; color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
@@ -2526,28 +2568,16 @@ class MainWindow(QMainWindow):
             )
             setCustomStyleSheet(btn, light_qss, dark_qss)
 
+        # 更新 logo 颜色
+        if hasattr(self, 'logo_label'):
+            logo_qss = f"QLabel {{ background-color: white; color: {color_hex}; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }}"
+            setCustomStyleSheet(self.logo_label, logo_qss, logo_qss)
+
         logger.info(f"应用主题颜色: {color_hex}")
 
     def _apply_theme_image(self, image_path):
         """应用主题图片到界面（带有毛玻璃效果）"""
         logger.info(f"应用主题图片: {image_path}")
-
-        theme_color = "#ff6b8b"
-        try:
-            import json
-            config_dir = os.path.join(
-                self._app_dir, "config")
-            config_file = os.path.join(config_dir, "user_settings.json")
-            
-            if os.path.exists(config_file):
-                with open(config_file, "r", encoding="utf-8") as f:
-                    settings = json.load(f)
-                    theme_color = settings.get('theme_color', '#ff6b8b')
-        except Exception as e:
-            logger.error(f"加载主题颜色失败: {e}")
-
-        # 将背景图片加载到 _bg_pixmap，由 paintEvent 绘制（支持圆角裁剪）
-        # 不再使用 QSS background-image（QSS 不裁剪窗口形状）
         from PyQt6.QtGui import QPixmap
         pixmap = QPixmap(image_path)
         if not pixmap.isNull():
@@ -2555,8 +2585,11 @@ class MainWindow(QMainWindow):
         else:
             logger.warning(f"主题图片加载失败: {image_path}")
             self._bg_pixmap = None
+        self._apply_image_mode_styles()
 
-        # 设置子 widget 样式（QMainWindow 背景由 paintEvent 绘制）
+    def _apply_image_mode_styles(self):
+        """应用图片模式下的子 widget 半透明样式"""
+        theme_color = themeColor().name()
         try:
             is_dark = isDarkTheme()
 
@@ -2601,11 +2634,11 @@ class MainWindow(QMainWindow):
             """
 
             self.setStyleSheet(style % (content_bg, theme_color, theme_color, status_bg, status_color, status_border))
-            self.update()  # 触发 paintEvent 重绘
+            self.update()
 
-            logger.info("主题图片已应用，带有半透明效果")
+            logger.info("图片模式样式已应用")
         except Exception as e:
-            logger.error(f"应用主题图片失败: {e}")
+            logger.error(f"应用图片模式样式失败: {e}")
 
     def _connect_timeline_to_preview(self, preview: VideoPreviewWidget):
         """将时间轴连接到指定预览器"""

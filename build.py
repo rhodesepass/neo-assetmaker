@@ -391,7 +391,7 @@ def run_cxfreeze(skip_flasher=False):
     simulator_exe = os.path.join("simulator", "target", "release", "arknights_pass_simulator.exe")
     if os.path.exists(simulator_exe):
         # 创建目标目录结构
-        target_path = os.path.join("simulator", "target", "release", "arknights_pass_simulator.exe")
+        target_path = os.path.join("simulator", "arknights_pass_simulator.exe")
         include_files.append((simulator_exe, target_path))
         print(f"  Including simulator: {simulator_exe}")
 

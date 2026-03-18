@@ -54,6 +54,12 @@ pub struct SimulatorApp {
     /// Reusable color buffer to avoid allocations every frame
     color_image_buffer: Vec<Color32>,
 
+    /// Whether the frame content has changed and needs re-rendering
+    frame_dirty: bool,
+
+    /// Whether to use dark theme
+    is_dark_theme: bool,
+
     /// UI state
     selected_transition_in: usize,
     selected_transition_loop: usize,
@@ -129,6 +135,7 @@ impl SimulatorApp {
         use_stdio: bool,
         cropbox: Option<(u32, u32, u32, u32)>,
         rotation: i32,
+        is_dark_theme: bool,
     ) -> Self {
         let firmware_config = FirmwareConfig::get_default();
         let width = firmware_config.overlay_width();
@@ -201,6 +208,8 @@ impl SimulatorApp {
             last_frame_time: Instant::now(),
             frame_texture: None,
             color_image_buffer: Vec::with_capacity(buffer_size),
+            frame_dirty: true,
+            is_dark_theme,
             selected_transition_in,
             selected_transition_loop,
             is_first_transition: true,
@@ -225,6 +234,9 @@ impl SimulatorApp {
             cached_top_right_bar_text: String::new(),
             textures_loaded: false,
         };
+
+        // Apply Fluent Design theme
+        Self::setup_theme(&_cc.egui_ctx, is_dark_theme);
 
         // Auto-start playback if config was provided
         if auto_start && app.video_player.has_loop() {
@@ -277,8 +289,51 @@ impl SimulatorApp {
         self.cached_rhodes_text.clear();
         self.cached_top_right_bar_text.clear();
         self.textures_loaded = false;
+        self.frame_dirty = true;
 
         info!("Configuration loaded");
+    }
+
+    /// Setup Fluent Design theme to match QFluentWidgets
+    fn setup_theme(ctx: &egui::Context, is_dark: bool) {
+        let mut visuals = if is_dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+
+        if is_dark {
+            // Match QFluentWidgets dark theme colors
+            visuals.panel_fill = Color32::from_rgb(0x2d, 0x2d, 0x2d);
+            visuals.window_fill = Color32::from_rgb(0x1e, 0x1e, 0x1e);
+            visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0x33, 0x33, 0x33);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(0x3a, 0x3a, 0x3a);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x3a, 0x3a, 0x3a);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x44, 0x44, 0x44);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(0x55, 0x55, 0x55);
+            visuals.override_text_color = Some(Color32::from_rgb(0xee, 0xee, 0xee));
+            visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(0x55, 0x55, 0x55);
+        } else {
+            // Match QFluentWidgets light theme colors
+            visuals.panel_fill = Color32::from_rgb(0xf8, 0xf9, 0xfa);
+            visuals.window_fill = Color32::WHITE;
+            visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0xf0, 0xf0, 0xf0);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(0xe8, 0xe8, 0xe8);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xe8, 0xe8, 0xe8);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(0xd8, 0xd8, 0xd8);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(0xcc, 0xcc, 0xcc);
+            visuals.override_text_color = Some(Color32::from_rgb(0x33, 0x33, 0x33));
+            visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(0xdd, 0xdd, 0xdd);
+        }
+
+        // Fluent Design rounded corners
+        let rounding = egui::Rounding::same(4.0);
+        visuals.widgets.inactive.rounding = rounding;
+        visuals.widgets.hovered.rounding = rounding;
+        visuals.widgets.active.rounding = rounding;
+        visuals.window_rounding = egui::Rounding::same(8.0);
+
+        ctx.set_visuals(visuals);
     }
 
     /// Get transition type from index
@@ -352,6 +407,7 @@ impl SimulatorApp {
         }
         self.video_player.seek_loop_to_start();
 
+        self.frame_dirty = true;
         info!("Playback started: has_intro={}, transition={:?}", has_intro, transition_type);
     }
 
@@ -361,6 +417,7 @@ impl SimulatorApp {
         self.animation_controller.reset();
         self.video_player.reset();
         self.is_first_transition = true;
+        self.frame_dirty = true;
         info!("Playback reset");
     }
 
@@ -392,6 +449,7 @@ impl SimulatorApp {
                     }
                     ControlCommand::Pause => {
                         self.state.pause();
+                        self.frame_dirty = true;
                     }
                     ControlCommand::Stop | ControlCommand::Reset => {
                         self.reset_playback();
@@ -2244,7 +2302,11 @@ impl eframe::App for SimulatorApp {
         self.handle_ipc_messages();
 
         // Load textures for current configuration (lazy loading)
+        let was_textures_loaded = self.textures_loaded;
         self.load_textures(ctx);
+        if !was_textures_loaded && self.textures_loaded {
+            self.frame_dirty = true;
+        }
 
         // Timing control for 50fps
         let now = Instant::now();
@@ -2253,57 +2315,30 @@ impl eframe::App for SimulatorApp {
         if elapsed >= FRAME_INTERVAL && self.state.is_playing {
             self.update_simulation();
             self.last_frame_time = now;
+            self.frame_dirty = true;
         }
 
-        // Render current frame
-        self.render_frame(ctx);
+        // Only re-render frame texture when content actually changed
+        if self.frame_dirty {
+            self.render_frame(ctx);
+            self.frame_dirty = false;
+        }
 
-        // Main panel
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Title
-            ui.heading(RichText::new(format!(
-                "Pass Simulator ({}x{} @ {}fps)",
-                self.firmware_config.overlay_width(),
-                self.firmware_config.overlay_height(),
-                self.firmware_config.fps()
-            )).color(Color32::LIGHT_GRAY));
+        // Determine text color based on theme
+        let text_color = if self.is_dark_theme {
+            Color32::from_rgb(0xee, 0xee, 0xee)
+        } else {
+            Color32::from_rgb(0x33, 0x33, 0x33)
+        };
+        let dim_text_color = if self.is_dark_theme {
+            Color32::GRAY
+        } else {
+            Color32::from_rgb(0x88, 0x88, 0x88)
+        };
 
-            ui.separator();
-
-            // Display area
-            let image_response = ui.vertical_centered(|ui| {
-                if let Some(ref texture) = self.frame_texture {
-                    let response = ui.image(egui::ImageSource::Texture(egui::load::SizedTexture::new(
-                        texture.id(),
-                        Vec2::new(
-                            self.firmware_config.overlay_width() as f32,
-                            self.firmware_config.overlay_height() as f32,
-                        ),
-                    )));
-                    Some(response.rect)
-                } else {
-                    None
-                }
-            });
-
-            // Render overlay UI on top of the image when in Loop state
-            if self.state.play_state == PlayState::Loop {
-                let overlay_type = self.epconfig
-                    .as_ref()
-                    .and_then(|c| c.overlay.as_ref())
-                    .map(|o| o.overlay_type)
-                    .unwrap_or(OverlayType::None);
-                if let Some(image_rect) = image_response.inner {
-                    let painter = ui.painter_at(image_rect);
-                    match overlay_type {
-                        OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
-                        OverlayType::Image => self.render_image_overlay(&painter, image_rect),
-                        OverlayType::None => {}
-                    }
-                }
-            }
-
-            ui.separator();
+        // Bottom panel: controls (always visible, never clipped)
+        egui::TopBottomPanel::bottom("controls").show(ctx, |ui| {
+            ui.add_space(4.0);
 
             // Transition selectors
             ui.horizontal(|ui| {
@@ -2345,6 +2380,7 @@ impl eframe::App for SimulatorApp {
                 if self.state.is_playing {
                     if ui.button("Pause").clicked() {
                         self.state.pause();
+                        self.frame_dirty = true;
                     }
                 } else {
                     if ui.button("Play").clicked() {
@@ -2371,14 +2407,15 @@ impl eframe::App for SimulatorApp {
                 ).small());
             });
 
-            // Status display
             ui.separator();
+
+            // Status display
             ui.label(RichText::new(format!(
                 "State: {} | Frame: {} | Animation Frame: {}",
                 self.state.play_state.display_name(),
                 self.state.frame_counter,
                 self.state.animation.frame_counter
-            )).color(Color32::GRAY).small());
+            )).color(dim_text_color).small());
 
             // Animation state details (debug)
             if self.state.play_state == PlayState::Loop {
@@ -2388,7 +2425,61 @@ impl eframe::App for SimulatorApp {
                     self.state.animation.code_chars,
                     self.state.animation.color_fade_radius,
                     self.state.animation.entry_progress * 100.0
-                )).color(Color32::DARK_GRAY).small());
+                )).color(dim_text_color).small());
+            }
+
+            ui.add_space(4.0);
+        });
+
+        // Central panel: title + adaptive image + overlay
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Title
+            ui.heading(RichText::new(format!(
+                "Pass Simulator ({}x{} @ {}fps)",
+                self.firmware_config.overlay_width(),
+                self.firmware_config.overlay_height(),
+                self.firmware_config.fps()
+            )).color(text_color));
+
+            ui.separator();
+
+            // Calculate adaptive image size to fit available space
+            let available = ui.available_size();
+            let fw_width = self.firmware_config.overlay_width() as f32;
+            let fw_height = self.firmware_config.overlay_height() as f32;
+            let aspect = fw_width / fw_height;
+
+            let img_height = available.y.min(available.x / aspect);
+            let img_width = img_height * aspect;
+
+            // Display area
+            let image_response = ui.vertical_centered(|ui| {
+                if let Some(ref texture) = self.frame_texture {
+                    let response = ui.image(egui::ImageSource::Texture(egui::load::SizedTexture::new(
+                        texture.id(),
+                        Vec2::new(img_width, img_height),
+                    )));
+                    Some(response.rect)
+                } else {
+                    None
+                }
+            });
+
+            // Render overlay UI on top of the image when in Loop state
+            if self.state.play_state == PlayState::Loop {
+                let overlay_type = self.epconfig
+                    .as_ref()
+                    .and_then(|c| c.overlay.as_ref())
+                    .map(|o| o.overlay_type)
+                    .unwrap_or(OverlayType::None);
+                if let Some(image_rect) = image_response.inner {
+                    let painter = ui.painter_at(image_rect);
+                    match overlay_type {
+                        OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
+                        OverlayType::Image => self.render_image_overlay(&painter, image_rect),
+                        OverlayType::None => {}
+                    }
+                }
             }
         });
 

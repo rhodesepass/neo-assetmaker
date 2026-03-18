@@ -48,3 +48,6 @@ ffplay
 ffprobe
 
 tmp/
+
+# Rust build artifacts (Cargo)
+simulator/target/

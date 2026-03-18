@@ -55,6 +55,10 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Theme mode to match main application ("dark" or "light")
+    #[arg(long, default_value = "dark")]
+    theme: String,
 }
 
 fn main() -> Result<()> {
@@ -111,9 +115,9 @@ fn main() -> Result<()> {
     // Create native options for eframe
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 720.0])
-            .with_min_inner_size([400.0, 720.0])
-            .with_resizable(false)
+            .with_inner_size([420.0, 860.0])
+            .with_min_inner_size([380.0, 720.0])
+            .with_resizable(true)
             .with_title("Arknights Pass Simulator"),
         ..Default::default()
     };
@@ -128,6 +132,7 @@ fn main() -> Result<()> {
         }
     });
     let rotation = args.rotation;
+    let is_dark_theme = args.theme != "light";
 
     // Run the application
     eframe::run_native(
@@ -143,6 +148,7 @@ fn main() -> Result<()> {
                 args.stdio,
                 cropbox,
                 rotation,
+                is_dark_theme,
             )))
         }),
     )

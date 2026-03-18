@@ -22,6 +22,7 @@ from qfluentwidgets import (
 )
 
 from core.device_stream_service import DeviceStreamThread
+from gui.styles import COLOR_TEXT_SECONDARY, COLOR_TEXT_MUTED, COLOR_SUCCESS, COLOR_ERROR
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,8 @@ class DeviceStreamWidget(QWidget):
         self.displayLabel.setText("未连接")
         setCustomStyleSheet(
             self.displayLabel,
-            "QLabel { color: #666666; font-size: 14px; }",
-            "QLabel { color: #888888; font-size: 14px; }",
+            f"QLabel {{ color: {COLOR_TEXT_SECONDARY[0]}; font-size: 14px; }}",
+            f"QLabel {{ color: {COLOR_TEXT_SECONDARY[1]}; font-size: 14px; }}",
         )
         layout.addWidget(self.displayLabel, stretch=1)
 
@@ -84,8 +85,8 @@ class DeviceStreamWidget(QWidget):
         self.statusLabel = CaptionLabel("未连接")
         setCustomStyleSheet(
             self.statusLabel,
-            "CaptionLabel { color: #999999; }",
-            "CaptionLabel { color: #777777; }",
+            f"CaptionLabel {{ color: {COLOR_TEXT_MUTED[0]}; }}",
+            f"CaptionLabel {{ color: {COLOR_TEXT_MUTED[1]}; }}",
         )
         layout.addWidget(self.statusLabel)
 
@@ -153,8 +154,8 @@ class DeviceStreamWidget(QWidget):
         self.statusLabel.setText("已连接")
         setCustomStyleSheet(
             self.statusLabel,
-            "CaptionLabel { color: #4CAF50; }",
-            "CaptionLabel { color: #66BB6A; }",
+            f"CaptionLabel {{ color: {COLOR_SUCCESS[0]}; }}",
+            f"CaptionLabel {{ color: {COLOR_SUCCESS[1]}; }}",
         )
 
     def _on_stream_stopped(self):
@@ -164,8 +165,8 @@ class DeviceStreamWidget(QWidget):
         self.statusLabel.setText("已断开")
         setCustomStyleSheet(
             self.statusLabel,
-            "CaptionLabel { color: #999999; }",
-            "CaptionLabel { color: #777777; }",
+            f"CaptionLabel {{ color: {COLOR_TEXT_MUTED[0]}; }}",
+            f"CaptionLabel {{ color: {COLOR_TEXT_MUTED[1]}; }}",
         )
 
     def _on_stream_error(self, msg: str):
@@ -173,8 +174,8 @@ class DeviceStreamWidget(QWidget):
         self.statusLabel.setText(f"错误: {msg[:60]}")
         setCustomStyleSheet(
             self.statusLabel,
-            "CaptionLabel { color: #F44336; }",
-            "CaptionLabel { color: #EF5350; }",
+            f"CaptionLabel {{ color: {COLOR_ERROR[0]}; }}",
+            f"CaptionLabel {{ color: {COLOR_ERROR[1]}; }}",
         )
         InfoBar.warning(
             "串流异常",

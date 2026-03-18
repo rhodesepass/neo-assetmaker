@@ -46,6 +46,11 @@ def pick(color_pair: tuple[str, str]) -> str:
     return color_pair[1] if isDarkTheme() else color_pair[0]
 
 
+def get_accent_color() -> str:
+    """动态获取当前主题强调色"""
+    return themeColor().name()
+
+
 def apply_themed_style(widget, light_qss: str, dark_qss: str) -> None:
     """对任意 QWidget 应用主题感知样式（自动跟随切换）。
 

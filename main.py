@@ -43,13 +43,7 @@ sys.path.insert(0, APP_DIR)
 
 
 def check_dependencies():
-    """检查必要的依赖是否已安装
-
-    注意：此函数必须在 QApplication 创建之后调用。
-    QtWebEngine 在 QApplication 之前加载会导致 COM 初始化冲突，
-    触发 Windows fatal exception 0x8001010d (RPC_E_CANTCALLOUT_ININPUTSYNCCALL)。
-    参考: https://doc.qt.io/qt-6/qopenglwidget.html (AA_ShareOpenGLContexts)
-    """
+    """检查必要的依赖是否已安装"""
     missing = []
 
     try:
@@ -76,14 +70,6 @@ def check_dependencies():
         import numpy
     except ImportError:
         missing.append("numpy")
-
-    # QtWebEngine 检查放在最后 — 必须在 QApplication 创建之后导入，
-    # 否则 Chromium DLL 的 CoInitializeEx(COINIT_MULTITHREADED) 会与
-    # Qt OLE 子系统的 COINIT_APARTMENTTHREADED 冲突
-    try:
-        from PyQt6.QtWebEngineWidgets import QWebEngineView
-    except ImportError:
-        missing.append("PyQt6-WebEngine")
 
     if missing:
         print("缺少以下依赖:")
@@ -135,17 +121,12 @@ def _main_inner():
     from PyQt6.QtGui import QFont, QIcon
     from PyQt6.QtCore import Qt
 
-    # 同时使用 QOpenGLWidget 和 QWebEngineView 时，必须在 QApplication 之前设置
+    # 多个 QOpenGLWidget 共享 GL 上下文时需要此设置
     # https://doc.qt.io/qt-6/qopenglwidget.html
-    # > If your application uses both QOpenGLWidget and QWebEngineView,
-    # > make sure that you call setAttribute(Qt::AA_ShareOpenGLContexts)
-    # > before the QApplication constructor.
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
 
-    # 依赖检查必须在 QApplication 之后，避免 QtWebEngine 在 QApplication 之前
-    # 加载导致 COM 公寓模型冲突 (Windows fatal exception 0x8001010d)
     check_dependencies()
 
     from qfluentwidgets import setTheme, setThemeColor, Theme
