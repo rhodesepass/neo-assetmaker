@@ -271,7 +271,7 @@ class ExportWorker(QThread):
             time_base = stream.time_base
             if params.start_frame > 0 and time_base and fps > 0:
                 target_sec = params.start_frame / fps
-                target_pts = int(target_sec / time_base)
+                target_pts = round(target_sec / time_base)
                 container.seek(target_pts, stream=stream, backward=True)
 
             frames_written = 0
@@ -282,7 +282,7 @@ class ExportWorker(QThread):
 
                 if av_frame.pts is not None and time_base and fps > 0:
                     current_sec = float(av_frame.pts * time_base)
-                    current_idx = int(current_sec * fps)
+                    current_idx = round(current_sec * fps)
                 else:
                     current_idx = frame_idx
 
@@ -332,7 +332,12 @@ class ExportWorker(QThread):
 
             if frames_written == 0:
                 raise RuntimeError("没有成功写入任何视频帧")
-            logger.info(f"成功写入 {frames_written} 帧")
+            expected_frames = params.end_frame - params.start_frame
+            if frames_written < expected_frames * 0.9:
+                logger.warning(
+                    f"帧计数偏差较大: 期望 {expected_frames} 帧, "
+                    f"实际写入 {frames_written} 帧")
+            logger.info(f"成功写入 {frames_written}/{expected_frames} 帧")
 
             self.progress_updated.emit(base_progress + 50, "正在编码视频...")
             input_pattern = f"{temp_dir}/frame_%06d.png"

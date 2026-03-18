@@ -101,18 +101,25 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
-          # 提取当前版本的更新日志（从 ### vX.X.X 到下一个 ### v）
-          CHANGELOG=$(awk "/^### v${VERSION}/,/^### v[0-9]/" docs/CHANGELOG.md | head -n -1)
+          # 转义版本号中的 . (正则通配符 → 字面量)
+          VERSION_ESC=$(echo "$VERSION" | sed 's/\./\\./g')
 
-          # 如果是最后一个版本（没有下一个 ### v），提取到文件结尾
+          # 使用 awk 状态机精确提取当前版本的更新日志
+          # - 找到精确版本头 → 开始输出
+          # - 遇到下一个版本头 → 立即退出
+          CHANGELOG=$(awk "
+            /^### v${VERSION_ESC}$/ { found=1 }
+            found && /^### v[0-9]/ && !/^### v${VERSION_ESC}$/ { exit }
+            found { print }
+          " docs/CHANGELOG.md)
+
           if [ -z "$CHANGELOG" ]; then
-            CHANGELOG=$(awk "/^### v${VERSION}/,0" docs/CHANGELOG.md)
+            echo "::warning::未能从 CHANGELOG 中提取 v${VERSION} 的内容"
           fi
 
           echo "Extracted changelog for v${VERSION}:"
           echo "$CHANGELOG"
 
-          # 使用 heredoc 输出多行内容
           {
             echo "CHANGELOG<<EOF"
             echo "$CHANGELOG"
@@ -127,7 +134,6 @@ jobs:
           body: ${{ steps.changelog.outputs.CHANGELOG }}
           files: |
             dist/*.exe
-          generate_release_notes: true
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,7 +29,7 @@ class WelcomeDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(25, 25, 25, 25)
 
-        title_label = SubtitleLabel("欢迎使用明日方舟通行证素材制作器")
+        title_label = SubtitleLabel("欢迎使用明日方舟通行证素材工具箱")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
 

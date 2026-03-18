@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from qtpy.QtCore import QObject, Signal
+from PyQt6.QtCore import QObject, pyqtSignal as Signal
 
 from _mext.core.config import Config, get_config
 

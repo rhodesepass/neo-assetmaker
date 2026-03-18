@@ -1,7 +1,7 @@
 """Material card widget for displaying a material asset preview.
 
 A compact card with a preview image, title, operator name, category
-badge, and a download button. Used in both the Market and Library pages.
+badge, and a download button. Used in both the Forum and Library pages.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ from qfluentwidgets import (
     ToolTipPosition,
     isDarkTheme,
 )
-from qtpy.QtCore import Qt, Signal
-from qtpy.QtGui import QColor, QPixmap
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, pyqtSignal as Signal
+from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QWidget,

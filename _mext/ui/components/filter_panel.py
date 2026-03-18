@@ -14,8 +14,8 @@ from qfluentwidgets import (
     PushButton,
     SubtitleLabel,
 )
-from qtpy.QtCore import Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )

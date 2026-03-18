@@ -17,8 +17,8 @@ from qfluentwidgets import (
     ToolButton,
     setCustomStyleSheet,
 )
-from qtpy.QtCore import Signal
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import pyqtSignal as Signal
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QWidget,

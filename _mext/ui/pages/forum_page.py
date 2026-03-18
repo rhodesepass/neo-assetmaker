@@ -1,4 +1,4 @@
-"""Market page for browsing and searching materials.
+"""Forum page for browsing and searching materials.
 
 Provides a searchable, filterable grid of MaterialCards with sorting
 options and infinite-scroll-style pagination.
@@ -18,8 +18,8 @@ from qfluentwidgets import (
     SearchLineEdit,
     SubtitleLabel,
 )
-from qtpy.QtCore import Qt, QTimer, Signal, Slot
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
@@ -42,8 +42,8 @@ from _mext.ui.styles import (
 logger = logging.getLogger(__name__)
 
 
-class MarketPage(QWidget):
-    """Material asset browsing page.
+class ForumPage(QWidget):
+    """Material forum browsing page.
 
     Signals
     -------
@@ -77,7 +77,7 @@ class MarketPage(QWidget):
         self._connect_signals()
 
     def _setup_ui(self) -> None:
-        """Build the market page layout."""
+        """Build the forum page layout."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
@@ -274,6 +274,17 @@ class MarketPage(QWidget):
         Requests a signed download URL from the server, then queues the
         download with the DownloadEngine.
         """
+        # 下载需要登录
+        if not self._services.auth_service.is_authenticated:
+            forum_widget = self.parent()
+            while forum_widget and not hasattr(forum_widget, 'require_auth'):
+                forum_widget = forum_widget.parent()
+            if forum_widget:
+                forum_widget.require_auth(
+                    on_success=lambda mid=material_id: self._on_download_requested(mid)
+                )
+            return
+
         material = next((m for m in self._materials if m.id == material_id), None)
         if material is None:
             return

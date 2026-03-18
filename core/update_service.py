@@ -1,31 +1,5 @@
 """
 更新服务 - GitHub Releases 自动更新（多线程多源支持）
-
-本模块实现了多源并发更新检测和下载，解决单一源阻塞的问题。
-
-## 当前实现的改进依据
-
-### 问题：urllib.request.urlopen 是同步阻塞调用
-官方文档: https://docs.python.org/3/library/urllib.request.html
-> "Open *url*... This function always returns an object which can work as a context manager..."
-urlopen() 会阻塞整个线程直到网络响应返回。
-
-### 解决方案：使用 concurrent.futures.ThreadPoolExecutor
-官方文档: https://docs.python.org/3/library/concurrent.futures.html
-> "The ThreadPoolExecutor class is an Executor subclass that uses a pool of threads
->  to execute calls asynchronously."
->
-> "as_completed(fs, timeout=None): Returns an iterator over the Future instances...
->  that yields futures as they complete (finished or cancelled)."
-
-关键优势：
-1. submit() 提交任务立即返回 Future，不阻塞
-2. as_completed() 按完成顺序返回结果 → 实现竞速策略
-3. Future.result(timeout=...) 支持超时控制
-
-### 多源策略
-- 竞速策略 (Race)：同时请求所有源，取最快成功的结果 → 用于更新检测
-- 故障转移策略 (Failover)：按优先级依次尝试 → 用于文件下载
 """
 import os
 import re

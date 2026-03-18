@@ -6,7 +6,6 @@ import os
 import logging
 import tempfile
 from datetime import datetime
-from typing import List
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QFont
@@ -181,6 +180,7 @@ class RemotePage(QWidget):
         self._delete_worker = None
         self._download_worker = None
         self._connect_worker = None
+        self._restart_worker = None
         self._local_file_path = ""
 
         self._init_ui()
@@ -317,6 +317,7 @@ class RemotePage(QWidget):
 
         self.logTextEdit = PlainTextEdit()
         self.logTextEdit.setReadOnly(True)
+        self.logTextEdit.setMaximumBlockCount(1000)
         self.logTextEdit.setFont(QFont("Consolas", 10))
         setCustomStyleSheet(
             self.logTextEdit,
@@ -534,18 +535,6 @@ class RemotePage(QWidget):
             duration=5000,
         )
 
-    # ─── 素材选中 ────────────────────────────────────────
-
-    def _on_asset_selected(self, current, previous):
-        # 左栏选中事件，目前无操作
-        pass
-
-    def _get_selected_asset_name(self) -> str:
-        item = self.remoteAssetList.currentItem()
-        if item and (item.flags()):
-            return item.text()
-        return ""
-
     # ─── 预览 ────────────────────────────────────────────
 
     # ─── 上传 ────────────────────────────────────────────
@@ -573,6 +562,7 @@ class RemotePage(QWidget):
             host, port, user, password, path, remote_path, enable_restart
         )
         self._upload_worker.progress_updated.connect(self._on_upload_progress)
+        self._upload_worker.log_message.connect(self._worker_log)
         self._upload_worker.upload_completed.connect(self._on_upload_done)
         self._upload_worker.upload_failed.connect(self._on_upload_failed)
         self._upload_worker.start()

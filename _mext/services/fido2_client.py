@@ -14,7 +14,7 @@ import logging
 import platform
 from typing import Any, Optional
 
-from qtpy.QtCore import QObject, Signal
+from PyQt6.QtCore import QObject, pyqtSignal as Signal
 
 from _mext.core.config import Config, get_config
 

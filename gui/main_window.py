@@ -1,7 +1,9 @@
 #超 级 多 的 屎 山 ciallo~ 啊哈哈.....
 #我就是那个大笨蛋....啊哈哈哈....
 #呜呜呜....果然还是被抛弃了嘛....啊哈哈哈....
-"""主窗口 - 三栏布局"""
+"""
+主窗口 - 三栏布局
+"""
 from core.error_handler import ErrorHandler, show_error
 from core.crash_recovery_service import CrashRecoveryService
 from core.auto_save_service import AutoSaveService, AutoSaveConfig
@@ -16,7 +18,7 @@ from config.constants import (
 )
 from gui.widgets.drop_overlay import DropOverlayWidget
 from gui.styles import COLOR_TEXT_PRIMARY, COLOR_BG_ELEVATED, COLOR_BORDER
-from config.epconfig import EPConfig
+from config.epconfig import EPConfig, CONFIG_FILENAME
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, ToolButton,
     TabWidget, SegmentedWidget,
@@ -149,7 +151,9 @@ class MainWindow(QMainWindow):
         # 必须配合 WA_TranslucentBackground + paintEvent 实现真正的圆角裁剪
         # https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self._bg_color = "#232323"
+        self._light_bg_color = "#f0f4f9"
+        self._dark_bg_color = "#202020"
+        self._bg_color = self._dark_bg_color if isDarkTheme() else self._light_bg_color
         self._bg_pixmap = None
         self._corner_radius = 16.0
         self._is_dragging = False
@@ -246,10 +250,10 @@ class MainWindow(QMainWindow):
         self.btn_material.setToolTip("素材制作")
         self.btn_material.setFixedSize(50, 50)
 
-        self.btn_market = ToolButton(FluentIcon.SHOPPING_CART, self.sidebar)
-        self.btn_market.setCheckable(True)
-        self.btn_market.setToolTip("素材商城")
-        self.btn_market.setFixedSize(50, 50)
+        self.btn_forum = ToolButton(FluentIcon.PEOPLE if hasattr(FluentIcon, 'PEOPLE') else FluentIcon.CHAT, self.sidebar)
+        self.btn_forum.setCheckable(True)
+        self.btn_forum.setToolTip("素材论坛")
+        self.btn_forum.setFixedSize(50, 50)
 
         self.btn_about = ToolButton(FluentIcon.INFO, self.sidebar)
         self.btn_about.setCheckable(True)
@@ -269,7 +273,7 @@ class MainWindow(QMainWindow):
 
         buttons_layout.addWidget(self.btn_firmware)
         buttons_layout.addWidget(self.btn_material)
-        buttons_layout.addWidget(self.btn_market)
+        buttons_layout.addWidget(self.btn_forum)
         buttons_layout.addWidget(self.btn_about)
         buttons_layout.addWidget(self.btn_remote)
 
@@ -619,7 +623,7 @@ class MainWindow(QMainWindow):
 
         self.btn_firmware.clicked.connect(self._on_sidebar_firmware)
         self.btn_material.clicked.connect(self._on_sidebar_material)
-        self.btn_market.clicked.connect(self._on_sidebar_market)
+        self.btn_forum.clicked.connect(self._on_sidebar_forum)
         self.btn_about.clicked.connect(self._on_sidebar_about)
         self.btn_remote.clicked.connect(self._on_sidebar_remote)
         self.btn_settings.clicked.connect(self._on_sidebar_settings)
@@ -637,6 +641,14 @@ class MainWindow(QMainWindow):
 
         self.timeline.set_in_point_clicked.connect(self._on_set_in_point)
         self.timeline.set_out_point_clicked.connect(self._on_set_out_point)
+
+        from qfluentwidgets.common.config import qconfig
+        qconfig.themeChanged.connect(self._on_system_theme_changed)
+
+    def _on_system_theme_changed(self):
+        """系统亮/暗主题切换时，刷新窗口背景为对应中性色"""
+        self._bg_color = self._dark_bg_color if isDarkTheme() else self._light_bg_color
+        self.update()
 
     def _on_ssh_upload(self):
         """SSH 上传"""
@@ -732,6 +744,10 @@ class MainWindow(QMainWindow):
                     self._apply_instant_settings(
                         'hardware_acceleration', False)
 
+                auto_save = settings.get('auto_save', True)
+                if not auto_save:
+                    self._auto_save_service.config.enabled = False
+
                 logger.info("已加载用户设置")
         except Exception as e:
             logger.error(f"加载用户设置失败: {e}")
@@ -745,6 +761,7 @@ class MainWindow(QMainWindow):
             if os.path.exists(config_file):
                 with open(config_file, "r", encoding="utf-8") as f:
                     return json.load(f)
+            return {}
         except Exception as e:
             logger.error(f"读取用户设置失败: {e}")
             return {}
@@ -848,8 +865,8 @@ class MainWindow(QMainWindow):
             <li><strong>JSON预览</strong>：实时查看生成的配置文件</li>
         </ul>
 
-        <h4>3. 素材商城</h4>
-        <p>内置素材商城客户端，提供完整的素材浏览和管理功能。</p>
+        <h4>3. 素材论坛</h4>
+        <p>内置素材论坛客户端，提供完整的素材浏览和管理功能。</p>
         <ul>
             <li><strong>素材浏览</strong>：搜索、筛选和排序素材资源</li>
             <li><strong>下载管理</strong>：多任务下载，支持暂停和续传</li>
@@ -1034,7 +1051,7 @@ class MainWindow(QMainWindow):
 
         self._config = EPConfig()
         self._base_dir = dir_path
-        self._project_path = os.path.join(dir_path, "epconfig.json")
+        self._project_path = os.path.join(dir_path, CONFIG_FILENAME)
         self._is_modified = True
 
         self.video_preview.clear()
@@ -1225,11 +1242,24 @@ class MainWindow(QMainWindow):
 
         path, _ = QFileDialog.getSaveFileName(
             self, "保存配置文件",
-            self._project_path or "epconfig.json",
+            self._project_path or CONFIG_FILENAME,
             "JSON文件 (*.json)"
         )
         if not path:
             return
+
+        # 校验文件名，防止用户误改
+        if os.path.basename(path) != CONFIG_FILENAME:
+            corrected = os.path.join(os.path.dirname(path), CONFIG_FILENAME)
+            ret = QMessageBox.question(
+                self, "文件名修正",
+                f"配置文件名应为\u201c{CONFIG_FILENAME}\u201d，否则模拟器等功能将无法正常工作。\n\n"
+                f"是否将文件名修正为\u201c{CONFIG_FILENAME}\u201d？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if ret == QMessageBox.StandardButton.Yes:
+                path = corrected
 
         try:
             new_base_dir = os.path.dirname(path)
@@ -1426,7 +1456,7 @@ class MainWindow(QMainWindow):
                     )
                     return
 
-            config_path = os.path.join(self._base_dir, "epconfig.json")
+            config_path = self._project_path
 
             if not os.path.exists(config_path):
                 QMessageBox.warning(
@@ -1671,7 +1701,7 @@ class MainWindow(QMainWindow):
         """侧边栏：固件烧录"""
         self.btn_firmware.setChecked(True)
         self.btn_material.setChecked(False)
-        self.btn_market.setChecked(False)
+        self.btn_forum.setChecked(False)
         self.btn_about.setChecked(False)
         self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
@@ -1679,8 +1709,8 @@ class MainWindow(QMainWindow):
         self._pause_all_videos()
 
         self.splitter.setVisible(False)
-        if hasattr(self, '_market_widget'):
-            self._market_widget.setVisible(False)
+        if hasattr(self, '_forum_widget'):
+            self._forum_widget.setVisible(False)
         if hasattr(self, '_settings_page'):
             self._settings_page.setVisible(False)
         if hasattr(self, '_about_widget'):
@@ -1706,13 +1736,13 @@ class MainWindow(QMainWindow):
         """侧边栏：素材制作"""
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(True)
-        self.btn_market.setChecked(False)
+        self.btn_forum.setChecked(False)
         self.btn_about.setChecked(False)
         self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
 
-        if hasattr(self, '_market_widget'):
-            self._market_widget.setVisible(False)
+        if hasattr(self, '_forum_widget'):
+            self._forum_widget.setVisible(False)
         if hasattr(self, '_settings_page'):
             self._settings_page.setVisible(False)
         if hasattr(self, '_about_widget'):
@@ -1727,11 +1757,11 @@ class MainWindow(QMainWindow):
 
         self._resume_videos()
 
-    def _on_sidebar_market(self):
-        """侧边栏：素材商城"""
+    def _on_sidebar_forum(self):
+        """侧边栏：素材论坛"""
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(False)
-        self.btn_market.setChecked(True)
+        self.btn_forum.setChecked(True)
         self.btn_about.setChecked(False)
         self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
@@ -1748,36 +1778,38 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_remote_page'):
             self._remote_page.setVisible(False)
 
-        if not hasattr(self, '_market_widget'):
+        if not hasattr(self, '_forum_widget'):
             try:
-                from _mext.ui.widget import MaterialMarketWidget
-                self._market_widget = MaterialMarketWidget(parent=self)
-                self.content_layout.addWidget(self._market_widget)
-            except ImportError:
-                logger.error("素材商城模块加载失败，缺少必要依赖", exc_info=True)
+                from _mext.ui.widget import MaterialForumWidget
+                self._forum_widget = MaterialForumWidget(parent=self)
+                self.content_layout.addWidget(self._forum_widget)
+            except ImportError as exc:
+                logger.error("素材论坛模块加载失败，缺少必要依赖", exc_info=True)
+                missing_pkg = getattr(exc, 'name', None) or str(exc)
                 QMessageBox.warning(
                     self, "模块加载失败",
-                    "素材商城所需的依赖库缺失，请检查安装是否完整。\n\n"
-                    "可能缺少: httpx, keyring, platformdirs 等包。")
+                    f"素材论坛所需的依赖库缺失，请检查安装是否完整。\n\n"
+                    f"缺少的包: {missing_pkg}\n\n"
+                    "可能需要: httpx, keyring, platformdirs, fido2, pyusb 等。")
                 self._on_sidebar_material()
                 return
             except Exception as exc:
-                logger.error("素材商城初始化失败: %s", exc, exc_info=True)
+                logger.error("素材论坛初始化失败: %s", exc, exc_info=True)
                 QMessageBox.warning(
                     self, "初始化失败",
-                    f"素材商城初始化时发生错误:\n{exc}\n\n"
+                    f"素材论坛初始化时发生错误:\n{type(exc).__name__}: {exc}\n\n"
                     "请查看日志文件获取详细信息。")
                 self._on_sidebar_material()
                 return
 
-        self._market_widget.setVisible(True)
-        self.status_bar.showMessage("素材商城模式")
+        self._forum_widget.setVisible(True)
+        self.status_bar.showMessage("素材论坛模式")
 
     def _on_sidebar_about(self):
         """侧边栏：项目介绍"""
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(False)
-        self.btn_market.setChecked(False)
+        self.btn_forum.setChecked(False)
         self.btn_about.setChecked(True)
         self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(False)
@@ -1785,8 +1817,8 @@ class MainWindow(QMainWindow):
         self._pause_all_videos()
 
         self.splitter.setVisible(False)
-        if hasattr(self, '_market_widget'):
-            self._market_widget.setVisible(False)
+        if hasattr(self, '_forum_widget'):
+            self._forum_widget.setVisible(False)
         if hasattr(self, '_settings_page'):
             self._settings_page.setVisible(False)
         if hasattr(self, '_flasher_widget'):
@@ -1886,26 +1918,48 @@ class MainWindow(QMainWindow):
         self._on_settings_mode_changed(mode)
 
     def _show_loop_tab_only(self):
-        """基础模式：仅显示循环视频标签页，修复 isSelected 残留"""
+        """基础模式：仅显示循环视频标签页"""
         if not hasattr(self, 'preview_tabs'):
             return
-        self.preview_tabs.setCurrentIndex(3)
-        if 3 < self.preview_tabs.count():
-            self.preview_tabs.setTabVisible(3, True)
-        for i in [0, 1, 2]:
-            if i < self.preview_tabs.count():
-                self.preview_tabs.setTabVisible(i, False)
-        # 强制修复 QFluentWidgets TabBar 的 isSelected 残留
+
+        tab_bar = self.preview_tabs.tabBar
+        # 阻塞 tabBar 信号，防止 setTabVisible 内部
+        # 发射虚假 currentChanged 导致 stackedWidget 索引被污染
+        tab_bar.blockSignals(True)
+        try:
+            if 3 < self.preview_tabs.count():
+                self.preview_tabs.setTabVisible(3, True)
+            for i in [0, 1, 2]:
+                if i < self.preview_tabs.count():
+                    self.preview_tabs.setTabVisible(i, False)
+        finally:
+            tab_bar.blockSignals(False)
+
+        # 手动设置正确状态
         self._fix_tab_selected_state(3)
+        self.preview_tabs.stackedWidget.setCurrentIndex(3)
+        if hasattr(self, 'timeline'):
+            self._on_preview_tab_changed(3)
 
     def _show_all_tabs(self):
-        """高级模式：显示所有标签页，修复 isSelected 残留"""
+        """高级模式：显示所有标签页"""
         if not hasattr(self, 'preview_tabs'):
             return
-        for i in range(self.preview_tabs.count()):
-            self.preview_tabs.setTabVisible(i, True)
-        # 修复 isSelected 残留
-        self._fix_tab_selected_state(self.preview_tabs.tabBar._currentIndex)
+
+        tab_bar = self.preview_tabs.tabBar
+        current = tab_bar._currentIndex
+
+        tab_bar.blockSignals(True)
+        try:
+            for i in range(self.preview_tabs.count()):
+                self.preview_tabs.setTabVisible(i, True)
+        finally:
+            tab_bar.blockSignals(False)
+
+        self._fix_tab_selected_state(current)
+        self.preview_tabs.stackedWidget.setCurrentIndex(current)
+        if hasattr(self, 'timeline'):
+            self._on_preview_tab_changed(current)
 
     def _fix_tab_selected_state(self, active_index: int):
         """强制清理 TabBar 所有 item 的 isSelected，仅保留指定索引"""
@@ -1950,7 +2004,7 @@ class MainWindow(QMainWindow):
         """侧边栏：远程管理"""
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(False)
-        self.btn_market.setChecked(False)
+        self.btn_forum.setChecked(False)
         self.btn_about.setChecked(False)
         self.btn_remote.setChecked(True)
         self.btn_settings.setChecked(False)
@@ -1958,8 +2012,8 @@ class MainWindow(QMainWindow):
         self._pause_all_videos()
 
         self.splitter.setVisible(False)
-        if hasattr(self, '_market_widget'):
-            self._market_widget.setVisible(False)
+        if hasattr(self, '_forum_widget'):
+            self._forum_widget.setVisible(False)
         if hasattr(self, '_settings_page'):
             self._settings_page.setVisible(False)
         if hasattr(self, '_about_widget'):
@@ -1990,15 +2044,15 @@ class MainWindow(QMainWindow):
         """侧边栏：设置"""
         self.btn_firmware.setChecked(False)
         self.btn_material.setChecked(False)
-        self.btn_market.setChecked(False)
+        self.btn_forum.setChecked(False)
         self.btn_about.setChecked(False)
         self.btn_remote.setChecked(False)
         self.btn_settings.setChecked(True)
 
         self._pause_all_videos()
 
-        if hasattr(self, '_market_widget'):
-            self._market_widget.setVisible(False)
+        if hasattr(self, '_forum_widget'):
+            self._forum_widget.setVisible(False)
         self.splitter.setVisible(False)
         if hasattr(self, '_about_widget'):
             self._about_widget.setVisible(False)
@@ -2362,6 +2416,22 @@ class MainWindow(QMainWindow):
         elif setting_name == 'scale':
             logger.info(f"界面缩放已设置为: {value}")
 
+        elif setting_name.startswith('ssh_'):
+            # SSH 设置变更后同步到 RemotePage 的内存缓存
+            if hasattr(self, '_remote_page'):
+                self._remote_page._ssh_config[setting_name] = value
+
+        elif setting_name == 'auto_save':
+            if value:
+                self._auto_save_service.config.enabled = True
+                # 如果有项目打开，重启定时器
+                if self._config and self._project_path:
+                    self._auto_save_service.start(
+                        self._config, self._project_path, self._base_dir)
+            else:
+                self._auto_save_service.config.enabled = False
+                self._auto_save_service.stop()
+
     def _apply_theme_change(self, theme_name):
         """应用主题变化"""
         logger.info(f"应用主题: {theme_name}")
@@ -2406,8 +2476,9 @@ class MainWindow(QMainWindow):
 
     def _apply_theme_color(self, color_hex):
         """应用主题颜色到界面"""
-        self._bg_color = color_hex
+        self._bg_color = self._dark_bg_color if isDarkTheme() else self._light_bg_color
         self._bg_pixmap = None
+        self.setStyleSheet("")  # 清除 _apply_theme_image 残留的全局 QSS
         self.update()
 
         if hasattr(self, 'header_bar'):
@@ -2415,8 +2486,13 @@ class MainWindow(QMainWindow):
             setCustomStyleSheet(self.header_bar, header_qss, header_qss)
 
         if hasattr(self, 'sidebar'):
-            sidebar_qss = f"QWidget {{ background-color: {color_hex}; border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; }}"
+            sidebar_qss = f"QWidget {{ background-color: {color_hex}; border-bottom-right-radius: 16px; }}"
             setCustomStyleSheet(self.sidebar, sidebar_qss, sidebar_qss)
+
+        if hasattr(self, 'content_stack'):
+            content_light = "#content_stack { background-color: rgba(255, 255, 255, 0.95); }"
+            content_dark = "#content_stack { background-color: rgba(30, 30, 30, 0.95); }"
+            setCustomStyleSheet(self.content_stack, content_light, content_dark)
 
         nav_buttons = [
             'btn_nav_file',
@@ -2432,7 +2508,7 @@ class MainWindow(QMainWindow):
         for btn in [
                 self.btn_firmware,
                 self.btn_material,
-                self.btn_market,
+                self.btn_forum,
                 self.btn_about,
                 self.btn_remote,
                 self.btn_settings]:
@@ -2511,7 +2587,7 @@ class MainWindow(QMainWindow):
                 QWidget#sidebar {
                     background-color: %s;
                     border-top-right-radius: 0px;
-                    border-bottom-left-radius: 16px;
+                    border-bottom-left-radius: 0px;
                     border-bottom-right-radius: 16px;
                 }
 
@@ -3335,8 +3411,8 @@ class MainWindow(QMainWindow):
 
             self._auto_save_service.stop()
 
-            if hasattr(self, '_market_widget'):
-                self._market_widget.shutdown()
+            if hasattr(self, '_forum_widget'):
+                self._forum_widget.shutdown()
 
             if hasattr(self, '_remote_page'):
                 self._remote_page.shutdown()

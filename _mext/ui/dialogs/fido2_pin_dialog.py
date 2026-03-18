@@ -16,8 +16,8 @@ from qfluentwidgets import (
     SubtitleLabel,
     setCustomStyleSheet,
 )
-from qtpy.QtCore import Qt
-from qtpy.QtWidgets import (
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QWidget,

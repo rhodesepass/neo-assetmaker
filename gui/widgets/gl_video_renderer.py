@@ -1,19 +1,6 @@
 """
 OpenGL 视频渲染器 — GPU 加速的视频帧显示
 
-使用 QOpenGLWidget + GLSL shader 实现：
-- YUV420P 三平面纹理上传 + GPU 颜色转换 (BT.601)
-- GPU 旋转 (正交角度 UV 映射 + 任意角度矩阵)
-- GPU 缩放 (硬件纹理采样)
-- Cropbox 线框绘制 (GL_LINES)
-
-Qt 6 官方文档依据：
-- QOpenGLWidget (https://doc.qt.io/qt-6/qopenglwidget.html)
-- QOpenGLShaderProgram (https://doc.qt.io/qt-6/qopenglshaderprogram.html)
-- QOpenGLTexture (https://doc.qt.io/qt-6/qopengltexture.html)
-
-颜色转换依据：
-- ITU-R BT.601 YCbCr → RGB 转换矩阵
 """
 import logging
 import ctypes

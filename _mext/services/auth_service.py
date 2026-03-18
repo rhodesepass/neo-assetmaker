@@ -15,7 +15,7 @@ import webbrowser
 from typing import Any, Optional
 
 import keyring
-from qtpy.QtCore import QObject, QTimer, Signal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal as Signal
 
 from _mext.core.config import Config, get_config
 from _mext.core.constants import (

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from qtpy.QtCore import QObject, QThread, Signal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal as Signal
 
 from _mext.services.fido2_client import Fido2ClientWrapper
 

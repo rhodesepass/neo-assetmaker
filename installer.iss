@@ -2,7 +2,9 @@
 
 #define MyAppName "ArknightsPassMaker"
 #define MyAppNameCN "明日方舟通行证素材工具箱"
-#define MyAppVersion "2.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "2.1.0"
+#endif
 #define MyAppPublisher "Rafael-ban"
 #define MyAppURL "https://github.com/rhodesepass/neo-assetmaker"
 #define MyAppExeName "ArknightsPassMaker.exe"
@@ -28,6 +30,10 @@ SolidCompression=yes
 LZMAUseSeparateProcess=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+AppMutex=ArknightsPassMakerMutex
+MinVersion=10.0
+CloseApplications=yes
+CloseApplicationsFilter=*.exe
 WizardStyle=modern
 WizardImageFile=resources\installer\wizard.bmp
 WizardSmallImageFile=resources\installer\wizard_small.bmp
@@ -41,10 +47,10 @@ UninstallDisplayName={#MyAppNameCN}
 Name: "chinese"; MessagesFile: "resources\installer\ChineseSimplified.isl"
 
 [Messages]
-WelcomeLabel1=欢迎使用 明日方舟通行证素材制作器
+WelcomeLabel1=欢迎使用 明日方舟通行证素材工具箱
 WelcomeLabel2=本程序将安装 [name/ver] 到您的计算机。%n%n点击"下一步"继续安装。
 FinishedHeadingLabel=安装完成
-FinishedLabel=明日方舟通行证素材制作器 已成功安装到您的计算机。%n%n感谢您的使用！
+FinishedLabel=明日方舟通行证素材工具箱 已成功安装到您的计算机。%n%n感谢您的使用！
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

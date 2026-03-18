@@ -1,13 +1,5 @@
 """
 视频预览组件 - 支持视频播放和裁剪框交互
-
-视频帧读取和处理已移至后台线程 (FrameReaderThread)，避免阻塞 UI 事件循环。
-
-Qt 6 官方文档依据：
-- 主线程长耗时操作阻塞事件循环 (https://doc.qt.io/qt-6/threads-qobjects.html)
-- QImage 可安全在工作线程创建 (https://doc.qt.io/qt-6/qimage.html#details)
-- QPixmap 必须在主线程创建 (https://doc.qt.io/qt-6/qpixmap.html#details)
-- 跨线程信号自动 QueuedConnection (https://doc.qt.io/qt-6/threads-qobjects.html)
 """
 import logging
 from typing import Optional, Tuple, TYPE_CHECKING
@@ -76,6 +68,7 @@ class VideoPreviewWidget(QWidget):
 
         self.is_playing: bool = False
         self.timer = QTimer(self)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self._on_timer_tick)
 
         self.target_width = DEFAULT_TARGET_WIDTH
@@ -110,7 +103,7 @@ class VideoPreviewWidget(QWidget):
         self._underrun_count: int = 0
         self._tick_count: int = 0
         self._last_adaptive_check: int = 0
-        self._adaptive_interval: int = 30  # 每 30 帧检查一次
+        self._adaptive_interval: int = 15  # 每 15 帧检查一次 (0.5秒@30fps)
 
         self._setup_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -644,14 +637,20 @@ class VideoPreviewWidget(QWidget):
         if self._reader_thread is None:
             return
 
-        frame = self._reader_thread.frame_buffer.get()
-        if frame is None:
-            # 缓冲区为空 — 欠载（underrun），跳帧
-            self._underrun_count += 1
-            return
+        # 循环排空所有过期帧，取第一个版本匹配的帧
+        current_version = self._reader_thread.params_version
+        frame = None
+        while True:
+            candidate = self._reader_thread.frame_buffer.get()
+            if candidate is None:
+                break
+            if candidate.params_version == current_version:
+                frame = candidate
+                break
+            # 过期帧，继续取下一帧
 
-        # 检查参数版本号，丢弃过期帧
-        if frame.params_version != self._reader_thread.params_version:
+        if frame is None:
+            self._underrun_count += 1
             return
 
         self._consume_buffered_frame(frame)
@@ -709,7 +708,11 @@ class VideoPreviewWidget(QWidget):
         self._update_info_label()
 
     def _adaptive_prefetch(self):
-        """根据缓冲区欠载率动态调整预读深度（3~8 帧）"""
+        """根据缓冲区欠载率动态调整预读深度（3~16 帧）
+
+        倍增策略：欠载率 >10% 时缓冲区翻倍（应对 I-frame 集群），
+        欠载率 <3% 时逐步缩减。
+        """
         self._tick_count += 1
         if (self._tick_count - self._last_adaptive_check
                 < self._adaptive_interval):
@@ -723,12 +726,14 @@ class VideoPreviewWidget(QWidget):
         buffer = self._reader_thread.frame_buffer
         current_max = buffer.max_size
 
-        if underrun_rate > 0.20 and current_max < 8:
-            buffer.max_size = min(current_max + 1, 8)
-            logger.debug(
-                f"预读深度增加到 {buffer.max_size} "
-                f"(欠载率 {underrun_rate:.1%})")
-        elif underrun_rate < 0.05 and current_max > 3:
+        if underrun_rate > 0.10:
+            new_max = min(current_max * 2, 16)
+            if new_max != current_max:
+                buffer.max_size = new_max
+                logger.debug(
+                    f"预读深度增加到 {buffer.max_size} "
+                    f"(欠载率 {underrun_rate:.1%})")
+        elif underrun_rate < 0.03 and current_max > 3:
             buffer.max_size = max(current_max - 1, 3)
             logger.debug(
                 f"预读深度减少到 {buffer.max_size} "

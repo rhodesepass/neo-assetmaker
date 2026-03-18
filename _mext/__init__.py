@@ -1,6 +1,6 @@
-"""Asset Store - Cross-platform material asset manager.
+"""Asset Forum - Cross-platform material asset manager.
 
-A Qt desktop application (via qtpy) for browsing, downloading, and managing
+A PyQt6 desktop application for browsing, downloading, and managing
 material assets with FIDO2 authentication and USB device integration.
 """
 

@@ -1,4 +1,6 @@
-"""SSH 上传/下载/列表/删除服务"""
+"""
+SSH 上传/下载/列表/删除服务
+"""
 
 import os
 import threading
@@ -53,6 +55,7 @@ class SshUploadWorker(QThread):
     progress_updated = pyqtSignal(int, str)
     upload_completed = pyqtSignal(str)
     upload_failed = pyqtSignal(str)
+    log_message = pyqtSignal(str, str)  # (level, message)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -96,6 +99,7 @@ class SshUploadWorker(QThread):
             self.progress_updated.emit(progress, message)
 
         try:
+            self.log_message.emit("INFO", f"开始上传到 {remote_path}...")
             success = ssh_auto_upload(
                 host=host,
                 port=port,
@@ -108,12 +112,55 @@ class SshUploadWorker(QThread):
                 progress_callback=_report,
             )
             if success:
+                self.log_message.emit("INFO", f"上传完成: {remote_path}")
                 self.upload_completed.emit(f"上传到 {remote_path} 成功")
             else:
+                self.log_message.emit("ERROR", "SSH 上传失败")
                 self.upload_failed.emit("SSH 上传失败")
         except Exception as e:
             logger.exception("SSH 上传失败")
+            self.log_message.emit("ERROR", f"上传异常: {e}")
             self.upload_failed.emit(str(e))
+
+
+class SshRestartWorker(QThread):
+    """SSH 重启 DrmApp 工作线程"""
+
+    restart_succeeded = pyqtSignal()
+    restart_failed = pyqtSignal(str)
+    log_message = pyqtSignal(str, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._args = None
+
+    def setup(self, host: str, port: int, user: str, password: str):
+        self._args = (host, port, user, password)
+
+    def run(self):
+        if not self._args:
+            self.restart_failed.emit("参数不足")
+            return
+        host, port, user, password = self._args
+        ssh = None
+        try:
+            self.log_message.emit("INFO", "开始重启DrmApp...")
+            ssh = _create_ssh_client(host, port, user, password)
+            from core.sshOperation import StopDrmApp, StartDrmApp
+            StopDrmApp(ssh)
+            self.log_message.emit("INFO", "DrmApp 已停止，正在启动...")
+            StartDrmApp(ssh)
+            self.log_message.emit("INFO", "已发送重启指令")
+            self.restart_succeeded.emit()
+        except Exception as e:
+            self.log_message.emit("ERROR", f"重启失败: {e}")
+            self.restart_failed.emit(str(e))
+        finally:
+            if ssh:
+                try:
+                    ssh.close()
+                except Exception:
+                    pass
 
 
 class SshConnectTestWorker(QThread):

@@ -1,4 +1,6 @@
-"""对话框模块"""
+"""
+对话框模块
+"""
 from gui.dialogs.export_progress_dialog import ExportProgressDialog
 from gui.dialogs.ssh_upload_progress_dialog import SshUploadProgressDialog
 from gui.dialogs.welcome_dialog import WelcomeDialog

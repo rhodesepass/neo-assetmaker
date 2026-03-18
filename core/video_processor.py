@@ -150,7 +150,7 @@ class VideoProcessor:
                     except ValueError:
                         pass
                 if total_frames == 0 and duration > 0:
-                    total_frames = int(duration * fps)
+                    total_frames = round(duration * fps)
 
                 return VideoInfo(
                     width=int(parts[0]),

@@ -45,7 +45,9 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
         print("[WARNING] 无法创建日志目录，仅使用控制台输出")
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
-        root_logger.handlers.clear()
+        for h in root_logger.handlers[:]:
+            h.close()
+            root_logger.removeHandler(h)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
@@ -79,7 +81,9 @@ def setup_logger(log_dir: Optional[str] = None) -> logging.Logger:
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    root_logger.handlers.clear()
+    for h in root_logger.handlers[:]:
+        h.close()
+        root_logger.removeHandler(h)
 
     if file_handler:
         root_logger.addHandler(file_handler)

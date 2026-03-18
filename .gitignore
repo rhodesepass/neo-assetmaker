@@ -39,6 +39,7 @@ test/
 
 # User settings
 config/user_settings.json
+CLAUDE.md
 
 # Temporary update directory
 temp_update/

@@ -1,33 +1,40 @@
-"""Main embeddable widget for the asset store.
+"""Main embeddable widget for the asset forum.
 
-MaterialMarketWidget is designed to be embedded in any QWidget-based
+MaterialForumWidget is designed to be embedded in any QWidget-based
 host application. It provides a Pivot-based tab navigation between
-all major pages (Market, Library, Downloads, USB, Settings).
+all major pages (Forum, Library, Downloads, USB, Settings).
 """
 
 from __future__ import annotations
 
-from typing import Optional
+import importlib
+import logging
+from typing import Any, Optional
 
-from qfluentwidgets import Pivot
-from qtpy.QtCore import Signal, Slot
-from qtpy.QtWidgets import (
+from qfluentwidgets import Pivot, SubtitleLabel
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from _mext.core.service_manager import ServiceManager
-from _mext.ui.pages.downloads_page import DownloadsPage
-from _mext.ui.pages.library_page import LibraryPage
-from _mext.ui.pages.login_page import LoginPage
-from _mext.ui.pages.market_page import MarketPage
-from _mext.ui.pages.settings_page import SettingsPage
-from _mext.ui.pages.usb_page import UsbPage
+
+logger = logging.getLogger(__name__)
+
+# Page factory definitions: (display_name, module_path, class_name)
+_PAGE_FACTORIES = [
+    ("ForumPage", "_mext.ui.pages.forum_page", "ForumPage"),
+    ("LibraryPage", "_mext.ui.pages.library_page", "LibraryPage"),
+    ("DownloadsPage", "_mext.ui.pages.downloads_page", "DownloadsPage"),
+    ("UsbPage", "_mext.ui.pages.usb_page", "UsbPage"),
+    ("SettingsPage", "_mext.ui.pages.settings_page", "SettingsPage"),
+]
 
 
-class MaterialMarketWidget(QWidget):
-    """Embeddable main widget with tabbed page navigation.
+class MaterialForumWidget(QWidget):
+    """Embeddable forum widget with tabbed page navigation.
 
     Parameters
     ----------
@@ -44,6 +51,8 @@ class MaterialMarketWidget(QWidget):
 
     page_changed = Signal(str)
 
+    _PAGE_AUTH_REQUIRED = {1}  # LibraryPage requires authentication
+
     def __init__(
         self,
         service_manager: Optional[ServiceManager] = None,
@@ -51,50 +60,31 @@ class MaterialMarketWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self._services = service_manager or ServiceManager(parent=self)
+        self._pages: list[Optional[QWidget]] = [None] * len(_PAGE_FACTORIES)
+        self._initialized = False
 
         self._setup_ui()
         self._connect_signals()
 
-        # Check if authenticated; show login page if not
-        if not self._services.auth_service.is_authenticated:
-            self._show_login()
-        else:
-            self._show_main()
-
     def _setup_ui(self) -> None:
         """Build the widget layout with Pivot navigation and stacked pages."""
         self._main_layout = QVBoxLayout(self)
-        self._main_layout.setContentsMargins(0, 0, 0, 0)
-        self._main_layout.setSpacing(0)
-
-        # Login page (shown when not authenticated)
-        self._login_page = LoginPage(self._services, parent=self)
+        self._main_layout.setContentsMargins(12, 8, 12, 12)
+        self._main_layout.setSpacing(8)
 
         # Pivot navigation bar
         self._pivot = Pivot(self)
 
-        # Stacked widget for page content
+        # Stacked widget with placeholder pages
         self._stack = QStackedWidget(self)
-
-        # Create pages
-        self._market_page = MarketPage(self._services, parent=self)
-        self._library_page = LibraryPage(self._services, parent=self)
-        self._downloads_page = DownloadsPage(self._services, parent=self)
-        self._usb_page = UsbPage(self._services, parent=self)
-        self._settings_page = SettingsPage(self._services, parent=self)
-
-        # Add pages to stack
-        self._stack.addWidget(self._market_page)
-        self._stack.addWidget(self._library_page)
-        self._stack.addWidget(self._downloads_page)
-        self._stack.addWidget(self._usb_page)
-        self._stack.addWidget(self._settings_page)
+        for _ in range(len(_PAGE_FACTORIES)):
+            self._stack.addWidget(QWidget())
 
         # Add pivot items
         self._pivot.addItem(
-            routeKey="market",
-            text="商城",
-            onClick=lambda: self._switch_page(0, "market"),
+            routeKey="forum",
+            text="论坛",
+            onClick=lambda: self._switch_page(0, "forum"),
         )
         self._pivot.addItem(
             routeKey="library",
@@ -117,54 +107,89 @@ class MaterialMarketWidget(QWidget):
             onClick=lambda: self._switch_page(4, "settings"),
         )
 
-        self._pivot.setCurrentItem("market")
+        self._pivot.setCurrentItem("forum")
 
-        # Build layout
-        self._content_layout = QVBoxLayout()
-        self._content_layout.setContentsMargins(12, 8, 12, 12)
-        self._content_layout.setSpacing(8)
-        self._content_layout.addWidget(self._pivot)
-        self._content_layout.addWidget(self._stack)
-
-        # Content wrapper (hidden when login is shown)
-        self._content_widget = QWidget(self)
-        self._content_widget.setLayout(self._content_layout)
-
-        self._main_layout.addWidget(self._login_page)
-        self._main_layout.addWidget(self._content_widget)
+        self._main_layout.addWidget(self._pivot)
+        self._main_layout.addWidget(self._stack)
 
     def _connect_signals(self) -> None:
         """Connect inter-component signals."""
-        # Auth state changes
         self._services.auth_state_changed.connect(self._on_auth_state_changed)
 
-        # Login page signals
-        self._login_page.login_successful.connect(self._show_main)
+    def showEvent(self, event: Any) -> None:  # noqa: N802
+        """Perform deferred initialization on first show."""
+        super().showEvent(event)
+        if not self._initialized:
+            self._initialized = True
+            self._ensure_page(0)  # Load forum page directly
+
+    def _ensure_page(self, index: int) -> Optional[QWidget]:
+        """Lazily create a tab page on first access.
+
+        Replaces the placeholder QWidget in the stack with the real page.
+        On failure, shows an error label instead of crashing.
+        """
+        if self._pages[index] is not None:
+            return self._pages[index]
+
+        display_name, module_path, class_name = _PAGE_FACTORIES[index]
+        try:
+            module = importlib.import_module(module_path)
+            page_class = getattr(module, class_name)
+            page = page_class(self._services, parent=self)
+
+            # Replace placeholder with real page
+            placeholder = self._stack.widget(index)
+            self._stack.removeWidget(placeholder)
+            placeholder.deleteLater()
+            self._stack.insertWidget(index, page)
+
+            self._pages[index] = page
+        except Exception as exc:
+            logger.error("%s 创建失败: %s", display_name, exc, exc_info=True)
+            error_widget = self._stack.widget(index)
+            error_layout = QVBoxLayout(error_widget)
+            error_label = SubtitleLabel(f"{display_name} 加载失败: {exc}", error_widget)
+            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            error_layout.addWidget(error_label)
+
+        return self._pages[index]
 
     def _switch_page(self, index: int, name: str) -> None:
         """Switch the stacked widget to the specified page index."""
+        if index in self._PAGE_AUTH_REQUIRED and not self._services.auth_service.is_authenticated:
+            self._show_login_dialog(on_success=lambda: self._do_switch_page(index, name))
+            return
+        self._do_switch_page(index, name)
+
+    def _do_switch_page(self, index: int, name: str) -> None:
+        """Perform the actual page switch."""
+        self._ensure_page(index)
         self._stack.setCurrentIndex(index)
         self.page_changed.emit(name)
 
-    @Slot()
-    def _show_login(self) -> None:
-        """Show the login page, hide the main content."""
-        self._login_page.setVisible(True)
-        self._content_widget.setVisible(False)
+    def _show_login_dialog(self, on_success=None):
+        """Show a modal login dialog."""
+        from _mext.ui.dialogs.login_dialog import LoginDialog
+        dialog = LoginDialog(self._services, parent=self)
+        if on_success:
+            dialog.login_successful.connect(on_success)
+        dialog.exec()
 
-    @Slot()
-    def _show_main(self) -> None:
-        """Show the main content, hide the login page."""
-        self._login_page.setVisible(False)
-        self._content_widget.setVisible(True)
+    def require_auth(self, on_success):
+        """Public API for child pages to request authentication."""
+        if self._services.auth_service.is_authenticated:
+            on_success()
+            return True
+        self._show_login_dialog(on_success=on_success)
+        return self._services.auth_service.is_authenticated
 
     @Slot(bool)
     def _on_auth_state_changed(self, authenticated: bool) -> None:
         """Handle authentication state changes."""
-        if authenticated:
-            self._show_main()
-        else:
-            self._show_login()
+        if not authenticated and self._stack.currentIndex() == 1:
+            self._do_switch_page(0, "forum")
+            self._pivot.setCurrentItem("forum")
 
     @property
     def service_manager(self) -> ServiceManager:
