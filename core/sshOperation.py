@@ -214,7 +214,7 @@ sshDownloadSpeedCalculatorLastSent = 0
 
 def CalcDownloadSpeed(report, filename, size, sent):
     """计算下载速度"""
-    global sshDownloadSpeedCalculatorLastTime, sshDownloadSpeedCalculatorLastSent, currentSize
+    global sshDownloadSpeedCalculatorLastTime, sshDownloadSpeedCalculatorLastSent
     now = time.time()
     dt = now - sshDownloadSpeedCalculatorLastTime
     ds = sent - sshDownloadSpeedCalculatorLastSent
@@ -224,7 +224,6 @@ def CalcDownloadSpeed(report, filename, size, sent):
             int((sent / size) * 100),
             f"正在下载文件 ({sent}/{size})... {speed/1024:.2f} KB/s",
         )
-        print((sent / size) * 100)
     sshDownloadSpeedCalculatorLastTime = now
     sshDownloadSpeedCalculatorLastSent = sent
 
@@ -282,13 +281,23 @@ def UploadDir(
     if not os.path.isdir(local_dir):
         raise ValueError(f"{local_dir} 不是有效目录")
 
+    stdin, stdout, stderr = ssh.exec_command(
+        f"mkdir -p {remote_dir}/{os.path.basename(local_dir)}"
+    )
+    stdout.channel.recv_exit_status()
+
     totalSize = GetPathSize(local_dir)
     for item in os.listdir(local_dir):
         local_path = os.path.join(local_dir, item)
         remote_path = f"{remote_dir}/{item}"
         if os.path.isfile(local_path):
             UploadFile(
-                ssh, local_path, remote_dir, report, currentUploadedSize, totalSize
+                ssh,
+                local_path,
+                f"{remote_dir}/{os.path.basename(local_dir)}/{os.path.basename(local_path)}",
+                report,
+                currentUploadedSize,
+                totalSize,
             )
             currentUploadedSize += os.path.getsize(local_path)
         elif os.path.isdir(local_path):
@@ -300,8 +309,8 @@ def UploadDir(
     currentUploadedSize = 0
 
 
-class UploadWorker(QThread):
-    progress_signal = pyqtSignal(int, str)  # 进度百分比, 文本
+class UploadScatteredFilesWorker(QThread):
+    uploadScatteredProgressSignal = pyqtSignal(int, str)  # 进度百分比, 文本
 
     def __init__(self, ssh, currentPath, all_files, offetPath):
         super().__init__()
@@ -327,4 +336,70 @@ class UploadWorker(QThread):
             )
 
     def report_progress(self, percent, text):
-        self.progress_signal.emit(percent, text)
+        self.uploadScatteredProgressSignal.emit(percent, text)
+
+
+class DownloadWorker(QThread):
+    downloadProgressSignal = pyqtSignal(int, str)
+
+    def __init__(self, ssh, remotePath, localPath):
+        super().__init__()
+        self.ssh = ssh
+        self.remotePath = remotePath
+        self.localPath = localPath
+
+    def run(self):
+        DownloadFile(
+            self.ssh,
+            self.remotePath,
+            self.localPath,
+            self.report_progress,
+        )
+
+    def report_progress(self, percent, text):
+        self.downloadProgressSignal.emit(percent, text)
+
+
+class UploadFileWorker(QThread):
+    uploadFilesProgressSignal = pyqtSignal(int, str)  # 进度百分比, 文本
+
+    def __init__(self, ssh, localPath, remotePath, fullSize):
+        super().__init__()
+        self.ssh = ssh
+        self.localPath = localPath
+        self.remotePath = remotePath
+        self.fullSize = fullSize
+
+    def run(self):
+        UploadFile(
+            self.ssh,
+            self.localPath,
+            self.remotePath,
+            self.report_progress,
+            0,
+            self.fullSize,
+        )
+
+    def report_progress(self, percent, text):
+        self.uploadFilesProgressSignal.emit(percent, text)
+
+
+class UploadDirWorker(QThread):
+    uploadDirProgressSignal = pyqtSignal(int, str)  # 进度百分比, 文本
+
+    def __init__(self, ssh, localPath, remotePath):
+        super().__init__()
+        self.ssh = ssh
+        self.localPath = localPath
+        self.remotePath = remotePath
+
+    def run(self):
+        UploadDir(
+            self.ssh,
+            self.localPath,
+            self.remotePath,
+            self.report_progress,
+        )
+
+    def report_progress(self, percent, text):
+        self.uploadDirProgressSignal.emit(percent, text)

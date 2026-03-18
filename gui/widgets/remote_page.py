@@ -6,7 +6,7 @@ import os
 import logging
 import tempfile
 from datetime import datetime
-
+import subprocess
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QFont
 from PyQt6.QtWidgets import (
@@ -279,10 +279,10 @@ class RemotePage(QWidget):
         self.btnRemoteFileBrowser.setEnabled(True)
         layout.addWidget(self.btnRemoteFileBrowser)
 
-        self.btnDeviceStream = PushButton("实时画面")
-        self.btnDeviceStream.setIcon(FluentIcon.VIDEO)
-        self.btnDeviceStream.setEnabled(False)
-        layout.addWidget(self.btnDeviceStream)
+        self.btnSSHShell = PushButton("打开SSH终端")
+        self.btnSSHShell.setIcon(FluentIcon.CODE)
+        self.btnSSHShell.setEnabled(True)
+        layout.addWidget(self.btnSSHShell)
 
         # 分隔线
         line1 = QFrame()
@@ -345,7 +345,42 @@ class RemotePage(QWidget):
         self.btnUploadLocal.clicked.connect(self._on_upload_local)
         self.btnClearLog.clicked.connect(self.logTextEdit.clear)
         self.btnRemoteFileBrowser.clicked.connect(self._on_upload_remote_file)
-        self.btnDeviceStream.clicked.connect(self._on_device_stream)
+        self.btnSSHShell.clicked.connect(self._on_ssh_shell_clicked)
+
+    def _on_ssh_shell_clicked(self):
+        import platform
+
+        host, port, user, password, remote_path = self._get_ssh_params()
+        system = platform.system()
+        ssh_cmd = f"ssh {user}@{host} -p {port}"
+        try:
+            if system == "Windows":
+                # 使用 cmd 打开新窗口
+                subprocess.Popen(f"start cmd /k {ssh_cmd}", shell=True)
+            elif system == "Linux":
+                # 优先 konsole -> gnome -> x-terminal-emulator
+                try:
+                    subprocess.Popen(
+                        [
+                            "gnome-terminal",
+                            "--",
+                            "bash",
+                            "-c",
+                            f"{ssh_cmd}; exec bash",
+                        ]
+                    )
+                except FileNotFoundError:
+                    subprocess.Popen(["x-terminal-emulator", "-e", ssh_cmd])
+            elif system == "Darwin":
+                # macOS Terminal
+                subprocess.Popen(["open", "-a", "Terminal", ssh_cmd])
+            else:
+                raise Exception(f"不支持的系统: {system}")
+        except Exception as e:
+            logger.error(f"启动shell失败{e}", stack_info=True)
+            self.show_error(f"启动shell失败{e}")
+        return
+        self.btnConnect.clicked.connect(self._on_device_stream)
 
     def _on_upload_remote_file(self):
         host, port, user, password, remote_path = self._get_ssh_params()
@@ -377,12 +412,12 @@ class RemotePage(QWidget):
             self._stream_widget.hide()
             self.assetDetailList.show()
             self.middleTitleLabel.setText("远程素材详情")
-            self.btnDeviceStream.setText("实时画面")
+            self.btnConnect.setText("实时画面")
         else:
             self.assetDetailList.hide()
             self._stream_widget.show()
             self.middleTitleLabel.setText("实时画面")
-            self.btnDeviceStream.setText("返回素材列表")
+            self.btnConnect.setText("返回素材列表")
 
     # ─── 日志 ────────────────────────────────────────────
 
@@ -424,7 +459,7 @@ class RemotePage(QWidget):
         self.btnRefreshList.setEnabled(not busy and self._is_connected)
         self.btnUploadLocal.setEnabled(not busy and self._is_connected)
         self.btnRestartDrm.setEnabled(not busy and self._is_connected)
-        self.btnDeviceStream.setEnabled(not busy and self._is_connected)
+        self.btnConnect.setEnabled(not busy and self._is_connected)
         # 设置中栏列表项按钮的启用状态
         for i in range(self.assetDetailList.count()):
             item = self.assetDetailList.item(i)
@@ -496,7 +531,7 @@ class RemotePage(QWidget):
             self.btnRefreshList.setEnabled(True)
             self.btnUploadLocal.setEnabled(True)
             self.btnRestartDrm.setEnabled(True)
-            self.btnDeviceStream.setEnabled(True)
+            self.btnConnect.setEnabled(True)
         else:
             self.connectionStatusLabel.setText("未连接")
             setCustomStyleSheet(
@@ -508,7 +543,7 @@ class RemotePage(QWidget):
             self.btnRefreshList.setEnabled(False)
             self.btnUploadLocal.setEnabled(False)
             self.btnRestartDrm.setEnabled(False)
-            self.btnDeviceStream.setEnabled(False)
+            self.btnConnect.setEnabled(False)
             # 断开时停止串流并切回素材列表
             if self._stream_widget is not None:
                 self._stream_widget.shutdown()
