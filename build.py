@@ -305,7 +305,7 @@ def run_cxfreeze(skip_flasher=False):
         # 改为在 includes 中精确指定入口点和动态加载的模块。
         "cv2", "PIL", "numpy", "jsonschema", "thefuzz",
         "logging", "json", "uuid", "dataclasses",
-        "qtpy", "httpx", "httpcore", "httpx._transports",
+        "httpx", "httpcore", "httpx._transports",
         "keyring", "keyring.backends",
         "platformdirs",
         "fido2", "fido2.hid", "fido2.client", "fido2.webauthn",

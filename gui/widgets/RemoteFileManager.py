@@ -1,7 +1,6 @@
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QPalette, QColor
+from PyQt6.QtGui import QPalette, QColor, QPixmap
 from pathlib import Path
-from qtpy.QtGui import QColor, QPixmap
 import os
 from PyQt6.QtWidgets import (
     QDialog,
@@ -66,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 
 # 👂？ 我没对象 所以创建一个 :D
+# 欸嘿？我也没有....(阴暗爬行ing)
 class FileItem:
     def __init__(self, name, type_):
         self.name = name
