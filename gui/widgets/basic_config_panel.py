@@ -15,22 +15,10 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from qfluentwidgets import (
     PushButton, PrimaryPushButton,
     LineEdit, ComboBox, SubtitleLabel, StrongBodyLabel,
-    CardWidget, SearchLineEdit, ScrollArea,
-    setCustomStyleSheet
+    SearchLineEdit
 )
 
-from PyQt6.QtWidgets import QGroupBox as QtGroupBox
-from PyQt6.QtCore import Qt
-
-class FluentGroupBox(QtGroupBox):
-    def __init__(self, title="", parent=None):
-        super().__init__(title, parent)
-        setCustomStyleSheet(
-            self,
-            "QGroupBox { font-weight: bold; color: #333; border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; margin: 8px 0; background-color: white; } QGroupBox::title { subcontrol-position: top left; padding: 0 8px; background-color: white; border-radius: 4px; }",
-            "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 8px; padding: 12px; margin: 8px 0; background-color: #2b2b2b; } QGroupBox::title { subcontrol-position: top left; padding: 0 8px; background-color: #2b2b2b; border-radius: 4px; }"
-        )
-
+from gui.widgets.fluent_group_box import FluentGroupBox
 from config.epconfig import EPConfig, ScreenType, OverlayType
 from config.constants import RESOLUTION_SPECS, OPERATOR_CLASS_PRESETS
 from config.operator_db import get_operator_db
@@ -62,11 +50,11 @@ class BasicConfigPanel(QWidget):
         """设置UI"""
         # 直接使用垂直布局，不使用滚动区域
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(20)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         group_basic = FluentGroupBox("基本信息")
-        basic_layout = QFormLayout(group_basic)
+        basic_layout = QFormLayout()
 
         self.edit_name = LineEdit()
         self.edit_name.setPlaceholderText("素材名称")
@@ -78,10 +66,10 @@ class BasicConfigPanel(QWidget):
             self.combo_screen.addItem(desc, userData=screen)
         basic_layout.addRow("分辨率:", self.combo_screen)
 
+        group_basic.addLayout(basic_layout)
         layout.addWidget(group_basic)
 
         group_video = FluentGroupBox("视频设置")
-        video_layout = QVBoxLayout(group_video)
 
         loop_layout = QFormLayout()
         self.edit_loop_file = LineEdit()
@@ -92,67 +80,40 @@ class BasicConfigPanel(QWidget):
         btn_browse_loop.clicked.connect(lambda: self._browse_file("视频", ["视频文件 (*.mp4 *.avi *.mov)" ]))
         loop_layout.addRow("", btn_browse_loop)
 
-        video_layout.addLayout(loop_layout)
+        group_video.addLayout(loop_layout)
         layout.addWidget(group_video)
 
         group_template = FluentGroupBox("一键模板")
-        group_template.setMinimumHeight(180)
-        template_layout = QVBoxLayout(group_template)
-
-        scroll_area = ScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(10)
-
+        template_layout = QVBoxLayout()
         template_desc = StrongBodyLabel("选择一个模板，快速创建素材")
-        scroll_layout.addWidget(template_desc)
-
+        template_layout.addWidget(template_desc)
         self.combo_template = ComboBox()
         self.combo_template.addItems(["默认模板", "明日方舟模板", "自定义模板"])
-        scroll_layout.addWidget(self.combo_template)
+        template_layout.addWidget(self.combo_template)
+        group_template.addLayout(template_layout)
+        layout.addWidget(group_template)
 
         self.group_arknights = FluentGroupBox("明日方舟干员信息")
-        arknights_layout = QVBoxLayout(self.group_arknights)
-        arknights_layout.setContentsMargins(10, 10, 10, 10)
-        arknights_layout.setSpacing(10)
-
         form_layout = QFormLayout()
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(8)
-
         self.edit_ark_name = SearchLineEdit()
         self.edit_ark_name.setPlaceholderText("例如：新约能天使")
         self.edit_ark_name.setToolTip("干员名称，显示在UI顶部\n支持模糊搜索，输入部分名称即可")
-
         self._update_completer()
         form_layout.addRow("干员名称:", self.edit_ark_name)
-
         self.combo_ark_class = ComboBox()
         self.combo_ark_class.addItem("无", userData="")
         for class_name, class_value in OPERATOR_CLASS_PRESETS.items():
             self.combo_ark_class.addItem(class_name, userData=class_value)
         self.combo_ark_class.setToolTip("选择干员职业\n输入干员名称后自动匹配")
         form_layout.addRow("职业:", self.combo_ark_class)
-
-        arknights_layout.addLayout(form_layout)
-
+        self.group_arknights.addLayout(form_layout)
         self.group_arknights.setVisible(False)
-
-        scroll_layout.addWidget(self.group_arknights)
-        scroll_layout.addStretch()
-
-        scroll_area.setWidget(scroll_content)
-        template_layout.addWidget(scroll_area)
-
-        layout.addWidget(group_template)
+        layout.addWidget(self.group_arknights)
 
         group_actions = FluentGroupBox("操作")
-        actions_layout = QVBoxLayout(group_actions)
+        actions_layout = QVBoxLayout()
 
         self.btn_validate = PrimaryPushButton("验证配置")
         actions_layout.addWidget(self.btn_validate)
@@ -163,6 +124,7 @@ class BasicConfigPanel(QWidget):
         self.btn_sshUpload = PrimaryPushButton("一键上传")
         actions_layout.addWidget(self.btn_sshUpload)
 
+        group_actions.addLayout(actions_layout)
         layout.addWidget(group_actions)
 
         layout.addStretch()

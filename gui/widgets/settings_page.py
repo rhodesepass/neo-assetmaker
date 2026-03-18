@@ -16,7 +16,7 @@ from qfluentwidgets.components.settings import (
 )
 
 from gui.widgets.setting_cards import (
-    ComboSettingCard, SpinSettingCard,
+    ComboSettingCard,
     DoubleSpinSettingCard, ColorPickerSettingCard,
     ImagePickerSettingCard,
 )
@@ -116,14 +116,11 @@ class SettingsPage(QWidget):
         self.videoGroup = SettingCardGroup("视频与导出", self.scrollWidget)
 
         self.hwAccelCard = SwitchSettingCard(
-            FluentIcon.SPEED_HIGH, "硬件加速",
+            FluentIcon.SPEED_HIGH, "预览硬件加速",
+            content="使用 GPU 加速视频预览渲染，不影响导出",
             parent=self.videoGroup)
-        self.exportThreadsCard = SpinSettingCard(
-            FluentIcon.SETTING, "导出线程数",
-            min_val=1, max_val=8, default=1, parent=self.videoGroup)
 
-        self.videoGroup.addSettingCards([
-            self.hwAccelCard, self.exportThreadsCard])
+        self.videoGroup.addSettingCards([self.hwAccelCard])
 
         self.networkGroup = SettingCardGroup("网络设置", self.scrollWidget)
 
@@ -240,9 +237,6 @@ class SettingsPage(QWidget):
 
         self.hwAccelCard.checkedChanged.connect(
             lambda v: self._emit('hardware_acceleration', v))
-        self.exportThreadsCard.valueChanged.connect(
-            lambda v: self._emit('export_threads', v))
-
         self.githubAccelCard.checkedChanged.connect(
             lambda v: self._emit('github_acceleration', v))
         self.proxyCard.checkedChanged.connect(
@@ -303,9 +297,6 @@ class SettingsPage(QWidget):
 
             self.hwAccelCard.setChecked(
                 settings.get('hardware_acceleration', True))
-            self.exportThreadsCard.setValue(
-                settings.get('export_threads', 1))
-
             self.githubAccelCard.setChecked(
                 settings.get('github_acceleration', True))
             self.proxyCard.setChecked(

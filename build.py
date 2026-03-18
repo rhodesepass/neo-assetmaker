@@ -309,7 +309,6 @@ def run_cxfreeze(skip_flasher=False):
         "keyring", "keyring.backends",
         "platformdirs",
         "fido2", "fido2.hid", "fido2.client", "fido2.webauthn",
-        "usb", "usb.core", "usb.backend", "usb.backend.libusb1",
         # 本地项目包 — 使用 packages 让 cx_Freeze 通过 _import_all_sub_modules 自动发现所有子模块
         "gui", "core", "config", "utils", "_mext",
     ]
@@ -424,7 +423,7 @@ def run_cxfreeze(skip_flasher=False):
             if os.path.exists(plugin_path):
                 include_files.append((plugin_path, f"lib/PyQt6/Qt6/plugins/{plugin}"))
 
-    # libusb DLL（pyusb/fido2 运行时依赖）
+    # libusb DLL（fido2 运行时依赖）
     libusb_dll = os.path.join(site_packages, "fido2", "libusb-1.0.dll")
     if os.path.exists(libusb_dll):
         include_files.append((libusb_dll, "libusb-1.0.dll"))

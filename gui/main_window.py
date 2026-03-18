@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QMenuBar, QMenu, QStatusBar,
     QFileDialog, QMessageBox, QLabel, QScrollArea,
-    QGroupBox, QCheckBox, QComboBox, QDoubleSpinBox,
+    QCheckBox, QComboBox, QDoubleSpinBox,
     QSpinBox, QLineEdit, QTabWidget, QDialog
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QUrl, QCoreApplication
@@ -438,6 +438,7 @@ class MainWindow(QMainWindow):
         self.preview_tabs = TabWidget()
         self.preview_tabs.setTabsClosable(False)  # 禁用关闭按钮
         self.preview_tabs.setMovable(False)  # 禁用标签移动
+        self.preview_tabs.tabBar.setAddButtonVisible(False)
         # 标签页文字在深色预览背景上需要浅色
         setCustomStyleSheet(
             self.preview_tabs,
@@ -1790,7 +1791,7 @@ class MainWindow(QMainWindow):
                     self, "模块加载失败",
                     f"素材论坛所需的依赖库缺失，请检查安装是否完整。\n\n"
                     f"缺少的包: {missing_pkg}\n\n"
-                    "可能需要: httpx, keyring, platformdirs, fido2, pyusb 等。")
+                    "可能需要: httpx, keyring, platformdirs, fido2 等。")
                 self._on_sidebar_material()
                 return
             except Exception as exc:

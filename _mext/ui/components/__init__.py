@@ -9,13 +9,11 @@ from _mext.ui.components.fido2_credential_card import Fido2CredentialCard
 from _mext.ui.components.filter_panel import FilterPanel
 from _mext.ui.components.material_card import MaterialCard
 from _mext.ui.components.search_bar import SearchBar
-from _mext.ui.components.usb_device_card import UsbDeviceCard
 
 __all__ = [
     "MaterialCard",
     "SearchBar",
     "FilterPanel",
     "DownloadProgressWidget",
-    "UsbDeviceCard",
     "Fido2CredentialCard",
 ]

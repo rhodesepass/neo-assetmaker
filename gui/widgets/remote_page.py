@@ -929,7 +929,7 @@ class RemotePage(QWidget):
                     w.cancel()
                 w.wait(3000)
 
-    def ListChildrenDirs(self, path: str) -> List[str]:
+    def ListChildrenDirs(self, path: str) -> list[str]:
         """
         返回指定路径下的所有子目录（不递归）
         """

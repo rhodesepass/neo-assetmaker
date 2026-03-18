@@ -14,12 +14,13 @@ from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QTextEdit, QProgressBar, QMessageBox,
-    QWidget, QFormLayout, QGroupBox, QRadioButton, QButtonGroup
+    QWidget, QFormLayout, QRadioButton, QButtonGroup
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon
 
 from qfluentwidgets import setCustomStyleSheet, PushButton as FluentPushButton, PrimaryPushButton
+from gui.widgets.fluent_group_box import FluentGroupBox
 from config.constants import APP_NAME
 from utils.file_utils import get_app_dir
 
@@ -466,12 +467,7 @@ class FlasherDialog(QDialog):
         left_layout = QVBoxLayout()
         
         # 设备信息组
-        device_group = QGroupBox("设备信息")
-        setCustomStyleSheet(
-            device_group,
-            "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-            "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-        )
+        device_group = FluentGroupBox("设备信息")
         device_layout = QFormLayout()
         device_layout.setSpacing(10)
         
@@ -495,16 +491,11 @@ class FlasherDialog(QDialog):
         )
         device_layout.addRow("屏幕类型:", self.screen_combo)
         
-        device_group.setLayout(device_layout)
+        device_group.addLayout(device_layout)
         left_layout.addWidget(device_group)
         
         # 烧录版本组
-        version_group = QGroupBox("烧录版本")
-        setCustomStyleSheet(
-            version_group,
-            "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-            "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-        )
+        version_group = FluentGroupBox("烧录版本")
         version_layout = QVBoxLayout()
         version_layout.setSpacing(10)
         
@@ -534,16 +525,11 @@ class FlasherDialog(QDialog):
         )
         version_layout.addWidget(self.mirror_combo)
         
-        version_group.setLayout(version_layout)
+        version_group.addLayout(version_layout)
         left_layout.addWidget(version_group)
         
         # 按钮组
-        button_group = QGroupBox("操作")
-        setCustomStyleSheet(
-            button_group,
-            "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-            "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-        )
+        button_group = FluentGroupBox("操作")
         button_layout = QVBoxLayout()
         button_layout.setSpacing(8)
         
@@ -584,7 +570,7 @@ class FlasherDialog(QDialog):
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(self.update_firmware_button)
         
-        button_group.setLayout(button_layout)
+        button_group.addLayout(button_layout)
         left_layout.addWidget(button_group)
         
         left_layout.addStretch()
@@ -593,12 +579,7 @@ class FlasherDialog(QDialog):
         right_layout = QVBoxLayout()
         
         # 状态显示
-        status_group = QGroupBox("烧录状态")
-        setCustomStyleSheet(
-            status_group,
-            "QGroupBox { font-weight: bold; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #f8f9fa; border-radius: 4px; }",
-            "QGroupBox { font-weight: bold; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 10px; margin: 5px 0; } QGroupBox::title { subcontrol-position: top left; padding: 0 10px; background-color: #333; border-radius: 4px; }"
-        )
+        status_group = FluentGroupBox("烧录状态")
         status_layout = QVBoxLayout()
         status_layout.setSpacing(10)
         
@@ -620,7 +601,7 @@ class FlasherDialog(QDialog):
         )
         status_layout.addWidget(self.progress_bar)
         
-        status_group.setLayout(status_layout)
+        status_group.addLayout(status_layout)
         right_layout.addWidget(status_group)
         
 
