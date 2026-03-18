@@ -27,6 +27,7 @@ from qfluentwidgets import (
     StrongBodyLabel,
     CaptionLabel,
     PrimaryPushButton,
+    HyperlinkButton,
     PushButton,
     ProgressBar,
     ListWidget,
@@ -283,6 +284,13 @@ class RemotePage(QWidget):
         self.btnSSHShell.setIcon(FluentIcon.CODE)
         self.btnSSHShell.setEnabled(True)
         layout.addWidget(self.btnSSHShell)
+
+        self.btn_help = HyperlinkButton(
+            "https://ep.iccmc.cc/guide/develop/shell_access.html#%E9%80%9A%E8%BF%87rndis-usb%E7%BD%91%E7%BB%9C-%E5%B9%B6%E9%80%9A%E8%BF%87ssh%E6%8E%A5%E5%85%A5shell",
+            "如何使用？",
+        )
+        self.btn_help.setIcon(FluentIcon.HELP)
+        layout.addWidget(self.btn_help)
 
         # 分隔线
         line1 = QFrame()
