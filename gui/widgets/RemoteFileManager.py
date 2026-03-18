@@ -117,8 +117,10 @@ class RemoteFileManagerWindow(QWidget):
         progress_signal = pyqtSignal(int, str)  # 进度
 
         self.setWindowTitle("远程文件管理")
-        self.resize(1350, 1000)
+        self.resize(1000, 900)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)  # 阻塞主窗口
+
+        buttonWidth = 125
 
         # 主布局
         self.mainLayout = QVBoxLayout(self)
@@ -140,6 +142,22 @@ class RemoteFileManagerWindow(QWidget):
 
         # 挤占右边空间
         self.topPathLayout.addStretch()
+
+        self.btn_refresh = PushButton("刷新")
+        self.btn_refresh.setIcon(FluentIcon.UPDATE)
+        self.btn_refresh.setMinimumWidth(buttonWidth)
+        self.btn_refresh.setContentsMargins(10, 10, 10, 10)
+        self.btn_refresh.clicked.connect(self._on_refresh)
+        self.topPathLayout.addWidget(self.btn_refresh, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.btn_goParentFolder = PushButton("上一级")
+        self.btn_goParentFolder.setIcon(FluentIcon.UP)
+        self.btn_goParentFolder.setMinimumWidth(buttonWidth)
+        self.btn_goParentFolder.setContentsMargins(10, 10, 10, 10)
+        self.btn_goParentFolder.clicked.connect(self._on_goParentFolder)
+        self.topPathLayout.addWidget(
+            self.btn_goParentFolder, 0, Qt.AlignmentFlag.AlignRight
+        )
 
         # 文件浏览器滚动区域
         self.fileWarpper = QScrollArea()
@@ -175,23 +193,6 @@ class RemoteFileManagerWindow(QWidget):
 
         self.lb_DragTip = QLabel("可以将文件直接拖拽到上方列表来上传到当前文件夹")
         self.buttomLayout.addWidget(self.lb_DragTip, 1, Qt.AlignmentFlag.AlignLeft)
-
-        buttonWidth = 125
-        self.btn_refresh = PushButton("刷新")
-        self.btn_refresh.setIcon(FluentIcon.UPDATE)
-        self.btn_refresh.setMinimumWidth(buttonWidth)
-        self.btn_refresh.setContentsMargins(10, 10, 10, 10)
-        self.btn_refresh.clicked.connect(self._on_refresh)
-        self.buttomLayout.addWidget(self.btn_refresh, 0, Qt.AlignmentFlag.AlignRight)
-
-        self.btn_goParentFolder = PushButton("上一级")
-        self.btn_goParentFolder.setIcon(FluentIcon.UP)
-        self.btn_goParentFolder.setMinimumWidth(buttonWidth)
-        self.btn_goParentFolder.setContentsMargins(10, 10, 10, 10)
-        self.btn_goParentFolder.clicked.connect(self._on_goParentFolder)
-        self.buttomLayout.addWidget(
-            self.btn_goParentFolder, 0, Qt.AlignmentFlag.AlignRight
-        )
 
         self.btn_NewFolder = PushButton("新建文件夹")
         self.btn_NewFolder.setIcon(FluentIcon.FOLDER)
@@ -299,12 +300,12 @@ class RemoteFileManagerWindow(QWidget):
             if not self.TryStartSSH():
                 raise ValueError("初始化SSH失败")
 
-            self.worker = sshOperation.UploadWorker(
+            self.uploadWorker = sshOperation.UploadScatteredFilesWorker(
                 self.ssh, self.lb_currentPath.text(), all_files, offsetPath
             )
 
-            self.worker.progress_signal.connect(self.reportProcess)
-            self.worker.start()
+            self.uploadWorker.uploadScatteredProgressSignal.connect(self.reportProcess)
+            self.uploadWorker.start()
 
         except Exception as e:
             self.show_error(f"拖拽上传失败{e}")
@@ -356,8 +357,9 @@ class RemoteFileManagerWindow(QWidget):
             themeType = "light"
 
         # 使用字典重排序
-        self.fileList = sorted(fileList, key=lambda x: x.name)
-
+        self.fileList = sorted(
+            fileList, key=lambda x: (0 if x.type == "folder" else 1, x.name.lower())
+        )
         for file in self.fileList:
             filename = file.name
 
@@ -469,27 +471,19 @@ class RemoteFileManagerWindow(QWidget):
             localPath = QFileDialog.getExistingDirectory(self, "打开文件夹", "")
             if not localPath:
                 return
-            import threading
 
-            downloadThead = threading.Thread(
-                target=sshOperation.DownloadFile,
-                args=(
-                    self.ssh,
-                    f"{currentPath}/{filename}",
-                    f"{localPath}/",
-                    self.reportProcess,
-                ),
-                daemon=True,
+            self.downloadWorker = sshOperation.DownloadWorker(
+                self.ssh, f"{currentPath}/{filename}", f"{localPath}/"
             )
-            downloadThead.start()
+            self.downloadWorker.downloadProgressSignal.connect(self.reportProcess)
+            self.downloadWorker.start()
         except Exception as ex:
-            self.show_error(f"重命名失败{ex}")
+            self.show_error(f"下载失败：{ex}")
             logger.error(f"下载文件失败：{ex}", stack_info=True)
         return
 
     def _on_upload(self):
         try:
-            import threading
             from core.sshOperation import UploadDir
             from core.sshOperation import UploadFile
 
@@ -513,17 +507,11 @@ class RemoteFileManagerWindow(QWidget):
                 # 确保文件夹存在
                 stdin, stdout, stderr = self.ssh.exec_command(f"mkdir -p {remotePath}")
                 stdout.channel.recv_exit_status()
-                uploadThread = threading.Thread(
-                    target=UploadDir,
-                    args=(
-                        self.ssh,
-                        path,
-                        remotePath,
-                        self.reportProcess,
-                    ),
-                    daemon=True,
+                self.uploadDirWorker = sshOperation.UploadDirWorker(
+                    self.ssh, path, remotePath
                 )
-                uploadThread.start()
+                self.uploadDirWorker.uploadDirProgressSignal.connect(self.reportProcess)
+                self.uploadDirWorker.start()
             else:
                 path, _ = QFileDialog.getOpenFileName(
                     self, "打开文件", "", "所有文件 (*.*)"
@@ -533,19 +521,13 @@ class RemoteFileManagerWindow(QWidget):
                 # 确保文件夹存在
                 stdin, stdout, stderr = self.ssh.exec_command(f"mkdir -p {remotePath}")
                 stdout.channel.recv_exit_status()
-                uploadThread = threading.Thread(
-                    target=UploadFile,
-                    args=(
-                        self.ssh,
-                        path,
-                        remotePath,
-                        self.reportProcess,
-                        0,
-                        os.path.getsize(path),
-                    ),
-                    daemon=True,
+                self.uploadFileWorker = sshOperation.UploadFileWorker(
+                    self.ssh, path, remotePath, os.path.getsize(path)
                 )
-                uploadThread.start()
+                self.uploadFileWorker.uploadDirProgressSignal.connect(
+                    self.reportProcess
+                )
+                self.uploadFileWorker.start()
         except Exception as e:
             self.show_error(f"上传失败:{e}")
             logger.error(f"上传失败:{e}", exc_info=True)
