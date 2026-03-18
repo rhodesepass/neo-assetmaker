@@ -301,12 +301,12 @@ class RemoteFileManagerWindow(QWidget):
             if not self.TryStartSSH():
                 raise ValueError("初始化SSH失败")
 
-            self.worker = sshOperation.UploadWorker(
+            self.uploadWorker = sshOperation.UploadScatteredFilesWorker(
                 self.ssh, self.lb_currentPath.text(), all_files, offsetPath
             )
 
-            self.worker.uploadProgressSignal.connect(self.reportProcess)
-            self.worker.start()
+            self.uploadWorker.uploadScatteredProgressSignal.connect(self.reportProcess)
+            self.uploadWorker.start()
 
         except Exception as e:
             self.show_error(f"拖拽上传失败{e}")
@@ -472,27 +472,19 @@ class RemoteFileManagerWindow(QWidget):
             localPath = QFileDialog.getExistingDirectory(self, "打开文件夹", "")
             if not localPath:
                 return
-            import threading
 
-            downloadThead = threading.Thread(
-                target=sshOperation.DownloadFile,
-                args=(
-                    self.ssh,
-                    f"{currentPath}/{filename}",
-                    f"{localPath}/",
-                    self.reportProcess,
-                ),
-                daemon=True,
+            self.downloadWorker = sshOperation.DownloadWorker(
+                self.ssh, f"{currentPath}/{filename}", f"{localPath}/"
             )
-            downloadThead.start()
+            self.downloadWorker.downloadProgressSignal.connect(self.reportProcess)
+            self.downloadWorker.start()
         except Exception as ex:
-            self.show_error(f"重命名失败{ex}")
+            self.show_error(f"下载失败：{ex}")
             logger.error(f"下载文件失败：{ex}", stack_info=True)
         return
 
     def _on_upload(self):
         try:
-            import threading
             from core.sshOperation import UploadDir
             from core.sshOperation import UploadFile
 
@@ -516,17 +508,11 @@ class RemoteFileManagerWindow(QWidget):
                 # 确保文件夹存在
                 stdin, stdout, stderr = self.ssh.exec_command(f"mkdir -p {remotePath}")
                 stdout.channel.recv_exit_status()
-                uploadThread = threading.Thread(
-                    target=UploadDir,
-                    args=(
-                        self.ssh,
-                        path,
-                        remotePath,
-                        self.reportProcess,
-                    ),
-                    daemon=True,
+                self.uploadDirWorker = sshOperation.UploadDirWorker(
+                    self.ssh, path, remotePath
                 )
-                uploadThread.start()
+                self.uploadDirWorker.uploadDirProgressSignal.connect(self.reportProcess)
+                self.uploadDirWorker.start()
             else:
                 path, _ = QFileDialog.getOpenFileName(
                     self, "打开文件", "", "所有文件 (*.*)"
@@ -536,19 +522,13 @@ class RemoteFileManagerWindow(QWidget):
                 # 确保文件夹存在
                 stdin, stdout, stderr = self.ssh.exec_command(f"mkdir -p {remotePath}")
                 stdout.channel.recv_exit_status()
-                uploadThread = threading.Thread(
-                    target=UploadFile,
-                    args=(
-                        self.ssh,
-                        path,
-                        remotePath,
-                        self.reportProcess,
-                        0,
-                        os.path.getsize(path),
-                    ),
-                    daemon=True,
+                self.uploadFileWorker = sshOperation.UploadFileWorker(
+                    self.ssh, path, remotePath, os.path.getsize(path)
                 )
-                uploadThread.start()
+                self.uploadFileWorker.uploadDirProgressSignal.connect(
+                    self.reportProcess
+                )
+                self.uploadFileWorker.start()
         except Exception as e:
             self.show_error(f"上传失败:{e}")
             logger.error(f"上传失败:{e}", exc_info=True)
