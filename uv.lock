@@ -823,7 +823,6 @@ dependencies = [
     { name = "pyqt6-fluent-widgets" },
     { name = "pyqt6-webengine" },
     { name = "python-levenshtein" },
-    { name = "pyusb" },
     { name = "requests" },
     { name = "scp" },
     { name = "thefuzz" },
@@ -851,7 +850,6 @@ requires-dist = [
     { name = "pyqt6-fluent-widgets", specifier = ">=1.5.0" },
     { name = "pyqt6-webengine", specifier = ">=6.5.0" },
     { name = "python-levenshtein", specifier = ">=0.25.0" },
-    { name = "pyusb", specifier = ">=1.2" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "scp", specifier = ">=0.15.0" },
     { name = "thefuzz", specifier = ">=0.22.0" },
@@ -4262,15 +4260,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/b4/36eda4188dd19d3cb53d8a8749d7520bd23dfe1c1f44e56ea9dcd0232274/python_levenshtein-0.27.3.tar.gz", hash = "sha256:27dc2d65aeb62a7d6852388f197073296370779286c0860b087357f3b8129a62", size = 12446, upload-time = "2025-11-01T12:54:59.712Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7b/5b/26e3cca2589252ceabf964ba81514e6f48556553c9c2766e1a0fdceec696/python_levenshtein-0.27.3-py3-none-any.whl", hash = "sha256:5d6168a8e8befb25abf04d2952368a446722be10e8ced218d0dc4fd3703a43a1", size = 9504, upload-time = "2025-11-01T12:54:58.933Z" },
-]
-
-[[package]]
-name = "pyusb"
-version = "1.3.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/00/6b/ce3727395e52b7b76dfcf0c665e37d223b680b9becc60710d4bc08b7b7cb/pyusb-1.3.1.tar.gz", hash = "sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e", size = 77281, upload-time = "2025-01-08T23:45:01.866Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/28/b8/27e6312e86408a44fe16bd28ee12dd98608b39f7e7e57884a24e8f29b573/pyusb-1.3.1-py3-none-any.whl", hash = "sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430", size = 58465, upload-time = "2025-01-08T23:45:00.029Z" },
 ]
 
 [[package]]

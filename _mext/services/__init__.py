@@ -1,7 +1,6 @@
 """Service layer for the asset store.
 
-Provides API communication, authentication, downloads, FIDO2 integration,
-USB device monitoring, and MTP file transfers.
+Provides API communication, authentication, downloads, and FIDO2 integration.
 """
 
 __all__ = [
@@ -12,8 +11,6 @@ __all__ = [
     "Fido2ClientWrapper",
     "Fido2RegisterWorker",
     "Fido2AuthWorker",
-    "UsbService",
-    "MtpService",
 ]
 
 
@@ -27,8 +24,6 @@ def __getattr__(name: str):  # noqa: N807
         "Fido2ClientWrapper": "_mext.services.fido2_client",
         "Fido2RegisterWorker": "_mext.services.fido2_worker",
         "Fido2AuthWorker": "_mext.services.fido2_worker",
-        "UsbService": "_mext.services.usb_service",
-        "MtpService": "_mext.services.mtp_service",
     }
     if name in _import_map:
         import importlib

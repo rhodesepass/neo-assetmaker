@@ -45,7 +45,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QLabel,
     QScrollArea,
-    QGroupBox,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,

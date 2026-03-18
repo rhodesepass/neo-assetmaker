@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QMessageBox, QGroupBox,
+    QListWidget, QListWidgetItem, QMessageBox,
     QTextEdit, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont
 from qfluentwidgets import (
     setCustomStyleSheet, PushButton, PrimaryPushButton
 )
+from gui.widgets.fluent_group_box import FluentGroupBox
 from core.crash_recovery_service import RecoveryInfo, CrashRecoveryService
 
 logger = logging.getLogger(__name__)
@@ -111,17 +112,17 @@ class CrashRecoveryDialog(QDialog):
         setCustomStyleSheet(desc_label, "color: #666; margin-bottom: 10px;", "color: #aaa; margin-bottom: 10px;")
         layout.addWidget(desc_label)
 
-        list_group = QGroupBox("可恢复项目")
+        list_group = FluentGroupBox("可恢复项目")
         list_layout = QVBoxLayout()
 
         self.recovery_list = RecoveryListWidget()
         self.recovery_list.item_selected.connect(self._on_recovery_selected)
         list_layout.addWidget(self.recovery_list)
 
-        list_group.setLayout(list_layout)
+        list_group.addLayout(list_layout)
         layout.addWidget(list_group)
 
-        detail_group = QGroupBox("详细信息")
+        detail_group = FluentGroupBox("详细信息")
         detail_layout = QVBoxLayout()
 
         self.detail_text = QTextEdit()
@@ -134,7 +135,7 @@ class CrashRecoveryDialog(QDialog):
         )
         detail_layout.addWidget(self.detail_text)
 
-        detail_group.setLayout(detail_layout)
+        detail_group.addLayout(detail_layout)
         layout.addWidget(detail_group)
 
         self.progress_bar = QProgressBar()

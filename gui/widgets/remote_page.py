@@ -182,6 +182,7 @@ class RemotePage(QWidget):
         self._connect_worker = None
         self._restart_worker = None
         self._local_file_path = ""
+        self._stream_widget = None
 
         self._init_ui()
         self._connect_signals()
@@ -379,6 +380,7 @@ class RemotePage(QWidget):
             logger.error(f"启动shell失败{e}", stack_info=True)
             self.show_error(f"启动shell失败{e}")
         return
+        self.btnDeviceStream.clicked.connect(self._on_device_stream)
 
     def _on_upload_remote_file(self):
         host, port, user, password, remote_path = self._get_ssh_params()
@@ -389,6 +391,33 @@ class RemotePage(QWidget):
         )
         self.fileManager.show()
         return
+
+    def _on_device_stream(self):
+        """切换中栏到实时画面显示"""
+        from gui.widgets.device_stream_widget import DeviceStreamWidget
+
+        # 延迟创建 DeviceStreamWidget
+        if self._stream_widget is None:
+            self._stream_widget = DeviceStreamWidget(self.middlePanel)
+            self.middlePanel.layout().addWidget(self._stream_widget)
+
+        # 设置 SSH 参数
+        host, port, user, password, _ = self._get_ssh_params()
+        self._stream_widget.set_ssh_params(host, port, user, password)
+
+        # 切换显示：隐藏素材列表，显示串流
+        if self._stream_widget.isVisible():
+            # 已在串流视图 → 切回素材列表
+            self._stream_widget.shutdown()
+            self._stream_widget.hide()
+            self.assetDetailList.show()
+            self.middleTitleLabel.setText("远程素材详情")
+            self.btnDeviceStream.setText("实时画面")
+        else:
+            self.assetDetailList.hide()
+            self._stream_widget.show()
+            self.middleTitleLabel.setText("实时画面")
+            self.btnDeviceStream.setText("返回素材列表")
 
     # ─── 日志 ────────────────────────────────────────────
 
@@ -430,6 +459,7 @@ class RemotePage(QWidget):
         self.btnRefreshList.setEnabled(not busy and self._is_connected)
         self.btnUploadLocal.setEnabled(not busy and self._is_connected)
         self.btnRestartDrm.setEnabled(not busy and self._is_connected)
+        self.btnDeviceStream.setEnabled(not busy and self._is_connected)
         # 设置中栏列表项按钮的启用状态
         for i in range(self.assetDetailList.count()):
             item = self.assetDetailList.item(i)
@@ -501,6 +531,7 @@ class RemotePage(QWidget):
             self.btnRefreshList.setEnabled(True)
             self.btnUploadLocal.setEnabled(True)
             self.btnRestartDrm.setEnabled(True)
+            self.btnDeviceStream.setEnabled(True)
         else:
             self.connectionStatusLabel.setText("未连接")
             setCustomStyleSheet(
@@ -512,6 +543,13 @@ class RemotePage(QWidget):
             self.btnRefreshList.setEnabled(False)
             self.btnUploadLocal.setEnabled(False)
             self.btnRestartDrm.setEnabled(False)
+            self.btnDeviceStream.setEnabled(False)
+            # 断开时停止串流并切回素材列表
+            if self._stream_widget is not None:
+                self._stream_widget.shutdown()
+                self._stream_widget.hide()
+                self.assetDetailList.show()
+                self.middleTitleLabel.setText("远程素材详情")
             # 断开时清空列表
             self.assetDetailList.clear()
 
@@ -956,6 +994,8 @@ class RemotePage(QWidget):
 
     def shutdown(self):
         """关闭页面，取消所有进行中的操作"""
+        if self._stream_widget is not None:
+            self._stream_widget.shutdown()
         workers = [
             self._upload_worker,
             self._list_worker,

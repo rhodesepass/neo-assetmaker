@@ -21,7 +21,6 @@ dependencies = [
     "httpx>=0.27",
     "keyring>=25",
     "platformdirs>=4",
-    "pyusb>=1.2",
     "fido2>=2.1",
     "scp>=0.15.0",
 ]
