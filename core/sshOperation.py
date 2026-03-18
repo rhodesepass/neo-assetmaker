@@ -301,7 +301,7 @@ def UploadDir(
 
 
 class UploadWorker(QThread):
-    progress_signal = pyqtSignal(int, str)  # 进度百分比, 文本
+    uploadProgressSignal = pyqtSignal(int, str)  # 进度百分比, 文本
 
     def __init__(self, ssh, currentPath, all_files, offetPath):
         super().__init__()
@@ -327,4 +327,34 @@ class UploadWorker(QThread):
             )
 
     def report_progress(self, percent, text):
-        self.progress_signal.emit(percent, text)
+        self.uploadProgressSignal.emit(percent, text)
+
+
+class DownloadWorker(QThread):
+    downloadProgressSignal = pyqtSignal(int, str)
+
+    def __init__(self, ssh, currentPath, all_files, offetPath):
+        super().__init__()
+        self.ssh = ssh
+        self.all_files = all_files
+        self.offetPath = offetPath
+        self.currentPath = currentPath
+
+    def run(self):
+        for i, f in enumerate(self.all_files):
+            _, stdout, _ = self.ssh.exec_command(
+                f"mkdir {self.currentPath}/{os.path.dirname(self.offetPath[i])}",
+                timeout=15,
+            )
+            stdout.channel.recv_exit_status()
+            UploadFile(
+                self.ssh,
+                f,
+                f"{self.currentPath}/{self.offetPath[i]}",
+                self.report_progress,
+                0,
+                os.path.getsize(f),
+            )
+
+    def report_progress(self, percent, text):
+        self.uploadProgressSignal.emit(percent, text)

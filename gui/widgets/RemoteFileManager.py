@@ -305,7 +305,7 @@ class RemoteFileManagerWindow(QWidget):
                 self.ssh, self.lb_currentPath.text(), all_files, offsetPath
             )
 
-            self.worker.progress_signal.connect(self.reportProcess)
+            self.worker.uploadProgressSignal.connect(self.reportProcess)
             self.worker.start()
 
         except Exception as e:
