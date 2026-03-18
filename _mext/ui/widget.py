@@ -2,7 +2,7 @@
 
 MaterialForumWidget is designed to be embedded in any QWidget-based
 host application. It provides a Pivot-based tab navigation between
-all major pages (Forum, Library, Downloads, USB, Settings).
+all major pages (Forum, Library, Downloads, Settings).
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ _PAGE_FACTORIES = [
     ("ForumPage", "_mext.ui.pages.forum_page", "ForumPage"),
     ("LibraryPage", "_mext.ui.pages.library_page", "LibraryPage"),
     ("DownloadsPage", "_mext.ui.pages.downloads_page", "DownloadsPage"),
-    ("UsbPage", "_mext.ui.pages.usb_page", "UsbPage"),
     ("SettingsPage", "_mext.ui.pages.settings_page", "SettingsPage"),
 ]
 
@@ -97,14 +96,9 @@ class MaterialForumWidget(QWidget):
             onClick=lambda: self._switch_page(2, "downloads"),
         )
         self._pivot.addItem(
-            routeKey="usb",
-            text="USB 设备",
-            onClick=lambda: self._switch_page(3, "usb"),
-        )
-        self._pivot.addItem(
             routeKey="settings",
             text="设置",
-            onClick=lambda: self._switch_page(4, "settings"),
+            onClick=lambda: self._switch_page(3, "settings"),
         )
 
         self._pivot.setCurrentItem("forum")

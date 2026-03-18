@@ -1,8 +1,8 @@
 """Central service registry for the asset store.
 
 Provides lazy-initialized access to all application services and emits
-signals for cross-cutting concerns like download progress, auth state
-changes, and USB device events.
+signals for cross-cutting concerns like download progress and auth state
+changes.
 """
 
 from __future__ import annotations
@@ -18,8 +18,6 @@ if TYPE_CHECKING:
     from _mext.services.auth_service import AuthService
     from _mext.services.download_engine import DownloadEngine
     from _mext.services.fido2_client import Fido2ClientWrapper
-    from _mext.services.mtp_service import MtpService
-    from _mext.services.usb_service import UsbService
 
 
 class ServiceManager(QObject):
@@ -40,9 +38,6 @@ class ServiceManager(QObject):
     auth_state_changed(bool)
         Emitted when the user logs in or out. Payload is ``True`` if
         authenticated, ``False`` otherwise.
-    usb_device_changed(str, bool)
-        Emitted when a USB device is connected or disconnected.
-        Payload is (device_id, connected).
     """
 
     # Signals
@@ -50,7 +45,6 @@ class ServiceManager(QObject):
     download_completed = Signal(str)
     download_failed = Signal(str, str)
     auth_state_changed = Signal(bool)
-    usb_device_changed = Signal(str, bool)
 
     def __init__(self, config: Optional[Config] = None, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -61,8 +55,6 @@ class ServiceManager(QObject):
         self._auth_service: Optional[AuthService] = None
         self._download_engine: Optional[DownloadEngine] = None
         self._fido2_client: Optional[Fido2ClientWrapper] = None
-        self._usb_service: Optional[UsbService] = None
-        self._mtp_service: Optional[MtpService] = None
 
         self._is_shutdown = False
 
@@ -124,29 +116,6 @@ class ServiceManager(QObject):
             self._fido2_client = Fido2ClientWrapper(config=self._config)
         return self._fido2_client
 
-    @property
-    def usb_service(self) -> UsbService:
-        """Return the USB monitoring service, creating it on first access."""
-        if self._usb_service is None:
-            from _mext.services.usb_service import UsbService
-
-            self._usb_service = UsbService(parent=self)
-            self._usb_service.device_connected.connect(
-                lambda info: self.usb_device_changed.emit(info.get("device_id", "unknown"), True)
-            )
-            self._usb_service.device_disconnected.connect(
-                lambda dev_id: self.usb_device_changed.emit(dev_id, False)
-            )
-        return self._usb_service
-
-    @property
-    def mtp_service(self) -> MtpService:
-        """Return the MTP service, creating it on first access."""
-        if self._mtp_service is None:
-            from _mext.services.mtp_service import MtpService
-
-            self._mtp_service = MtpService()
-        return self._mtp_service
 
     # -- Lifecycle --
 
@@ -161,20 +130,9 @@ class ServiceManager(QObject):
 
         self._is_shutdown = True
 
-        # Stop USB polling
-        if self._usb_service is not None:
-            self._usb_service.stop_monitoring()
-
         # Cancel active downloads
         if self._download_engine is not None:
             self._download_engine.cancel_all()
-
-        # Close MTP sessions
-        if self._mtp_service is not None:
-            try:
-                self._mtp_service.close_session()
-            except Exception:
-                pass
 
         # Logout / cleanup auth
         if self._auth_service is not None:

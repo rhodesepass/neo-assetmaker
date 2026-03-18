@@ -81,6 +81,8 @@ class LibraryPage(QWidget):
         self._tab_bar.addTab("all", "All Materials")
         self._tab_bar.addTab("favorites", "Favorites")
         self._tab_bar.setCurrentTab("all")
+        self._tab_bar.setTabsClosable(False)
+        self._tab_bar.setAddButtonVisible(False)
         header_layout.addWidget(self._tab_bar)
 
         header_layout.addStretch()

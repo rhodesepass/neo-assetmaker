@@ -33,21 +33,6 @@ MAX_CONCURRENT_DOWNLOADS: int = 3
 DOWNLOAD_CHUNK_SIZE: int = 1024 * 64  # 64 KB
 DOWNLOAD_TEMP_SUFFIX: str = ".tmp"
 
-# USB / MTP
-USB_POLL_INTERVAL_MS: int = 2000
-MTP_SESSION_ID: int = 1
-MTP_CONTAINER_HEADER_SIZE: int = 12
-
-# Electric Pass MTP storage IDs
-ELECTRIC_PASS_STORAGE_IDS: dict[str, int] = {
-    "slot_1": 0xFFFF0001,
-    "slot_2": 0xFFFF0002,
-    "slot_3": 0xFFFF0003,
-    "slot_4": 0xFFFF0004,
-    "slot_5": 0xFFFF0005,
-    "slot_6": 0xFFFF0006,
-}
-
 # Keyring
 KEYRING_SERVICE_NAME: str = "AssetStore"
 KEYRING_REFRESH_TOKEN_KEY: str = "refresh_token"
