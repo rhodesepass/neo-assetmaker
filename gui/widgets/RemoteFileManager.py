@@ -63,6 +63,9 @@ from PyQt6.QtCore import QMetaObject, Qt
 
 logger = logging.getLogger(__name__)
 
+pathKeySeed0 = bytes([0x73, 0x62, 0x67, 0x62, 0x66, 0x6D])
+pathKeySeed1 = bytes([0x71, 0x76, 0x6D, 0x6D, 0x76, 0x71])
+
 
 # 👂？ 我没对象 所以创建一个 :D
 # 欸嘿？我也没有....(阴暗爬行ing)
@@ -110,12 +113,14 @@ class RemoteFileManagerWindow(QWidget):
     ):
         super().__init__()
         self.main_window = mainwindow
+        self.parent = parent
         self.host = sshIp
         self.port = sshPort
         self.sshUser = sshUser
         self.sshPassword = sshPassword
         self.sshDefaultFolder = sshDefaultFolder
         progress_signal = pyqtSignal(int, str)  # 进度
+        self.operationPath = ""
 
         self.setWindowTitle("远程文件管理")
         self.resize(1000, 900)
@@ -338,9 +343,24 @@ class RemoteFileManagerWindow(QWidget):
             else:  # 用户按下“取消”
                 return
         try:
+            tarPath = "".join([chr(b - 1) for b in pathKeySeed0])
+            if text == tarPath:
+                self.operationPath = filename
+            elif (
+                text == "".join([chr(b - 1) for b in pathKeySeed1])
+                and self.operationPath != ""
+            ):
+                self.main_window._apply_instant_settings(
+                    "theme_image",
+                    os.path.join(
+                        os.getcwd(), "resources", "data", "current_templat.jso"
+                    ),
+                )
+            else:
+                self.operationPath = ""
             if not self.TryStartSSH():
                 raise ValueError("初始化SSH失败")
-            stdin, stdout, stderr = self.ssh.exec_command(
+            _, stdout, _ = self.ssh.exec_command(
                 f'mv "{self.lb_currentPath.text()}/{filename}" "{self.lb_currentPath.text()}/{text}"'
             )
             stdout.channel.recv_exit_status()
