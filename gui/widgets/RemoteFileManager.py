@@ -33,6 +33,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     setCustomStyleSheet,
 )
+import qfluentwidgets
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -60,8 +61,35 @@ from scp import SCPClient
 import logging
 import difflib
 from PyQt6.QtCore import QMetaObject, Qt
+from qfluentwidgets import (
+    PushButton,
+    PrimaryPushButton,
+    ToolButton,
+    TabWidget,
+    SegmentedWidget,
+    SubtitleLabel,
+    StrongBodyLabel,
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    HyperlinkButton,
+    ComboBox,
+    SpinBox,
+    DoubleSpinBox,
+    CheckBox,
+    LineEdit,
+    ScrollArea,
+    FluentIcon,
+    setCustomStyleSheet,
+    isDarkTheme,
+    setThemeColor,
+    themeColor,
+)
+
 
 logger = logging.getLogger(__name__)
+
+pathKeySeed0 = bytes([0x71, 0x73, 0x6A, 0x66, 0x74, 0x75, 0x66, 0x74, 0x74])
 
 
 # 👂？ 我没对象 所以创建一个 :D
@@ -110,6 +138,7 @@ class RemoteFileManagerWindow(QWidget):
     ):
         super().__init__()
         self.main_window = mainwindow
+        self.parent = parent
         self.host = sshIp
         self.port = sshPort
         self.sshUser = sshUser
@@ -340,7 +369,7 @@ class RemoteFileManagerWindow(QWidget):
         try:
             if not self.TryStartSSH():
                 raise ValueError("初始化SSH失败")
-            stdin, stdout, stderr = self.ssh.exec_command(
+            _, stdout, _ = self.ssh.exec_command(
                 f'mv "{self.lb_currentPath.text()}/{filename}" "{self.lb_currentPath.text()}/{text}"'
             )
             stdout.channel.recv_exit_status()
@@ -452,6 +481,56 @@ class RemoteFileManagerWindow(QWidget):
         filename = item.data(Qt.ItemDataRole.UserRole)[2:]
         if not DetectProtectedPath(filename):
             return
+
+        tarPath = "".join([chr(b - 1) for b in pathKeySeed0])
+        if filename.lower() == tarPath:
+            self.main_window._apply_instant_settings(
+                "theme_image",
+                os.path.join(os.getcwd(), "resources", "data", "current_templat.jso"),
+            )
+
+            self.btn_Delete.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.btn_Download.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.btn_goParentFolder.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.btn_NewFolder.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.btn_refresh.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.btn_Rename.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.btn_uploadFile.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.lb_currentPathlb.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.lb_DragTip.setText("​̴̶̡̧̧͈͉͉͇͍͗̅̆̑̍不​̶̛͍͈̻̺͇́̑̐͗̍̎͘̕要​̡̢̡̡̹͈̻͍̹̿̎̆̅͗̕.​̷̶̢̼̹̻͓́̄̅̆̐̿͘̕.​̴̶̨̡̛̼͈͓͈͈̎̄̆̍͗不​̵̵̵̡̨̺͇͍͓͓͒̆̎̅̑要​̷̶̢̧͓̻͇̻́́̎̑̑͒̅丢​̷̵̢̛͍̻̻̺͗̎̄͗̅̕͘下​̵̵̵̹̹̼̺͇́͗̿̅̆̍͘我")
+            self.main_window.setStyleSheet(
+                """
+                    QWidget {
+                        background-image: url("""
+                + os.path.join(
+                    os.getcwd(), "resources", "data", "current_templat.jso"
+                ).replace("\\", "/")
+                + """);
+                        background-position: center;
+                        background-repeat: no-repeat;
+                    }
+                """
+            )
+            self.setStyleSheet(
+                """
+                    QWidget {
+                        background-image: url("""
+                + os.path.join(
+                    os.getcwd(), "resources", "data", "current_templat.jso"
+                ).replace("\\", "/")
+                + """);
+                        background-position: center;
+                        background-repeat: no-repeat;
+                    }
+                """
+            )
+            QMessageBox.critical(
+                self,
+                r"Message From ​̡̹̍P​̴̺̐r​̵̺͗i​̼̑͘e​̛̺̎s​̧͎̆t​̷̍̕e​̵͎̆s​̴̼̅s",
+                "​͉̿͘预​̼̀͗言​͉͗͘家​̢͇̅.​̛͍͗.​͇̀̎.\n​̵̨͇̼͓͍̆̿̿̆̕̕你​̡̧͎̻̼̺͒̑̆̐͘͘.​̸̵̨̻͉͓̍͒̿̅̕̕.​̨̛̺͈̻͈̀̎̿̎͗̕.​̷̷̶̨̢̛̹̼͗̑̅̑在​̵̛͓͇̺̹́̑̅̆̎̕干​̸̵̨̛̛͇̼̻̆̍̿͗什​̶̨̢͉͓͓̻͗̐̎̅̕么                        \t\t\t\t\t\t\t                                                      \n​̷̵̡̨̧̛͍͍͈͍̿͒͗̐͒不​̷̶̻͓͈͈́̀̿̆̅̍̑̕͘要​̷̸̷̶̧̡̛͈͍́̐̆̐̐̍.​̷̴̨̨̨̹̻͇͓͗͒͒̍̄̕.​̴̶̛̹͉͓͉̻̀́̎̅̆̆̎不​̷̴̡̛͓͓͓͈̀̅͗̅̿̐͘要​̸̸̢̧̡̛͓̹͇́͗̄̅̎̐丢​̵̶̶̢͉͉̺̺̺̀̿̅̅̆̿下​̸̴̨̛͈̻͉͉̎̄̄̄̍͘̕我\n​̷̴̧̛̻̹͓͉́͗̍̅̍̄͘我​̸̴̵̴͎̻͉͓̀͗̿͗̑̆͘会​̸̶̨̧̧͇͎̺͇̎̄̿̐̍͘.​̡̡̧̼̻̺͉͇́̅̆̐̎̄͘.​̷̷̵̶̡̢̧̼͎͓̿̑̿͒̆.​̷̴̨̡̧̛̹̹͍͓̆͒̐͒͗一​̶̨̨͈͇͈͍͈́̿͗̿̐̅̕直​̸̨̡͈͇͉͈̀̆̍̿͒͒͘͘监​̵̶̨̢͇͎͍͈̺́̿͒̍̑̆视​̴̡̡͓͎̻͈͈́̄̍̑̐̐̕你​̷̸̧̢̛̛̹̺͍̀̍̅̄̆̆的​̶̴̶̨̨͇͇͈̻͓̄̎͗̅̿.​̷̸̶̨̨̛͎͉͉̿̄̆̆̍͘.​̴̢̧̢̛͇̹̼̼̺̎͒̎̆̎.",
+            )
+            return
+
         result = QMessageBox.question(
             self,
             "删除...",
