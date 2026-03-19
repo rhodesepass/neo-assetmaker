@@ -537,16 +537,16 @@ class FlasherDialog(QDialog):
         self.install_driver_button = FluentPushButton("安装驱动")
         setCustomStyleSheet(
             self.install_driver_button,
-            "FluentPushButton { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } FluentPushButton:hover { background-color: #45a049; } FluentPushButton:pressed { background-color: #3d8b40; }",
-            "FluentPushButton { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } FluentPushButton:hover { background-color: #45a049; } FluentPushButton:pressed { background-color: #3d8b40; }"
+            "PushButton { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } PushButton:hover { background-color: #45a049; } PushButton:pressed { background-color: #3d8b40; }",
+            "PushButton { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } PushButton:hover { background-color: #45a049; } PushButton:pressed { background-color: #3d8b40; }"
         )
         self.install_driver_button.clicked.connect(self._on_install_driver)
         
         self.get_version_button = FluentPushButton("获取版本信息")
         setCustomStyleSheet(
             self.get_version_button,
-            "FluentPushButton { background-color: #666; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } FluentPushButton:hover { background-color: #555; } FluentPushButton:pressed { background-color: #444; }",
-            "FluentPushButton { background-color: #666; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } FluentPushButton:hover { background-color: #555; } FluentPushButton:pressed { background-color: #444; }"
+            "PushButton { background-color: #666; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } PushButton:hover { background-color: #555; } PushButton:pressed { background-color: #444; }",
+            "PushButton { background-color: #666; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } PushButton:hover { background-color: #555; } PushButton:pressed { background-color: #444; }"
         )
         self.get_version_button.clicked.connect(self._on_get_version)
         
@@ -556,8 +556,8 @@ class FlasherDialog(QDialog):
         self.update_firmware_button = FluentPushButton("更新固件")
         setCustomStyleSheet(
             self.update_firmware_button,
-            "FluentPushButton { background-color: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } FluentPushButton:hover { background-color: #1976D2; } FluentPushButton:pressed { background-color: #1565C0; }",
-            "FluentPushButton { background-color: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } FluentPushButton:hover { background-color: #1976D2; } FluentPushButton:pressed { background-color: #1565C0; }"
+            "PushButton { background-color: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } PushButton:hover { background-color: #1976D2; } PushButton:pressed { background-color: #1565C0; }",
+            "PushButton { background-color: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: 500; } PushButton:hover { background-color: #1976D2; } PushButton:pressed { background-color: #1565C0; }"
         )
         self.update_firmware_button.clicked.connect(self._on_update_firmware)
 

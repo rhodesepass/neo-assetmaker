@@ -65,6 +65,9 @@ class VideoPreviewWidget(QWidget):
         self._reader_thread = None
         # 标记是否有活跃的视频（用于替代 self.cap is not None 的检查）
         self._has_video: bool = False
+        # 加载代数守卫：每次 clear()/load_video() 递增，回调检查是否匹配
+        self._load_generation: int = 0
+        self._active_gen: int = 0
 
         self.is_playing: bool = False
         self.timer = QTimer(self)
@@ -168,6 +171,24 @@ class VideoPreviewWidget(QWidget):
     def _stop_reader_thread(self):
         """安全停止后台帧读取线程"""
         if self._reader_thread is not None:
+            # 先断开所有信号连接，防止已排队的旧信号触发回调
+            try:
+                self._reader_thread.video_opened.disconnect(self._on_video_opened)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._reader_thread.video_open_failed.disconnect(self._on_video_open_failed)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._reader_thread.frame_ready.disconnect(self._on_frame_ready)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._reader_thread.yuv_frame_ready.disconnect(self._on_yuv_frame_ready)
+            except (TypeError, RuntimeError):
+                pass
+
             self._reader_thread.request_stop()
             self._reader_thread.wait(3000)  # 最多等待 3 秒
             if self._reader_thread.isRunning():
@@ -180,6 +201,8 @@ class VideoPreviewWidget(QWidget):
     def _on_video_opened(self, fps: float, width: int, height: int,
                          total_frames: int):
         """后台线程成功打开视频的回调（主线程执行）"""
+        if self._active_gen != self._load_generation:
+            return
         self.video_fps = fps
         self.video_width = width
         self.video_height = height
@@ -201,6 +224,8 @@ class VideoPreviewWidget(QWidget):
 
     def _on_video_open_failed(self, error_msg: str):
         """视频打开失败的回调"""
+        if self._active_gen != self._load_generation:
+            return
         logger.error(f"视频加载失败: {error_msg}")
         self._display_stack.setCurrentIndex(0)
         self.video_label.setText(f"加载失败: {error_msg}")
@@ -213,6 +238,8 @@ class VideoPreviewWidget(QWidget):
 
         仅在 GL 编辑模式下调用（工作线程 _gl_mode=True 且非预览模式）。
         """
+        if self._active_gen != self._load_generation:
+            return
         if not (self._use_gl and self._gl_renderer
                 and not self._gl_renderer.gl_failed):
             return  # GL 不可用，由 frame_ready 处理
@@ -233,6 +260,8 @@ class VideoPreviewWidget(QWidget):
         GL 预览模式：CPU 处理后上传 BGR 到 GPU
         QLabel 模式：QImage → QPixmap.scaled() → setPixmap()
         """
+        if self._active_gen != self._load_generation:
+            return
         self.current_frame_index = frame_index
         self.current_frame = raw_frame  # 保存原始帧，供 cropbox 交互即时重绘
 
@@ -317,6 +346,7 @@ class VideoPreviewWidget(QWidget):
             self.video_label.setText(f"文件不存在: {path}")
             return False
 
+        self._load_generation += 1
         self._stop_reader_thread()
         self.pause()
         self._loop_frame = None
@@ -331,6 +361,7 @@ class VideoPreviewWidget(QWidget):
         self._reader_thread.video_open_failed.connect(self._on_video_open_failed)
         self._reader_thread.frame_ready.connect(self._on_frame_ready)
         self._reader_thread.yuv_frame_ready.connect(self._on_yuv_frame_ready)
+        self._active_gen = self._load_generation
         self._reader_thread.start()
 
         self._sync_state_to_reader()
@@ -965,15 +996,26 @@ class VideoPreviewWidget(QWidget):
 
             if (old_orthogonal and new_orthogonal
                     and self.video_width > 0 and self.video_height > 0):
-                # 正交角度间切换：变换 cropbox 坐标以跟踪相同内容
+                # 正交角度间切换：中心点跟踪 + 尺寸保持
+                # 保存旋转前的 cropbox 尺寸（已满足 target_aspect_ratio）
+                old_crop_w, old_crop_h = self.cropbox[2], self.cropbox[3]
                 # Step 1: 旧旋转空间 → 原始坐标（self._rotation 仍为旧值）
                 ox, oy, ow, oh = self._cropbox_to_original_coords(
                     *self.cropbox)
                 # Step 2: 更新旋转角度
                 self._rotation = degrees
-                # Step 3: 原始坐标 → 新旋转空间
-                self.cropbox = list(
-                    self._original_to_rotated_coords(ox, oy, ow, oh))
+                # Step 3: 原始坐标 → 新旋转空间（用于计算变换后的中心点）
+                nx, ny, nw, nh = self._original_to_rotated_coords(
+                    ox, oy, ow, oh)
+                # Step 4: 以变换后的中心点定位，保持原始尺寸（维持宽高比）
+                new_cx = nx + nw / 2.0
+                new_cy = ny + nh / 2.0
+                self.cropbox = [
+                    int(new_cx - old_crop_w / 2.0),
+                    int(new_cy - old_crop_h / 2.0),
+                    old_crop_w,
+                    old_crop_h,
+                ]
                 self._bound_cropbox()
             else:
                 self._rotation = degrees
@@ -1237,6 +1279,7 @@ class VideoPreviewWidget(QWidget):
 
     def clear(self):
         """清空预览状态"""
+        self._load_generation += 1
         self.pause()
         self._stop_reader_thread()
         self._loop_frame = None

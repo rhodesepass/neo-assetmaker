@@ -17,7 +17,7 @@ from config.constants import (
     SUPPORTED_VIDEO_FORMATS, SUPPORTED_IMAGE_FORMATS
 )
 from gui.widgets.drop_overlay import DropOverlayWidget
-from gui.styles import COLOR_TEXT_PRIMARY, COLOR_BG_ELEVATED, COLOR_BORDER
+from gui.styles import COLOR_TEXT_PRIMARY, COLOR_BG_ELEVATED, COLOR_BORDER, hex_with_alpha
 from config.epconfig import EPConfig, CONFIG_FILENAME
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, ToolButton, TransparentToolButton,
@@ -26,7 +26,7 @@ from qfluentwidgets import (
     CardWidget, HyperlinkButton,
     ComboBox, SpinBox,
     DoubleSpinBox, CheckBox, LineEdit,
-    ScrollArea, FluentIcon, Theme,
+    ScrollArea, FluentIcon,
     setCustomStyleSheet, isDarkTheme, setThemeColor, themeColor
 )
 from PyQt6.QtGui import QAction, QKeySequence, QIcon, QShortcut
@@ -170,14 +170,15 @@ class MainWindow(QMainWindow):
         # === 顶部标题栏 ===
         self.header_bar = QWidget()
         self.header_bar.setObjectName("header_bar")
-        _header_default_qss = "QWidget { background-color: rgba(40, 40, 40, 0.7); color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; } QLabel { font-weight: bold; font-size: 16px; }"
+        _header_default_qss = "#header_bar { background-color: rgba(40, 40, 40, 0.7); color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; } #header_bar > QLabel { font-weight: bold; font-size: 16px; }"
         setCustomStyleSheet(self.header_bar, _header_default_qss, _header_default_qss)
         header_layout = QHBoxLayout(self.header_bar)
         header_layout.setContentsMargins(20, 8, 20, 8)
         header_layout.setSpacing(24)
 
         self.logo_label = QLabel("PRTS")
-        _logo_qss = "QLabel { background-color: white; color: #ff6b8b; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }"
+        self.logo_label.setObjectName("logo_label")
+        _logo_qss = "#logo_label { background-color: white; color: #ff6b8b; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }"
         setCustomStyleSheet(self.logo_label, _logo_qss, _logo_qss)
         header_layout.addWidget(self.logo_label)
 
@@ -190,23 +191,36 @@ class MainWindow(QMainWindow):
         control_layout = QHBoxLayout()
         control_layout.setSpacing(5)
 
-        # 窗口控制按钮通用样式（始终在主题色 header 上，使用 FluentIcon 矢量图标居中）
-        _ctrl_btn_qss = "QToolButton { background-color: transparent; color: white; border: none; border-radius: 18px; padding: 0; margin: 0; } QToolButton:hover { background-color: rgba(255, 255, 255, 0.3); } QToolButton:pressed { background-color: rgba(255, 255, 255, 0.4); }"
-        _close_btn_qss = "QToolButton { background-color: transparent; color: white; border: none; border-radius: 18px; padding: 0; margin: 0; } QToolButton:hover { background-color: rgba(255, 0, 0, 0.4); } QToolButton:pressed { background-color: rgba(255, 0, 0, 0.5); }"
+        # 窗口控制按钮 — 文本 PushButton，始终在主题色 header 上
+        _ctrl_btn_qss = ("PushButton { background-color: transparent; color: white; "
+            "border: none; border-radius: 18px; font-size: 20px; font-weight: bold; "
+            "padding: 0; margin: 0; } "
+            "PushButton:hover { background-color: rgba(255, 255, 255, 76); } "
+            "PushButton:pressed { background-color: rgba(255, 255, 255, 102); }")
+        _max_btn_qss = ("PushButton { background-color: transparent; color: white; "
+            "border: none; border-radius: 18px; font-size: 16px; font-weight: bold; "
+            "padding: 0; margin: 0; } "
+            "PushButton:hover { background-color: rgba(255, 255, 255, 76); } "
+            "PushButton:pressed { background-color: rgba(255, 255, 255, 102); }")
+        _close_btn_qss = ("PushButton { background-color: transparent; color: white; "
+            "border: none; border-radius: 18px; font-size: 20px; font-weight: bold; "
+            "padding: 0; margin: 0; } "
+            "PushButton:hover { background-color: rgba(255, 0, 0, 102); } "
+            "PushButton:pressed { background-color: rgba(255, 0, 0, 128); }")
 
-        self.btn_minimize = TransparentToolButton(FluentIcon.MINIMIZE.icon(Theme.DARK))
+        self.btn_minimize = PushButton("−")
         self.btn_minimize.setFixedSize(36, 36)
         setCustomStyleSheet(self.btn_minimize, _ctrl_btn_qss, _ctrl_btn_qss)
         self.btn_minimize.clicked.connect(self.showMinimized)
         control_layout.addWidget(self.btn_minimize)
 
-        self.btn_maximize = TransparentToolButton(FluentIcon.FULL_SCREEN.icon(Theme.DARK))
+        self.btn_maximize = PushButton("□")
         self.btn_maximize.setFixedSize(36, 36)
-        setCustomStyleSheet(self.btn_maximize, _ctrl_btn_qss, _ctrl_btn_qss)
+        setCustomStyleSheet(self.btn_maximize, _max_btn_qss, _max_btn_qss)
         self.btn_maximize.clicked.connect(self._on_maximize)
         control_layout.addWidget(self.btn_maximize)
 
-        self.btn_close = TransparentToolButton(FluentIcon.CLOSE.icon(Theme.DARK))
+        self.btn_close = PushButton("×")
         self.btn_close.setFixedSize(36, 36)
         setCustomStyleSheet(self.btn_close, _close_btn_qss, _close_btn_qss)
         self.btn_close.clicked.connect(self.close)
@@ -1099,64 +1113,62 @@ class MainWindow(QMainWindow):
             self._project_path = path
             self._base_dir = os.path.dirname(path)
             self._is_modified = False
-
-            self.video_preview.clear()
-            self.intro_preview.clear()
-            self.frame_capture_preview.clear()
-            self.transition_preview.clear_image("in")
-            self.transition_preview.clear_image("loop")
-            self._loop_image_path = None
-            self.timeline.set_total_frames(0)
-            self._loop_in_out = (0, 0)
-            self._intro_in_out = (0, 0)
-
-            self.advanced_config_panel.set_config(self._config, self._base_dir)
-            self.basic_config_panel.set_config(self._config, self._base_dir)
-            self.json_preview.set_config(self._config, self._base_dir)
-            self.video_preview.set_epconfig(self._config)
-
-            target_w, target_h = self._get_target_resolution()
-            self.video_preview.set_target_resolution(target_w, target_h)
-            self.intro_preview.set_target_resolution(target_w, target_h)
-
-            if self._config.loop.file:
-                file_path = self._config.loop.file
-                if not os.path.isabs(file_path):
-                    file_path = os.path.join(self._base_dir, file_path)
-
-                if os.path.exists(file_path):
-                    from PyQt6.QtCore import QTimer
-                    if self._config.loop.is_image:
-                        logger.info(f"尝试加载循环图片: {file_path}")
-                        QTimer.singleShot(
-                            100, lambda fp=file_path: self._load_loop_image(fp))
-                    else:
-                        logger.info(f"尝试加载循环视频: {file_path}")
-                        QTimer.singleShot(
-                            100, lambda vp=file_path: self.video_preview.load_video(vp))
-                else:
-                    logger.warning(f"循环素材文件不存在: {file_path}")
-
-            if self._config.intro.enabled and self._config.intro.file:
-                intro_path = self._config.intro.file
-                if not os.path.isabs(intro_path):
-                    intro_path = os.path.join(self._base_dir, intro_path)
-                if os.path.exists(intro_path):
-                    from PyQt6.QtCore import QTimer
-                    logger.info(f"尝试加载入场视频: {intro_path}")
-                    QTimer.singleShot(
-                        200, lambda vp=intro_path: self.intro_preview.load_video(vp))
-
-            self._update_title()
-            self.status_bar.showMessage(f"已打开: {path}")
-
+            self._apply_project_config()
             self._add_recent_file(path)
-
-            self._auto_save_service.start(
-                self._config, self._project_path, self._base_dir)
-
         except Exception as e:
             show_error(e, "打开文件", self)
+
+    def _apply_project_config(self):
+        """应用项目配置到UI（清除预览 → 设置面板 → 加载视频）
+
+        前置条件：self._config, self._project_path, self._base_dir 已设置。
+        """
+        self.video_preview.clear()
+        self.intro_preview.clear()
+        self.frame_capture_preview.clear()
+        self.transition_preview.clear_image("in")
+        self.transition_preview.clear_image("loop")
+        self._loop_image_path = None
+        self.timeline.set_total_frames(0)
+        self._loop_in_out = (0, 0)
+        self._intro_in_out = (0, 0)
+
+        self.advanced_config_panel.set_config(self._config, self._base_dir)
+        self.basic_config_panel.set_config(self._config, self._base_dir)
+        self.json_preview.set_config(self._config, self._base_dir)
+        self.video_preview.set_epconfig(self._config)
+
+        target_w, target_h = self._get_target_resolution()
+        self.video_preview.set_target_resolution(target_w, target_h)
+        self.intro_preview.set_target_resolution(target_w, target_h)
+
+        if self._config.loop.file:
+            file_path = self._config.loop.file
+            if not os.path.isabs(file_path):
+                file_path = os.path.join(self._base_dir, file_path)
+
+            if os.path.exists(file_path):
+                if self._config.loop.is_image:
+                    logger.info(f"尝试加载循环图片: {file_path}")
+                    self._load_loop_image(file_path)
+                else:
+                    logger.info(f"尝试加载循环视频: {file_path}")
+                    self.video_preview.load_video(file_path)
+            else:
+                logger.warning(f"循环素材文件不存在: {file_path}")
+
+        if self._config.intro.enabled and self._config.intro.file:
+            intro_path = self._config.intro.file
+            if not os.path.isabs(intro_path):
+                intro_path = os.path.join(self._base_dir, intro_path)
+            if os.path.exists(intro_path):
+                logger.info(f"尝试加载入场视频: {intro_path}")
+                self.intro_preview.load_video(intro_path)
+
+        self._update_title()
+        self.status_bar.showMessage(f"已打开: {self._project_path}")
+        self._auto_save_service.start(
+            self._config, self._project_path, self._base_dir)
 
 
 
@@ -1176,52 +1188,8 @@ class MainWindow(QMainWindow):
             self._project_path = path
             self._base_dir = os.path.dirname(path)
             self._is_modified = False
-
-            self.video_preview.clear()
-            self.intro_preview.clear()
-            self.frame_capture_preview.clear()
-            self.transition_preview.clear_image("in")
-            self.transition_preview.clear_image("loop")
-            self._loop_image_path = None
-            self.timeline.set_total_frames(0)
-            self._loop_in_out = (0, 0)
-            self._intro_in_out = (0, 0)
-
-            self.advanced_config_panel.set_config(self._config, self._base_dir)
-            self.basic_config_panel.set_config(self._config, self._base_dir)
-            self.json_preview.set_config(self._config, self._base_dir)
-            self.video_preview.set_epconfig(self._config)
-
-            target_w, target_h = self._get_target_resolution()
-            self.video_preview.set_target_resolution(target_w, target_h)
-            self.intro_preview.set_target_resolution(target_w, target_h)
-
-            if self._config.loop.file:
-                file_path = self._config.loop.file
-                if not os.path.isabs(file_path):
-                    file_path = os.path.join(self._base_dir, file_path)
-                if os.path.exists(file_path):
-                    if self._config.loop.is_image:
-                        QTimer.singleShot(
-                            100, lambda fp=file_path: self._load_loop_image(fp))
-                    else:
-                        QTimer.singleShot(
-                            100, lambda vp=file_path: self.video_preview.load_video(vp))
-
-            if self._config.intro.enabled and self._config.intro.file:
-                intro_path = self._config.intro.file
-                if not os.path.isabs(intro_path):
-                    intro_path = os.path.join(self._base_dir, intro_path)
-                if os.path.exists(intro_path):
-                    QTimer.singleShot(
-                        200, lambda vp=intro_path: self.intro_preview.load_video(vp))
-
-            self._update_title()
-            self.status_bar.showMessage(f"已打开: {path}")
+            self._apply_project_config()
             self._add_recent_file(path)
-            self._auto_save_service.start(
-                self._config, self._project_path, self._base_dir)
-
         except Exception as e:
             show_error(e, "打开文件", self)
 
@@ -1480,6 +1448,73 @@ class MainWindow(QMainWindow):
                 )
                 return
 
+            # 预验证：模拟 Rust 端路径解析，确认视频文件可达
+            loop_file = self._config.loop.file
+            if loop_file:
+                if os.path.isabs(loop_file):
+                    resolved_video_path = loop_file
+                else:
+                    resolved_video_path = os.path.join(
+                        self._base_dir, loop_file)
+
+                if not os.path.exists(resolved_video_path):
+                    QMessageBox.warning(
+                        self, "视频文件不存在",
+                        f"模拟器预览需要的视频文件未找到：\n\n"
+                        f"配置路径: {loop_file}\n"
+                        f"解析路径: {resolved_video_path}\n"
+                        f"基础目录: {self._base_dir}\n\n"
+                        f"请确认视频文件存在或重新选择视频"
+                    )
+                    return
+
+            # 图片模式：生成临时视频供模拟器使用
+            config_for_simulator = config_path
+            if self._config.loop.is_image and loop_file:
+                try:
+                    import av
+                    import cv2
+                    import numpy as np
+                    temp_video = os.path.join(
+                        self._base_dir, "_sim_temp.mp4")
+                    img_data = np.fromfile(
+                        resolved_video_path, dtype=np.uint8)
+                    frame_bgr = cv2.imdecode(img_data, cv2.IMREAD_COLOR)
+                    if frame_bgr is None:
+                        raise RuntimeError(
+                            f"无法读取图片: {resolved_video_path}")
+                    frame_bgr = cv2.resize(frame_bgr, (360, 640))
+                    container = av.open(temp_video, mode='w')
+                    stream = container.add_stream('libx264', rate=30)
+                    stream.width, stream.height = 360, 640
+                    stream.pix_fmt = 'yuv420p'
+                    for _ in range(30):  # 1 秒循环
+                        av_frame = av.VideoFrame.from_ndarray(
+                            cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB),
+                            format='rgb24')
+                        for packet in stream.encode(av_frame):
+                            container.mux(packet)
+                    for packet in stream.encode():
+                        container.mux(packet)
+                    container.close()
+                    # 写入临时配置，替换图片为临时视频
+                    temp_config = self._config.copy()
+                    temp_config.loop.file = "_sim_temp.mp4"
+                    temp_config.loop.is_image = False
+                    temp_config_path = os.path.join(
+                        self._base_dir, "_sim_temp_config.json")
+                    temp_config.save_to_file(temp_config_path)
+                    config_for_simulator = temp_config_path
+                    logger.info(f"图片转临时视频: {temp_video}")
+                except Exception as e:
+                    logger.warning(f"图片转临时视频失败: {e}")
+                    QMessageBox.warning(
+                        self, "提示",
+                        f"图片模式暂不支持模拟器预览\n\n"
+                        f"原因：图片转换失败：{e}\n"
+                        f"建议先导出素材后再使用模拟器预览")
+                    return
+
             cropbox = self.video_preview.get_cropbox_in_rotated_space()
             rotation = self.video_preview.get_rotation()
 
@@ -1488,7 +1523,7 @@ class MainWindow(QMainWindow):
                 f"config_video={self._config.loop.file}, "
                 f"gui_video={self.video_preview.video_path}")
 
-            popen_kwargs = {}
+            popen_kwargs = {'stderr': subprocess.PIPE}
             if sys.platform == 'win32':
                 popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
@@ -1509,7 +1544,7 @@ class MainWindow(QMainWindow):
 
             proc = subprocess.Popen([
                 simulator_path,
-                "--config", config_path,
+                "--config", config_for_simulator,
                 "--base-dir", self._base_dir,
                 "--app-dir", self._app_dir,
                 "--cropbox", f"{cropbox[0]},{cropbox[1]},{cropbox[2]},{cropbox[3]}",
@@ -1523,6 +1558,12 @@ class MainWindow(QMainWindow):
             def _check_simulator():
                 retcode = proc.poll()
                 if retcode is not None and retcode != 0:
+                    stderr_output = ""
+                    try:
+                        stderr_output = proc.stderr.read().decode(
+                            'utf-8', errors='replace')
+                    except Exception:
+                        pass
                     QMessageBox.warning(
                         self, "模拟器错误",
                         f"模拟器启动后立即退出（返回码: {retcode}）\n\n"
@@ -1530,7 +1571,15 @@ class MainWindow(QMainWindow):
                         f"• FFmpeg DLL 缺失或版本不匹配\n"
                         f"• 配置文件格式错误\n\n"
                         f"路径: {simulator_path}"
+                        + (f"\n\n日志输出:\n{stderr_output[:500]}"
+                           if stderr_output else "")
                     )
+                elif retcode is not None:
+                    # 正常退出，关闭 stderr pipe
+                    try:
+                        proc.stderr.close()
+                    except Exception:
+                        pass
             QTimer.singleShot(1000, _check_simulator)
 
         except Exception as e:
@@ -2520,13 +2569,27 @@ class MainWindow(QMainWindow):
             self.setStyleSheet("")
             self.update()
 
+        r = 0 if self.isMaximized() else int(self._corner_radius)
+
         if hasattr(self, 'header_bar'):
-            header_qss = f"QWidget {{ background-color: {color_hex}; color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; }} QLabel {{ font-weight: bold; font-size: 16px; }}"
+            header_qss = f"#header_bar {{ background-color: {color_hex}; color: white; border-top-left-radius: {r}px; border-top-right-radius: {r}px; }} #header_bar > QLabel {{ font-weight: bold; font-size: 16px; }}"
             setCustomStyleSheet(self.header_bar, header_qss, header_qss)
 
         if hasattr(self, 'sidebar'):
-            sidebar_qss = f"QWidget {{ background-color: {color_hex}; border-bottom-right-radius: 16px; }}"
+            sidebar_qss = f"#sidebar {{ background-color: {color_hex}; border-bottom-right-radius: {r}px; }}"
             setCustomStyleSheet(self.sidebar, sidebar_qss, sidebar_qss)
+
+        if hasattr(self, 'status_bar'):
+            is_dark = isDarkTheme()
+            sb_bg = "rgba(30, 30, 30, 0.95)" if is_dark else "rgba(248, 249, 250, 0.95)"
+            sb_color = "#eeeeee" if is_dark else "#333333"
+            sb_border = "rgba(255, 255, 255, 0.1)" if is_dark else "rgba(0, 0, 0, 0.1)"
+            sb_qss = (f"QStatusBar {{ background-color: {sb_bg}; color: {sb_color}; "
+                      f"border-top: 1px solid {sb_border}; "
+                      f"border-bottom-left-radius: {r}px; "
+                      f"border-bottom-right-radius: {r}px; }}"
+                      " QStatusBar::item { border: none; }")
+            self.status_bar.setStyleSheet(sb_qss)
 
         if hasattr(self, 'content_stack'):
             content_light = "#content_stack { background-color: rgba(255, 255, 255, 0.95); }"
@@ -2541,7 +2604,10 @@ class MainWindow(QMainWindow):
         for btn_name in nav_buttons:
             if hasattr(self, btn_name):
                 btn = getattr(self, btn_name)
-                nav_qss = "QPushButton { background-color: transparent; color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; } QPushButton:hover { background-color: rgba(255, 255, 255, 0.2); } QPushButton:pressed, QPushButton:checked { background-color: rgba(255, 255, 255, 0.3); }"
+                nav_qss = ("PushButton { background-color: transparent; color: white; "
+                    "border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; } "
+                    "PushButton:hover { background-color: rgba(255, 255, 255, 0.3); } "
+                    "PushButton:pressed, PushButton:checked { background-color: rgba(255, 255, 255, 0.4); }")
                 setCustomStyleSheet(btn, nav_qss, nav_qss)
 
         for btn in [
@@ -2552,24 +2618,24 @@ class MainWindow(QMainWindow):
                 self.btn_remote,
                 self.btn_settings]:
             light_qss = (
-                f"QToolButton {{ background-color: {COLOR_BG_ELEVATED[0]}; color: {COLOR_TEXT_PRIMARY[0]}; "
+                f"ToolButton {{ background-color: {COLOR_BG_ELEVATED[0]}; color: {COLOR_TEXT_PRIMARY[0]}; "
                 f"border: 1px solid #e9ecef; border-radius: 10px; padding: 14px 20px; "
                 f"text-align: left; font-size: 15px; margin: 8px; }} "
-                f"QToolButton:hover {{ background-color: {color_hex}40; border-color: {color_hex}; }} "
-                f"QToolButton:pressed, QToolButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
+                f"ToolButton:hover {{ background-color: {hex_with_alpha(color_hex, 64)}; border-color: {color_hex}; }} "
+                f"ToolButton:pressed, ToolButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
             )
             dark_qss = (
-                f"QToolButton {{ background-color: {COLOR_BG_ELEVATED[1]}; color: {COLOR_TEXT_PRIMARY[1]}; "
+                f"ToolButton {{ background-color: {COLOR_BG_ELEVATED[1]}; color: {COLOR_TEXT_PRIMARY[1]}; "
                 f"border: 1px solid {COLOR_BORDER[1]}; border-radius: 10px; padding: 14px 20px; "
                 f"text-align: left; font-size: 15px; margin: 8px; }} "
-                f"QToolButton:hover {{ background-color: {color_hex}50; border-color: {color_hex}; }} "
-                f"QToolButton:pressed, QToolButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
+                f"ToolButton:hover {{ background-color: {hex_with_alpha(color_hex, 80)}; border-color: {color_hex}; }} "
+                f"ToolButton:pressed, ToolButton:checked {{ background-color: {color_hex}; color: white; border-color: {color_hex}; }}"
             )
             setCustomStyleSheet(btn, light_qss, dark_qss)
 
         # 更新 logo 颜色
         if hasattr(self, 'logo_label'):
-            logo_qss = f"QLabel {{ background-color: white; color: {color_hex}; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }}"
+            logo_qss = f"#logo_label {{ background-color: white; color: {color_hex}; border-radius: 16px; padding: 8px 12px; font-size: 14px; font-weight: bold; }}"
             setCustomStyleSheet(self.logo_label, logo_qss, logo_qss)
 
         logger.info(f"应用主题颜色: {color_hex}")
@@ -2625,6 +2691,8 @@ class MainWindow(QMainWindow):
                     background-color: %s;
                     color: %s;
                     border-top: 1px solid %s;
+                    border-bottom-left-radius: 16px;
+                    border-bottom-right-radius: 16px;
                 }
 
                 QStatusBar::item {
@@ -3455,10 +3523,12 @@ class MainWindow(QMainWindow):
         """最大化/还原窗口"""
         if self.isMaximized():
             self.showNormal()
-            self.btn_maximize.setIcon(FluentIcon.FULL_SCREEN.icon(Theme.DARK))
+            self.btn_maximize.setText("□")
         else:
             self.showMaximized()
-            self.btn_maximize.setIcon(FluentIcon.BACK_TO_WINDOW.icon(Theme.DARK))
+            self.btn_maximize.setText("❐")
+        # 同步子 widget 圆角
+        self._apply_theme_color(themeColor().name())
 
     def _on_header_mouse_press(self, event):
         """鼠标按下事件，开始拖动窗口"""

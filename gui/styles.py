@@ -51,6 +51,18 @@ def get_accent_color() -> str:
     return themeColor().name()
 
 
+def hex_with_alpha(hex_color: str, alpha: int) -> str:
+    """将 #RRGGBB + alpha(0-255) 转为 QSS 合法的 rgba() 字符串。
+
+    Qt QSS 不支持 #RRGGBBAA 格式，必须使用 rgba()。
+    """
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def apply_themed_style(widget, light_qss: str, dark_qss: str) -> None:
     """对任意 QWidget 应用主题感知样式（自动跟随切换）。
 
