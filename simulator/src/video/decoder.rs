@@ -5,7 +5,7 @@
 use std::path::Path;
 use anyhow::{Result, Context};
 use image::RgbImage;
-use tracing::{info, error};
+use tracing::{info, warn, error};
 
 use ffmpeg_next as ffmpeg;
 use ffmpeg::format::input;
@@ -259,8 +259,7 @@ impl VideoDecoder {
 
         // Step 3: Apply crop from rotated frame (rotated-space coordinates)
         let (final_data, final_w, final_h) = if let Some((cx, cy, cw, ch)) = self.cropbox {
-            let cropped = self.crop_frame(&rotated_data, rotated_w, cx, cy, cw, ch);
-            (cropped, cw, ch)
+            self.crop_frame(&rotated_data, rotated_w, rotated_h, cx, cy, cw, ch)
         } else {
             (rotated_data, rotated_w, rotated_h)
         };
@@ -316,17 +315,35 @@ impl VideoDecoder {
         }
     }
 
-    /// Crop a frame from RGB24 data
-    fn crop_frame(&self, data: &[u8], src_width: u32, x: u32, y: u32, w: u32, h: u32) -> Vec<u8> {
-        let mut cropped = Vec::with_capacity((w * h * 3) as usize);
+    /// Crop a frame from RGB24 data with boundary safety checks
+    fn crop_frame(&self, data: &[u8], src_width: u32, src_height: u32, x: u32, y: u32, w: u32, h: u32) -> (Vec<u8>, u32, u32) {
         let src_stride = (src_width * 3) as usize;
 
-        for row in y..(y + h) {
-            let start = (row as usize * src_stride) + (x as usize * 3);
-            let end = start + (w as usize * 3);
-            cropped.extend_from_slice(&data[start..end]);
+        // Boundary safety check - clamp crop region to source dimensions
+        let safe_x = x.min(src_width.saturating_sub(1));
+        let safe_y = y.min(src_height.saturating_sub(1));
+        let safe_w = w.min(src_width.saturating_sub(safe_x));
+        let safe_h = h.min(src_height.saturating_sub(safe_y));
+
+        if safe_w == 0 || safe_h == 0 {
+            warn!("Crop region is empty after boundary clamping: ({}, {}, {}, {}) on {}x{}", x, y, w, h, src_width, src_height);
+            return (Vec::new(), 0, 0);
         }
-        cropped
+
+        if safe_w != w || safe_h != h {
+            warn!("Crop region clamped from ({}, {}, {}, {}) to ({}, {}, {}, {}) on {}x{}",
+                x, y, w, h, safe_x, safe_y, safe_w, safe_h, src_width, src_height);
+        }
+
+        let mut cropped = Vec::with_capacity((safe_w * safe_h * 3) as usize);
+        for row in safe_y..(safe_y + safe_h) {
+            let start = (row as usize * src_stride) + (safe_x as usize * 3);
+            let end = start + (safe_w as usize * 3);
+            if end <= data.len() {
+                cropped.extend_from_slice(&data[start..end]);
+            }
+        }
+        (cropped, safe_w, safe_h)
     }
 
     /// Rotate a frame

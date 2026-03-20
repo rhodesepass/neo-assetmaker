@@ -74,7 +74,7 @@ fn main() -> Result<()> {
     info!("Arknights Pass Simulator starting...");
 
     // Load configuration if provided
-    let initial_config = if let Some(config_path) = &args.config {
+    let (initial_config, config_error) = if let Some(config_path) = &args.config {
         info!("Loading config from: {:?}", config_path);
         match EPConfig::load_from_file(config_path) {
             Ok(config) => {
@@ -82,15 +82,15 @@ fn main() -> Result<()> {
                 info!("  - name: {:?}", config.name);
                 info!("  - loop.file: {:?}", config.loop_config.file);
                 info!("  - intro: {:?}", config.intro.as_ref().map(|i| &i.file));
-                Some(config)
+                (Some(config), None)
             }
             Err(e) => {
                 tracing::error!("Failed to load config: {:?}", e);
-                None
+                (None, Some(format!("配置加载失败: {:?}\n路径: {:?}", e, config_path)))
             }
         }
     } else {
-        None
+        (None, None)
     };
 
     let base_dir = args.base_dir.unwrap_or_else(|| {
@@ -149,6 +149,7 @@ fn main() -> Result<()> {
                 cropbox,
                 rotation,
                 is_dark_theme,
+                config_error,
             )))
         }),
     )

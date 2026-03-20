@@ -1536,6 +1536,10 @@ class MainWindow(QMainWindow):
             # 双保险：将 app_dir 加入 PATH 环境变量
             env = os.environ.copy()
             env['PATH'] = self._app_dir + os.pathsep + env.get('PATH', '')
+            # 开发模式：FFmpeg DLL 可能在 ffmpeg-sdk/bin/ 子目录
+            ffmpeg_sdk_bin = os.path.join(self._app_dir, 'ffmpeg-sdk', 'bin')
+            if os.path.isdir(ffmpeg_sdk_bin):
+                env['PATH'] = ffmpeg_sdk_bin + os.pathsep + env['PATH']
             popen_kwargs['env'] = env
 
             # Detect current theme to pass to simulator
@@ -1554,33 +1558,48 @@ class MainWindow(QMainWindow):
 
             logger.info(f"模拟器已启动: {simulator_path}")
 
-            # 1秒后检查进程是否崩溃
-            def _check_simulator():
-                retcode = proc.poll()
+            # 定期检查进程状态（最多检查5次，覆盖启动后10秒内的崩溃）
+            self._simulator_proc = proc
+            self._simulator_check_count = 0
+
+            def _check_simulator_periodic():
+                self._simulator_check_count += 1
+                if self._simulator_proc is None:
+                    return
+                retcode = self._simulator_proc.poll()
                 if retcode is not None and retcode != 0:
                     stderr_output = ""
                     try:
-                        stderr_output = proc.stderr.read().decode(
-                            'utf-8', errors='replace')
+                        stderr_output = self._simulator_proc.stderr.read(
+                            ).decode('utf-8', errors='replace')
                     except Exception:
                         pass
                     QMessageBox.warning(
                         self, "模拟器错误",
-                        f"模拟器启动后立即退出（返回码: {retcode}）\n\n"
+                        f"模拟器异常退出（返回码: {retcode}）\n\n"
                         f"可能原因：\n"
                         f"• FFmpeg DLL 缺失或版本不匹配\n"
+                        f"• 视频文件损坏或格式不支持\n"
                         f"• 配置文件格式错误\n\n"
                         f"路径: {simulator_path}"
                         + (f"\n\n日志输出:\n{stderr_output[:500]}"
                            if stderr_output else "")
                     )
+                    self._simulator_proc = None
+                    return
                 elif retcode is not None:
                     # 正常退出，关闭 stderr pipe
                     try:
-                        proc.stderr.close()
+                        self._simulator_proc.stderr.close()
                     except Exception:
                         pass
-            QTimer.singleShot(1000, _check_simulator)
+                    self._simulator_proc = None
+                    return
+                if self._simulator_check_count < 5:
+                    QTimer.singleShot(2000, _check_simulator_periodic)
+                else:
+                    self._simulator_proc = None
+            QTimer.singleShot(1000, _check_simulator_periodic)
 
         except Exception as e:
             logger.error(f"启动模拟器失败: {e}")

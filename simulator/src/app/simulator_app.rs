@@ -119,6 +119,9 @@ pub struct SimulatorApp {
 
     /// Whether textures have been loaded for current config
     textures_loaded: bool,
+
+    /// Error message to display in UI
+    error_message: Option<String>,
 }
 
 impl SimulatorApp {
@@ -133,6 +136,7 @@ impl SimulatorApp {
         cropbox: Option<(u32, u32, u32, u32)>,
         rotation: i32,
         is_dark_theme: bool,
+        config_error: Option<String>,
     ) -> Self {
         let firmware_config = FirmwareConfig::get_default();
         let width = firmware_config.overlay_width();
@@ -150,9 +154,12 @@ impl SimulatorApp {
         let mut video_player = VideoPlayer::new(width, height, cropbox, rotation);
 
         // Load videos from config
-        if let Some(ref config) = initial_config {
-            video_player.load_from_config(config, &base_dir);
-        }
+        let load_error = if let Some(ref config) = initial_config {
+            video_player.load_from_config(config, &base_dir)
+        } else {
+            None
+        };
+        let error_message = config_error.or(load_error);
 
         // Start IPC server if requested
         let (ipc_rx, ipc_tx) = if use_stdio || pipe_name.is_some() {
@@ -230,6 +237,7 @@ impl SimulatorApp {
             cached_rhodes_text: String::new(),
             cached_top_right_bar_text: String::new(),
             textures_loaded: false,
+            error_message,
         };
 
         // Apply Fluent Design theme
@@ -251,7 +259,7 @@ impl SimulatorApp {
         self.state.appear_time_frames = microseconds_to_frames(appear_us, self.firmware_config.fps());
 
         // Load videos
-        self.video_player.load_from_config(&config, &base_dir);
+        self.error_message = self.video_player.load_from_config(&config, &base_dir);
 
         // Apply transition settings from config
         let trans_in = config.get_transition_in_type();
@@ -668,8 +676,10 @@ impl SimulatorApp {
             PlayState::TransitionLoop => {
                 if self.state.transition.video_switched {
                     FrameSource::Loop
-                } else {
+                } else if self.video_player.has_intro() {
                     FrameSource::Intro
+                } else {
+                    FrameSource::Loop
                 }
             }
             PlayState::PreOpinfo | PlayState::Loop => FrameSource::Loop,
@@ -2435,6 +2445,15 @@ impl eframe::App for SimulatorApp {
             )).color(text_color));
 
             ui.separator();
+
+            // Show error message when no video loaded
+            if !self.video_player.has_loop() {
+                if let Some(ref error) = self.error_message {
+                    ui.add_space(8.0);
+                    ui.colored_label(Color32::from_rgb(255, 100, 100), error);
+                    ui.add_space(8.0);
+                }
+            }
 
             // Calculate adaptive image size to fit available space
             let available = ui.available_size();

@@ -49,12 +49,12 @@ impl VideoPlayer {
         }
     }
 
-    /// Load videos from EPConfig
+    /// Load videos from EPConfig, returns error description if loop video failed
     ///
     /// # Arguments
     /// * `config` - The EP configuration
     /// * `base_dir` - Base directory for resolving relative paths
-    pub fn load_from_config(&mut self, config: &EPConfig, base_dir: &Path) {
+    pub fn load_from_config(&mut self, config: &EPConfig, base_dir: &Path) -> Option<String> {
         info!("Loading videos from config, base_dir: {:?}", base_dir);
 
         // Load loop video
@@ -74,11 +74,16 @@ impl VideoPlayer {
                     self.loop_video = Some(decoder);
                 }
                 Err(e) => {
-                    error!("Failed to load loop video '{}': {}", loop_path.display(), e);
+                    let msg = format!(
+                        "循环视频加载失败\n路径: {}\n原因: {}",
+                        loop_path.display(), e
+                    );
+                    error!("{}", msg);
+                    return Some(msg);
                 }
             }
         } else {
-            warn!("No loop video file configured");
+            return Some("未配置循环视频文件路径".to_string());
         }
 
         // Load intro video if enabled (no cropbox/rotation for intro)
@@ -105,6 +110,7 @@ impl VideoPlayer {
 
         // Read first frame of loop video for initial display
         self.read_first_loop_frame();
+        None
     }
 
     /// Resolve a potentially relative path against the base directory
@@ -253,14 +259,14 @@ mod tests {
 
     #[test]
     fn test_video_player_new() {
-        let player = VideoPlayer::new(360, 640);
+        let player = VideoPlayer::new(360, 640, None, 0);
         assert!(!player.has_intro());
         assert!(!player.has_loop());
     }
 
     #[test]
     fn test_create_black_frame() {
-        let player = VideoPlayer::new(360, 640);
+        let player = VideoPlayer::new(360, 640, None, 0);
         let frame = player.create_black_frame();
         assert_eq!(frame.width(), 360);
         assert_eq!(frame.height(), 640);
