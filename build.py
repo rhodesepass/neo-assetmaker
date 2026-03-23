@@ -477,6 +477,31 @@ def run_cxfreeze(skip_flasher=False):
         return False
 
 
+def generate_install_manifest():
+    """生成构建产物清单，用于调试和升级清理验证
+
+    清单文件随 cx_Freeze 输出一起被 [Files] 的递归复制规则打入安装包，
+    安装后可在安装目录中查看，便于排查升级清理遗漏。
+    """
+    manifest_path = os.path.join(BUILD_DIR, "install_manifest.txt")
+    entries = []
+    for root, dirs, files in os.walk(BUILD_DIR):
+        rel_root = os.path.relpath(root, BUILD_DIR)
+        if rel_root != '.':
+            entries.append(f"D {rel_root}")
+        for f in files:
+            rel_path = os.path.join(rel_root, f) if rel_root != '.' else f
+            entries.append(f"F {rel_path}")
+    entries.sort()
+    with open(manifest_path, 'w', encoding='utf-8') as mf:
+        mf.write(f"# ArknightsPassMaker Build Manifest\n")
+        mf.write(f"# Version: {VERSION}\n")
+        mf.write(f"# Entries: {len(entries)}\n\n")
+        for entry in entries:
+            mf.write(entry + '\n')
+    print(f"  Generated manifest: {manifest_path} ({len(entries)} entries)")
+
+
 def create_installer():
     """创建安装包"""
     print("\n" + "=" * 50)
@@ -539,6 +564,7 @@ def main():
         sys.exit(1)
 
     print(f"\ncx_Freeze done: {BUILD_DIR}/")
+    generate_install_manifest()
 
     if not args.no_installer:
         if create_installer():
