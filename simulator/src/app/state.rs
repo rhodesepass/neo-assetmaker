@@ -259,6 +259,9 @@ pub struct SimulatorState {
     pub loop_frame_accumulator: i64,
     /// Intro video frame accumulator (microseconds) for FPS sync
     pub intro_frame_accumulator: i64,
+
+    /// Wall-clock time remainder for logic frame pacing (microseconds)
+    pub logic_time_remainder_us: i64,
 }
 
 impl SimulatorState {

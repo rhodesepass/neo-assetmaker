@@ -3,9 +3,11 @@
 """
 import logging
 
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy
 from PyQt6.QtCore import Qt, pyqtSignal
+from qfluentwidgets import StrongBodyLabel, setCustomStyleSheet
 
+from gui.styles import COLOR_TEXT_SECONDARY
 from gui.widgets.video_preview import VideoPreviewWidget
 
 logger = logging.getLogger(__name__)
@@ -24,21 +26,23 @@ class TransitionPreviewWidget(QWidget):
     def _setup_ui(self):
         """设置UI"""
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(2)
 
-        # 左侧：进入过渡
         left_widget = QWidget()
+        left_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(5)
+        left_layout.setSpacing(1)
 
-        label_in_title = QLabel("进入过渡")
+        label_in_title = StrongBodyLabel("进入过渡")
         label_in_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label_in_title.setStyleSheet("color: #ccc; font-size: 13px; font-weight: bold;")
+        setCustomStyleSheet(label_in_title, f"color: {COLOR_TEXT_SECONDARY[0]}; font-size: 11px; padding: 1px;", f"color: {COLOR_TEXT_SECONDARY[1]}; font-size: 11px; padding: 1px;")
+        label_in_title.setMaximumHeight(20)
         left_layout.addWidget(label_in_title)
 
         self.preview_in = VideoPreviewWidget()
+        self.preview_in.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview_in.cropbox_changed.connect(
             lambda *_: self.transition_crop_changed.emit("in")
         )
@@ -46,18 +50,20 @@ class TransitionPreviewWidget(QWidget):
 
         main_layout.addWidget(left_widget, stretch=1)
 
-        # 右侧：循环过渡
         right_widget = QWidget()
+        right_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(5)
+        right_layout.setSpacing(1)
 
-        label_loop_title = QLabel("循环过渡")
+        label_loop_title = StrongBodyLabel("循环过渡")
         label_loop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label_loop_title.setStyleSheet("color: #ccc; font-size: 13px; font-weight: bold;")
+        setCustomStyleSheet(label_loop_title, f"color: {COLOR_TEXT_SECONDARY[0]}; font-size: 11px; padding: 1px;", f"color: {COLOR_TEXT_SECONDARY[1]}; font-size: 11px; padding: 1px;")
+        label_loop_title.setMaximumHeight(20)
         right_layout.addWidget(label_loop_title)
 
         self.preview_loop = VideoPreviewWidget()
+        self.preview_loop.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview_loop.cropbox_changed.connect(
             lambda *_: self.transition_crop_changed.emit("loop")
         )

@@ -21,6 +21,7 @@ ArknightsPassMaker/
 .idea/
 *.swp
 *.swo
+.claude
 
 # Logs
 logs/
@@ -36,3 +37,18 @@ ffmpeg.exe
 
 # Test data
 test/
+
+# User settings
+config/user_settings.json
+CLAUDE.md
+
+# Temporary update directory
+temp_update/
+ffmpeg
+ffplay
+ffprobe
+
+tmp/
+
+# Rust build artifacts (Cargo)
+simulator/target/

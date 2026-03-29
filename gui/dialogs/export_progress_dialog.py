@@ -2,14 +2,18 @@
 导出进度对话框
 """
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QProgressBar,
-    QPushButton
+    QDialog, QVBoxLayout, QLabel
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from qfluentwidgets import (
+    PushButton, SubtitleLabel, BodyLabel, ProgressBar
+)
 
 
 class ExportProgressDialog(QDialog):
     """导出进度对话框"""
+
+    export_success_signal = pyqtSignal(bool)
 
     cancel_requested = pyqtSignal()
 
@@ -32,27 +36,20 @@ class ExportProgressDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # 状态标签
-        self.label_status = QLabel("准备导出...")
+        self.label_status = SubtitleLabel("准备导出...")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_status.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(self.label_status)
 
-        # 进度条
-        self.progress_bar = QProgressBar()
+        self.progress_bar = ProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(True)
         layout.addWidget(self.progress_bar)
 
-        # 详细信息标签
-        self.label_detail = QLabel("")
+        self.label_detail = BodyLabel("")
         self.label_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_detail.setStyleSheet("color: #666;")
         layout.addWidget(self.label_detail)
 
-        # 按钮
-        self.btn_action = QPushButton("取消")
+        self.btn_action = PushButton("取消")
         self.btn_action.clicked.connect(self._on_action_clicked)
         layout.addWidget(self.btn_action)
 
@@ -70,20 +67,16 @@ class ExportProgressDialog(QDialog):
         self.btn_action.setText("确定")
 
         if success:
-            self.label_status.setStyleSheet(
-                "font-size: 14px; font-weight: bold; color: green;"
-            )
+            self.label_status.setStyleSheet("color: green;")
+            self.export_success_signal.emit(success)
         else:
-            self.label_status.setStyleSheet(
-                "font-size: 14px; font-weight: bold; color: red;"
-            )
+            self.label_status.setStyleSheet("color: red;")
 
     def _on_action_clicked(self):
         """按钮点击"""
         if self._is_completed:
             self.accept()
         else:
-            # 请求取消
             self.cancel_requested.emit()
             self.label_status.setText("正在取消...")
             self.btn_action.setEnabled(False)

@@ -7,7 +7,7 @@
 //! ```rust,ignore
 //! use video::VideoPlayer;
 //!
-//! let mut player = VideoPlayer::new(360, 640);
+//! let mut player = VideoPlayer::new(360, 640, None, 0);
 //! player.load_from_config(&config, &base_dir);
 //!
 //! // Read frames

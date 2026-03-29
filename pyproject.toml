@@ -1,20 +1,42 @@
 [project]
 name = "neo-assetmaker"
-version = "1.5.7"
-description = "明日方舟通行证素材制作器"
+version = "2.1.0"
+description = "明日方舟通行证素材工具箱"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.5.0",
+    "PyQt6-Fluent-Widgets>=1.5.0",
+    "av>=12.0.0",
+    "PyOpenGL>=3.1.0",
     "opencv-python>=4.8.0",
     "Pillow>=10.0.0",
     "numpy>=1.24.0",
     "jsonschema>=4.17.0",
     "thefuzz>=0.22.0",
     "python-Levenshtein>=0.25.0",
+    "requests>=2.32.0",
+    # 扩展模块依赖
+    "httpx>=0.27",
+    "keyring>=25",
+    "platformdirs>=4",
+    "fido2>=2.1",
+    "scp>=0.15.0",
 ]
 
 [dependency-groups]
 dev = [
-    "cx_Freeze>=6.15.0",
+    "cx-Freeze>=7.0.0,<8.0.0",
+    "tomli>=2.0; python_version < '3.11'",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gui", "core", "config", "utils", "_mext"]
+
+[tool.uv]
+required-version = ">=0.10.10"
+constraint-dependencies = ["pyqt5-qt5<=5.15.2"]

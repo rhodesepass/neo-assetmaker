@@ -18,9 +18,6 @@ use crate::ipc::{start_ipc_server, IpcMessage, IpcReceiver, IpcSender, ControlCo
 
 use super::state::{PlayState, SimulatorState, TransitionPhase};
 
-/// Frame interval for 50fps
-const FRAME_INTERVAL: Duration = Duration::from_millis(20);
-
 /// Main simulator application
 pub struct SimulatorApp {
     /// Firmware configuration
@@ -53,6 +50,12 @@ pub struct SimulatorApp {
 
     /// Reusable color buffer to avoid allocations every frame
     color_image_buffer: Vec<Color32>,
+
+    /// Whether the frame content has changed and needs re-rendering
+    frame_dirty: bool,
+
+    /// Whether to use dark theme
+    is_dark_theme: bool,
 
     /// UI state
     selected_transition_in: usize,
@@ -116,6 +119,9 @@ pub struct SimulatorApp {
 
     /// Whether textures have been loaded for current config
     textures_loaded: bool,
+
+    /// Error message to display in UI
+    error_message: Option<String>,
 }
 
 impl SimulatorApp {
@@ -129,6 +135,8 @@ impl SimulatorApp {
         use_stdio: bool,
         cropbox: Option<(u32, u32, u32, u32)>,
         rotation: i32,
+        is_dark_theme: bool,
+        config_error: Option<String>,
     ) -> Self {
         let firmware_config = FirmwareConfig::get_default();
         let width = firmware_config.overlay_width();
@@ -146,9 +154,12 @@ impl SimulatorApp {
         let mut video_player = VideoPlayer::new(width, height, cropbox, rotation);
 
         // Load videos from config
-        if let Some(ref config) = initial_config {
-            video_player.load_from_config(config, &base_dir);
-        }
+        let load_error = if let Some(ref config) = initial_config {
+            video_player.load_from_config(config, &base_dir)
+        } else {
+            None
+        };
+        let error_message = config_error.or(load_error);
 
         // Start IPC server if requested
         let (ipc_rx, ipc_tx) = if use_stdio || pipe_name.is_some() {
@@ -201,6 +212,8 @@ impl SimulatorApp {
             last_frame_time: Instant::now(),
             frame_texture: None,
             color_image_buffer: Vec::with_capacity(buffer_size),
+            frame_dirty: true,
+            is_dark_theme,
             selected_transition_in,
             selected_transition_loop,
             is_first_transition: true,
@@ -224,7 +237,11 @@ impl SimulatorApp {
             cached_rhodes_text: String::new(),
             cached_top_right_bar_text: String::new(),
             textures_loaded: false,
+            error_message,
         };
+
+        // Apply Fluent Design theme
+        Self::setup_theme(&_cc.egui_ctx, is_dark_theme);
 
         // Auto-start playback if config was provided
         if auto_start && app.video_player.has_loop() {
@@ -242,7 +259,7 @@ impl SimulatorApp {
         self.state.appear_time_frames = microseconds_to_frames(appear_us, self.firmware_config.fps());
 
         // Load videos
-        self.video_player.load_from_config(&config, &base_dir);
+        self.error_message = self.video_player.load_from_config(&config, &base_dir);
 
         // Apply transition settings from config
         let trans_in = config.get_transition_in_type();
@@ -277,8 +294,51 @@ impl SimulatorApp {
         self.cached_rhodes_text.clear();
         self.cached_top_right_bar_text.clear();
         self.textures_loaded = false;
+        self.frame_dirty = true;
 
         info!("Configuration loaded");
+    }
+
+    /// Setup Fluent Design theme to match QFluentWidgets
+    fn setup_theme(ctx: &egui::Context, is_dark: bool) {
+        let mut visuals = if is_dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+
+        if is_dark {
+            // Match QFluentWidgets dark theme colors
+            visuals.panel_fill = Color32::from_rgb(0x2d, 0x2d, 0x2d);
+            visuals.window_fill = Color32::from_rgb(0x1e, 0x1e, 0x1e);
+            visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0x33, 0x33, 0x33);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(0x3a, 0x3a, 0x3a);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x3a, 0x3a, 0x3a);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x44, 0x44, 0x44);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(0x55, 0x55, 0x55);
+            visuals.override_text_color = Some(Color32::from_rgb(0xee, 0xee, 0xee));
+            visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(0x55, 0x55, 0x55);
+        } else {
+            // Match QFluentWidgets light theme colors
+            visuals.panel_fill = Color32::from_rgb(0xf8, 0xf9, 0xfa);
+            visuals.window_fill = Color32::WHITE;
+            visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0xf0, 0xf0, 0xf0);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(0xe8, 0xe8, 0xe8);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xe8, 0xe8, 0xe8);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(0xd8, 0xd8, 0xd8);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(0xcc, 0xcc, 0xcc);
+            visuals.override_text_color = Some(Color32::from_rgb(0x33, 0x33, 0x33));
+            visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(0xdd, 0xdd, 0xdd);
+        }
+
+        // Fluent Design rounded corners
+        let rounding = egui::Rounding::same(4.0);
+        visuals.widgets.inactive.rounding = rounding;
+        visuals.widgets.hovered.rounding = rounding;
+        visuals.widgets.active.rounding = rounding;
+        visuals.window_rounding = egui::Rounding::same(8.0);
+
+        ctx.set_visuals(visuals);
     }
 
     /// Get transition type from index
@@ -352,6 +412,7 @@ impl SimulatorApp {
         }
         self.video_player.seek_loop_to_start();
 
+        self.frame_dirty = true;
         info!("Playback started: has_intro={}, transition={:?}", has_intro, transition_type);
     }
 
@@ -361,6 +422,7 @@ impl SimulatorApp {
         self.animation_controller.reset();
         self.video_player.reset();
         self.is_first_transition = true;
+        self.frame_dirty = true;
         info!("Playback reset");
     }
 
@@ -392,6 +454,7 @@ impl SimulatorApp {
                     }
                     ControlCommand::Pause => {
                         self.state.pause();
+                        self.frame_dirty = true;
                     }
                     ControlCommand::Stop | ControlCommand::Reset => {
                         self.reset_playback();
@@ -439,25 +502,50 @@ impl SimulatorApp {
     }
 
     /// Update simulation state
-    fn update_simulation(&mut self) {
+    fn update_simulation(&mut self, elapsed_us: i64) {
         if !self.state.is_playing {
             return;
         }
 
-        self.state.frame_counter += 1;
+        let step_us = self.firmware_config.animation.step_time_us as i64;
 
-        match self.state.play_state {
-            PlayState::TransitionIn => self.process_transition_in(),
-            PlayState::Intro => self.process_intro(),
-            PlayState::TransitionLoop => self.process_transition_loop(),
-            PlayState::PreOpinfo => self.process_pre_opinfo(),
-            PlayState::Loop => self.process_loop(),
-            PlayState::Idle => {}
+        // Accumulate wall-clock time, step N logic frames
+        self.state.logic_time_remainder_us += elapsed_us;
+        let logic_ticks = (self.state.logic_time_remainder_us / step_us) as u32;
+        self.state.logic_time_remainder_us %= step_us;
+
+        for _ in 0..logic_ticks {
+            self.state.frame_counter += 1;
+
+            match self.state.play_state {
+                PlayState::TransitionIn => self.process_transition_in(),
+                PlayState::Intro => {} // video advanced below via wall-clock
+                PlayState::TransitionLoop => self.process_transition_loop(),
+                PlayState::PreOpinfo => {
+                    self.state.pre_opinfo_counter += 1;
+                    if self.state.pre_opinfo_counter >= self.state.appear_time_frames {
+                        self.state.play_state = PlayState::Loop;
+                        self.animation_controller.reset();
+                        self.animation_controller.start_entry_animation();
+                    }
+                }
+                PlayState::Loop => {
+                    self.animation_controller.update(&mut self.state.animation);
+                }
+                PlayState::Idle => {}
+            }
+
+            // Send state update every 10 logic frames
+            if self.state.frame_counter % 10 == 0 {
+                self.send_state_update();
+            }
         }
 
-        // Send state update every 10 frames
-        if self.state.frame_counter % 10 == 0 {
-            self.send_state_update();
+        // Video frame advancement uses wall-clock elapsed (not logic ticks)
+        match self.state.play_state {
+            PlayState::Intro => self.advance_intro_video(elapsed_us),
+            PlayState::PreOpinfo | PlayState::Loop => self.advance_loop_video(elapsed_us),
+            _ => {}
         }
     }
 
@@ -479,21 +567,18 @@ impl SimulatorApp {
         }
     }
 
-    fn process_intro(&mut self) {
-        // Calculate video frame duration (microseconds)
+    /// Advance intro video frames based on wall-clock elapsed time
+    fn advance_intro_video(&mut self, elapsed_us: i64) {
         let video_fps = self.video_player.intro_fps();
         let frame_duration_us = (1_000_000.0 / video_fps) as i64;
 
-        // Accumulate time (50fps render = 20ms = 20000us per tick)
-        self.state.intro_frame_accumulator += 20000;
+        self.state.intro_frame_accumulator += elapsed_us;
 
-        // Advance video frame only when accumulated time exceeds frame duration
-        if self.state.intro_frame_accumulator >= frame_duration_us {
+        while self.state.intro_frame_accumulator >= frame_duration_us {
             self.state.intro_frame_accumulator -= frame_duration_us;
-            // Advance to next intro video frame (updates internal cache)
             if !self.video_player.advance_intro_frame() {
-                // Intro video ended, start transition to loop
                 self.start_transition_loop();
+                return;
             }
         }
     }
@@ -524,46 +609,17 @@ impl SimulatorApp {
         }
     }
 
-    fn process_pre_opinfo(&mut self) {
-        self.state.pre_opinfo_counter += 1;
-
-        // Calculate video frame duration (microseconds)
+    /// Advance loop video frames based on wall-clock elapsed time
+    fn advance_loop_video(&mut self, elapsed_us: i64) {
         let video_fps = self.video_player.loop_fps();
         let frame_duration_us = (1_000_000.0 / video_fps) as i64;
 
-        // Accumulate time (50fps render = 20ms = 20000us per tick)
-        self.state.loop_frame_accumulator += 20000;
+        self.state.loop_frame_accumulator += elapsed_us;
 
-        // Advance loop video frame only when accumulated time exceeds frame duration
-        if self.state.loop_frame_accumulator >= frame_duration_us {
+        while self.state.loop_frame_accumulator >= frame_duration_us {
             self.state.loop_frame_accumulator -= frame_duration_us;
             self.video_player.advance_loop_frame();
         }
-
-        // Wait for appear_time
-        if self.state.pre_opinfo_counter >= self.state.appear_time_frames {
-            self.state.play_state = PlayState::Loop;
-            self.animation_controller.reset();
-            self.animation_controller.start_entry_animation();
-        }
-    }
-
-    fn process_loop(&mut self) {
-        // Calculate video frame duration (microseconds)
-        let video_fps = self.video_player.loop_fps();
-        let frame_duration_us = (1_000_000.0 / video_fps) as i64;
-
-        // Accumulate time (50fps render = 20ms = 20000us per tick)
-        self.state.loop_frame_accumulator += 20000;
-
-        // Advance loop video frame only when accumulated time exceeds frame duration
-        if self.state.loop_frame_accumulator >= frame_duration_us {
-            self.state.loop_frame_accumulator -= frame_duration_us;
-            self.video_player.advance_loop_frame();
-        }
-
-        // Update animation
-        self.animation_controller.update(&mut self.state.animation);
     }
 
     /// Update a color buffer from an RgbImage
@@ -620,8 +676,10 @@ impl SimulatorApp {
             PlayState::TransitionLoop => {
                 if self.state.transition.video_switched {
                     FrameSource::Loop
-                } else {
+                } else if self.video_player.has_intro() {
                     FrameSource::Intro
+                } else {
+                    FrameSource::Loop
                 }
             }
             PlayState::PreOpinfo | PlayState::Loop => FrameSource::Loop,
@@ -2244,66 +2302,45 @@ impl eframe::App for SimulatorApp {
         self.handle_ipc_messages();
 
         // Load textures for current configuration (lazy loading)
+        let was_textures_loaded = self.textures_loaded;
         self.load_textures(ctx);
-
-        // Timing control for 50fps
-        let now = Instant::now();
-        let elapsed = now.duration_since(self.last_frame_time);
-
-        if elapsed >= FRAME_INTERVAL && self.state.is_playing {
-            self.update_simulation();
-            self.last_frame_time = now;
+        if !was_textures_loaded && self.textures_loaded {
+            self.frame_dirty = true;
         }
 
-        // Render current frame
-        self.render_frame(ctx);
+        // Wall-clock timing
+        let now = Instant::now();
+        let elapsed_us = now.duration_since(self.last_frame_time).as_micros() as i64;
+        if self.state.is_playing && elapsed_us > 0 {
+            self.last_frame_time = now;
+            // Cap to prevent spiral-of-death after system stall (max 4 logic frames)
+            let step_us = self.firmware_config.animation.step_time_us as i64;
+            let clamped_us = elapsed_us.min(step_us * 4);
+            self.update_simulation(clamped_us);
+            self.frame_dirty = true;
+        }
 
-        // Main panel
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Title
-            ui.heading(RichText::new(format!(
-                "Pass Simulator ({}x{} @ {}fps)",
-                self.firmware_config.overlay_width(),
-                self.firmware_config.overlay_height(),
-                self.firmware_config.fps()
-            )).color(Color32::LIGHT_GRAY));
+        // Only re-render frame texture when content actually changed
+        if self.frame_dirty {
+            self.render_frame(ctx);
+            self.frame_dirty = false;
+        }
 
-            ui.separator();
+        // Determine text color based on theme
+        let text_color = if self.is_dark_theme {
+            Color32::from_rgb(0xee, 0xee, 0xee)
+        } else {
+            Color32::from_rgb(0x33, 0x33, 0x33)
+        };
+        let dim_text_color = if self.is_dark_theme {
+            Color32::GRAY
+        } else {
+            Color32::from_rgb(0x88, 0x88, 0x88)
+        };
 
-            // Display area
-            let image_response = ui.vertical_centered(|ui| {
-                if let Some(ref texture) = self.frame_texture {
-                    let response = ui.image(egui::ImageSource::Texture(egui::load::SizedTexture::new(
-                        texture.id(),
-                        Vec2::new(
-                            self.firmware_config.overlay_width() as f32,
-                            self.firmware_config.overlay_height() as f32,
-                        ),
-                    )));
-                    Some(response.rect)
-                } else {
-                    None
-                }
-            });
-
-            // Render overlay UI on top of the image when in Loop state
-            if self.state.play_state == PlayState::Loop {
-                let overlay_type = self.epconfig
-                    .as_ref()
-                    .and_then(|c| c.overlay.as_ref())
-                    .map(|o| o.overlay_type)
-                    .unwrap_or(OverlayType::None);
-                if let Some(image_rect) = image_response.inner {
-                    let painter = ui.painter_at(image_rect);
-                    match overlay_type {
-                        OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
-                        OverlayType::Image => self.render_image_overlay(&painter, image_rect),
-                        OverlayType::None => {}
-                    }
-                }
-            }
-
-            ui.separator();
+        // Bottom panel: controls (always visible, never clipped)
+        egui::TopBottomPanel::bottom("controls").show(ctx, |ui| {
+            ui.add_space(4.0);
 
             // Transition selectors
             ui.horizontal(|ui| {
@@ -2345,6 +2382,7 @@ impl eframe::App for SimulatorApp {
                 if self.state.is_playing {
                     if ui.button("Pause").clicked() {
                         self.state.pause();
+                        self.frame_dirty = true;
                     }
                 } else {
                     if ui.button("Play").clicked() {
@@ -2371,14 +2409,15 @@ impl eframe::App for SimulatorApp {
                 ).small());
             });
 
-            // Status display
             ui.separator();
+
+            // Status display
             ui.label(RichText::new(format!(
                 "State: {} | Frame: {} | Animation Frame: {}",
                 self.state.play_state.display_name(),
                 self.state.frame_counter,
                 self.state.animation.frame_counter
-            )).color(Color32::GRAY).small());
+            )).color(dim_text_color).small());
 
             // Animation state details (debug)
             if self.state.play_state == PlayState::Loop {
@@ -2388,13 +2427,78 @@ impl eframe::App for SimulatorApp {
                     self.state.animation.code_chars,
                     self.state.animation.color_fade_radius,
                     self.state.animation.entry_progress * 100.0
-                )).color(Color32::DARK_GRAY).small());
+                )).color(dim_text_color).small());
+            }
+
+            ui.add_space(4.0);
+        });
+
+        // Central panel: title + adaptive image + overlay
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Title
+            let video_fps = self.video_player.loop_fps();
+            ui.heading(RichText::new(format!(
+                "Pass Simulator ({}x{} @ {:.1}fps)",
+                self.firmware_config.overlay_width(),
+                self.firmware_config.overlay_height(),
+                video_fps
+            )).color(text_color));
+
+            ui.separator();
+
+            // Show error message when no video loaded
+            if !self.video_player.has_loop() {
+                if let Some(ref error) = self.error_message {
+                    ui.add_space(8.0);
+                    ui.colored_label(Color32::from_rgb(255, 100, 100), error);
+                    ui.add_space(8.0);
+                }
+            }
+
+            // Calculate adaptive image size to fit available space
+            let available = ui.available_size();
+            let fw_width = self.firmware_config.overlay_width() as f32;
+            let fw_height = self.firmware_config.overlay_height() as f32;
+            let aspect = fw_width / fw_height;
+
+            let img_height = available.y.min(available.x / aspect);
+            let img_width = img_height * aspect;
+
+            // Display area
+            let image_response = ui.vertical_centered(|ui| {
+                if let Some(ref texture) = self.frame_texture {
+                    let response = ui.image(egui::ImageSource::Texture(egui::load::SizedTexture::new(
+                        texture.id(),
+                        Vec2::new(img_width, img_height),
+                    )));
+                    Some(response.rect)
+                } else {
+                    None
+                }
+            });
+
+            // Render overlay UI on top of the image when in Loop state
+            if self.state.play_state == PlayState::Loop {
+                let overlay_type = self.epconfig
+                    .as_ref()
+                    .and_then(|c| c.overlay.as_ref())
+                    .map(|o| o.overlay_type)
+                    .unwrap_or(OverlayType::None);
+                if let Some(image_rect) = image_response.inner {
+                    let painter = ui.painter_at(image_rect);
+                    match overlay_type {
+                        OverlayType::Arknights => self.render_overlay_ui(&painter, image_rect),
+                        OverlayType::Image => self.render_image_overlay(&painter, image_rect),
+                        OverlayType::None => {}
+                    }
+                }
             }
         });
 
         // Request repaint if playing
         if self.state.is_playing {
-            ctx.request_repaint();
+            let step_ms = self.firmware_config.animation.step_time_us as u64 / 1000;
+            ctx.request_repaint_after(Duration::from_millis(step_ms));
         }
     }
 }

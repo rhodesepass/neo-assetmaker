@@ -44,7 +44,7 @@ struct Args {
     #[arg(long)]
     stdio: bool,
 
-    /// Cropbox in format "x,y,w,h" (original video coordinates)
+    /// Cropbox in format "x,y,w,h" (rotated video coordinates)
     #[arg(long)]
     cropbox: Option<String>,
 
@@ -55,6 +55,10 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Theme mode to match main application ("dark" or "light")
+    #[arg(long, default_value = "dark")]
+    theme: String,
 }
 
 fn main() -> Result<()> {
@@ -70,7 +74,7 @@ fn main() -> Result<()> {
     info!("Arknights Pass Simulator starting...");
 
     // Load configuration if provided
-    let initial_config = if let Some(config_path) = &args.config {
+    let (initial_config, config_error) = if let Some(config_path) = &args.config {
         info!("Loading config from: {:?}", config_path);
         match EPConfig::load_from_file(config_path) {
             Ok(config) => {
@@ -78,15 +82,15 @@ fn main() -> Result<()> {
                 info!("  - name: {:?}", config.name);
                 info!("  - loop.file: {:?}", config.loop_config.file);
                 info!("  - intro: {:?}", config.intro.as_ref().map(|i| &i.file));
-                Some(config)
+                (Some(config), None)
             }
             Err(e) => {
                 tracing::error!("Failed to load config: {:?}", e);
-                None
+                (None, Some(format!("配置加载失败: {:?}\n路径: {:?}", e, config_path)))
             }
         }
     } else {
-        None
+        (None, None)
     };
 
     let base_dir = args.base_dir.unwrap_or_else(|| {
@@ -111,9 +115,9 @@ fn main() -> Result<()> {
     // Create native options for eframe
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 720.0])
-            .with_min_inner_size([400.0, 720.0])
-            .with_resizable(false)
+            .with_inner_size([420.0, 860.0])
+            .with_min_inner_size([380.0, 720.0])
+            .with_resizable(true)
             .with_title("Arknights Pass Simulator"),
         ..Default::default()
     };
@@ -128,6 +132,7 @@ fn main() -> Result<()> {
         }
     });
     let rotation = args.rotation;
+    let is_dark_theme = args.theme != "light";
 
     // Run the application
     eframe::run_native(
@@ -143,6 +148,8 @@ fn main() -> Result<()> {
                 args.stdio,
                 cropbox,
                 rotation,
+                is_dark_theme,
+                config_error,
             )))
         }),
     )

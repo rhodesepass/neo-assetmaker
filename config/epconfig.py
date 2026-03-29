@@ -1,6 +1,5 @@
 """
 EPConfig 统一数据模型 - 电子通行证素材配置文件
-融合 ep_material_maker 和 decompiled 两个项目的配置模型
 """
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
@@ -8,6 +7,8 @@ from enum import Enum
 import uuid as uuid_lib
 import json
 import os
+
+CONFIG_FILENAME = "epconfig.json"
 
 
 class ScreenType(Enum):
@@ -69,7 +70,10 @@ class TransitionOptions:
             "background_color": self.background_color
         }
         if self.image:
-            result["image"] = self.image
+            if normalize_paths:
+                result["image"] = os.path.basename(self.image)
+            else:
+                result["image"] = self.image
         return result
 
     @classmethod
@@ -189,7 +193,10 @@ class ArknightsOverlayOptions:
         if self.logo:
             result["logo"] = "ark_logo.png" if normalize_paths else self.logo
         if self.operator_class_icon:
-            result["operator_class_icon"] = "class_icon.png" if normalize_paths else self.operator_class_icon
+            if self.operator_class_icon.startswith("class_icons/"):
+                result["operator_class_icon"] = self.operator_class_icon
+            else:
+                result["operator_class_icon"] = "class_icon.png" if normalize_paths else self.operator_class_icon
         return result
 
     @classmethod
@@ -305,12 +312,10 @@ class EPConfig:
         if self.icon:
             result["icon"] = "icon.png" if normalize_paths else self.icon
 
-        # intro
         intro_dict = self.intro.to_dict(normalize_paths=normalize_paths)
         if intro_dict:
             result["intro"] = intro_dict
 
-        # transitions
         trans_in_dict = self.transition_in.to_dict(normalize_paths=normalize_paths)
         if trans_in_dict:
             result["transition_in"] = trans_in_dict
@@ -319,7 +324,6 @@ class EPConfig:
         if trans_loop_dict:
             result["transition_loop"] = trans_loop_dict
 
-        # overlay
         overlay_dict = self.overlay.to_dict(normalize_paths=normalize_paths)
         if overlay_dict:
             result["overlay"] = overlay_dict
@@ -359,7 +363,6 @@ class EPConfig:
     def save_to_file(self, filepath: str):
         """保存配置到文件"""
         try:
-            # 确保目录存在
             directory = os.path.dirname(filepath)
             if directory and not os.path.exists(directory):
                 os.makedirs(directory)

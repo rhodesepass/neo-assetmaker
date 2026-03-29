@@ -5,7 +5,7 @@
 use std::path::Path;
 use anyhow::{Result, Context};
 use image::RgbImage;
-use tracing::{info, error};
+use tracing::{info, warn, error};
 
 use ffmpeg_next as ffmpeg;
 use ffmpeg::format::input;
@@ -34,7 +34,7 @@ pub struct VideoDecoder {
     fps: f64,
     /// Packet iterator state
     packet_iter_exhausted: bool,
-    /// Cropbox (x, y, w, h) in source video coordinates
+    /// Cropbox (x, y, w, h) in rotated video coordinates
     cropbox: Option<(u32, u32, u32, u32)>,
     /// Rotation in degrees (0, 90, 180, 270)
     rotation: i32,
@@ -51,7 +51,7 @@ impl VideoDecoder {
     /// * `path` - Path to the video file
     /// * `target_width` - Target width for frame resize
     /// * `target_height` - Target height for frame resize
-    /// * `cropbox` - Optional cropbox (x, y, w, h) in source video coordinates
+    /// * `cropbox` - Optional cropbox (x, y, w, h) in rotated video coordinates
     /// * `rotation` - Rotation in degrees (0, 90, 180, 270)
     pub fn open(
         path: &str,
@@ -70,7 +70,7 @@ impl VideoDecoder {
         ffmpeg::init().context("Failed to initialize FFmpeg")?;
 
         // Open input file
-        let input_ctx = input(&path).context("Failed to open video file")?;
+        let mut input_ctx = input(&path).context("Failed to open video file")?;
 
         // Find best video stream
         let video_stream = input_ctx
@@ -91,12 +91,12 @@ impl VideoDecoder {
         // Create decoder
         let context_decoder = ffmpeg::codec::context::Context::from_parameters(video_stream.parameters())
             .context("Failed to create decoder context")?;
-        let decoder = context_decoder.decoder().video()
+        let mut decoder = context_decoder.decoder().video()
             .context("Failed to create video decoder")?;
 
-        let src_width = decoder.width();
-        let src_height = decoder.height();
-        let src_format = decoder.format();
+        let mut src_width = decoder.width();
+        let mut src_height = decoder.height();
+        let mut src_format = decoder.format();
 
         info!(
             "Opened video: {}x{} @ {:.1}fps, format: {:?}, cropbox: {:?}, rotation: {}",
@@ -104,37 +104,72 @@ impl VideoDecoder {
         );
 
         // Create scaler for RGB24 conversion (original size, no resize)
-        let rgb_scaler = Scaler::get(
-            src_format,
-            src_width,
-            src_height,
-            Pixel::RGB24,
-            src_width,
-            src_height,
-            Flags::BILINEAR,
-        ).context("Failed to create RGB scaler")?;
+        // Try with decoder-reported format first; if it fails (e.g. pix_fmt=NONE before
+        // first decode), probe the first frame to get the actual format and retry.
+        let rgb_scaler = match Scaler::get(
+            src_format, src_width, src_height,
+            Pixel::RGB24, src_width, src_height, Flags::BILINEAR,
+        ) {
+            Ok(scaler) => scaler,
+            Err(initial_err) => {
+                info!(
+                    "RGB scaler failed with format {:?} {}x{}: {}, probing first frame...",
+                    src_format, src_width, src_height, initial_err
+                );
+
+                match Self::probe_first_frame(&mut input_ctx, &mut decoder, video_stream_index) {
+                    Some((fmt, w, h)) => {
+                        info!("Probed actual format: {:?} {}x{}", fmt, w, h);
+                        src_format = fmt;
+                        src_width = w;
+                        src_height = h;
+                        let _ = input_ctx.seek(0, ..);
+                        decoder.flush();
+
+                        Scaler::get(
+                            src_format, src_width, src_height,
+                            Pixel::RGB24, src_width, src_height, Flags::BILINEAR,
+                        ).with_context(|| format!(
+                            "视频像素格式不受支持\n格式: {:?}\n分辨率: {}x{}\n文件: {}",
+                            src_format, src_width, src_height, path
+                        ))?
+                    }
+                    None => {
+                        anyhow::bail!(
+                            "无法解码视频帧\n格式: {:?}\n分辨率: {}x{}\n文件: {}",
+                            src_format, src_width, src_height, path
+                        );
+                    }
+                }
+            }
+        };
 
         // Calculate final scaler dimensions based on cropbox and rotation
+        // Processing order: rotate full frame → crop from rotated frame
+        // cropbox is in rotated-space coordinates, so its dimensions are the final input size
         let final_scaler = if cropbox.is_some() || rotation != 0 {
-            // Get the size after crop and rotation
-            let (crop_w, crop_h) = if let Some((_, _, w, h)) = cropbox {
+            let (final_w, final_h) = if let Some((_, _, w, h)) = cropbox {
+                // cropbox dimensions are already in rotated space
                 (w, h)
+            } else if rotation == 90 || rotation == 270 {
+                // No cropbox, but rotation swaps dimensions
+                (src_height, src_width)
             } else {
-                (src_width, src_height)
+                // Arbitrary angle: bounding box is larger than original
+                let rad = (rotation as f64).to_radians();
+                let abs_cos = rad.cos().abs();
+                let abs_sin = rad.sin().abs();
+                (
+                    (src_width as f64 * abs_cos + src_height as f64 * abs_sin).ceil() as u32,
+                    (src_width as f64 * abs_sin + src_height as f64 * abs_cos).ceil() as u32,
+                )
             };
 
-            // After rotation, dimensions may swap
-            let (rotated_w, rotated_h) = if rotation == 90 || rotation == 270 {
-                (crop_h, crop_w)
-            } else {
-                (crop_w, crop_h)
-            };
-
-            // Create final scaler from rotated size to target size
+            // Create final scaler from crop size to target size
             Some(Scaler::get(
                 Pixel::RGB24,
-                rotated_w,
-                rotated_h,
+                final_w,
+                final_h,
                 Pixel::RGB24,
                 target_width,
                 target_height,
@@ -168,6 +203,32 @@ impl VideoDecoder {
             src_width,
             src_height,
         })
+    }
+
+    /// Decode up to 100 packets to discover the actual pixel format and resolution.
+    /// Used as fallback when the decoder context reports an unusable format before decoding.
+    fn probe_first_frame(
+        input_ctx: &mut ffmpeg::format::context::Input,
+        decoder: &mut ffmpeg::codec::decoder::Video,
+        video_stream_index: usize,
+    ) -> Option<(Pixel, u32, u32)> {
+        for _ in 0..100 {
+            match input_ctx.packets().next() {
+                Some((stream, packet)) => {
+                    if stream.index() != video_stream_index {
+                        continue;
+                    }
+                    if decoder.send_packet(&packet).is_ok() {
+                        let mut frame = VideoFrame::empty();
+                        if decoder.receive_frame(&mut frame).is_ok() {
+                            return Some((frame.format(), frame.width(), frame.height()));
+                        }
+                    }
+                }
+                None => break,
+            }
+        }
+        None
     }
 
     /// Read the next frame from the video
@@ -248,32 +309,32 @@ impl VideoDecoder {
             rgb_data.extend_from_slice(&data[row_start..row_end]);
         }
 
-        // Step 2: Apply crop if needed
-        let (cropped_data, crop_w, crop_h) = if let Some((cx, cy, cw, ch)) = self.cropbox {
-            let cropped = self.crop_frame(&rgb_data, src_width as u32, cx, cy, cw, ch);
-            (cropped, cw, ch)
-        } else {
-            (rgb_data, self.src_width, self.src_height)
-        };
+        // Step 2: Apply rotation FIRST (on full frame, isotropic space)
+        let (rotated_data, rotated_w, rotated_h) =
+            self.rotate_frame(&rgb_data, self.src_width, self.src_height, self.rotation);
 
-        // Step 3: Apply rotation if needed
-        let (rotated_data, rotated_w, rotated_h) = self.rotate_frame(&cropped_data, crop_w, crop_h, self.rotation);
+        // Step 3: Apply crop from rotated frame (rotated-space coordinates)
+        let (final_data, final_w, final_h) = if let Some((cx, cy, cw, ch)) = self.cropbox {
+            self.crop_frame(&rotated_data, rotated_w, rotated_h, cx, cy, cw, ch)
+        } else {
+            (rotated_data, rotated_w, rotated_h)
+        };
 
         // Step 4: Scale to target size using the final scaler
         if let Some(ref mut final_scaler) = self.final_scaler {
-            // Create a VideoFrame from our rotated data
-            let mut src_frame = VideoFrame::new(Pixel::RGB24, rotated_w, rotated_h);
+            // Create a VideoFrame from our cropped data
+            let mut src_frame = VideoFrame::new(Pixel::RGB24, final_w, final_h);
 
             // Copy data into the frame
             // Get stride first (immutable borrow), then get mutable data
             let frame_stride = src_frame.stride(0);
             let frame_data = src_frame.data_mut(0);
 
-            for y in 0..rotated_h as usize {
-                let src_start = y * (rotated_w as usize) * 3;
+            for y in 0..final_h as usize {
+                let src_start = y * (final_w as usize) * 3;
                 let dst_start = y * frame_stride;
-                let row_len = (rotated_w as usize) * 3;
-                frame_data[dst_start..dst_start + row_len].copy_from_slice(&rotated_data[src_start..src_start + row_len]);
+                let row_len = (final_w as usize) * 3;
+                frame_data[dst_start..dst_start + row_len].copy_from_slice(&final_data[src_start..src_start + row_len]);
             }
 
             // Scale to target size
@@ -306,30 +367,49 @@ impl VideoDecoder {
             }
         } else {
             // No final scaler, use rotated data directly (shouldn't happen normally)
-            RgbImage::from_raw(rotated_w, rotated_h, rotated_data)
+            RgbImage::from_raw(final_w, final_h, final_data)
         }
     }
 
-    /// Crop a frame from RGB24 data
-    fn crop_frame(&self, data: &[u8], src_width: u32, x: u32, y: u32, w: u32, h: u32) -> Vec<u8> {
-        let mut cropped = Vec::with_capacity((w * h * 3) as usize);
+    /// Crop a frame from RGB24 data with boundary safety checks
+    fn crop_frame(&self, data: &[u8], src_width: u32, src_height: u32, x: u32, y: u32, w: u32, h: u32) -> (Vec<u8>, u32, u32) {
         let src_stride = (src_width * 3) as usize;
 
-        for row in y..(y + h) {
-            let start = (row as usize * src_stride) + (x as usize * 3);
-            let end = start + (w as usize * 3);
-            cropped.extend_from_slice(&data[start..end]);
+        // Boundary safety check - clamp crop region to source dimensions
+        let safe_x = x.min(src_width.saturating_sub(1));
+        let safe_y = y.min(src_height.saturating_sub(1));
+        let safe_w = w.min(src_width.saturating_sub(safe_x));
+        let safe_h = h.min(src_height.saturating_sub(safe_y));
+
+        if safe_w == 0 || safe_h == 0 {
+            warn!("Crop region is empty after boundary clamping: ({}, {}, {}, {}) on {}x{}", x, y, w, h, src_width, src_height);
+            return (Vec::new(), 0, 0);
         }
-        cropped
+
+        if safe_w != w || safe_h != h {
+            warn!("Crop region clamped from ({}, {}, {}, {}) to ({}, {}, {}, {}) on {}x{}",
+                x, y, w, h, safe_x, safe_y, safe_w, safe_h, src_width, src_height);
+        }
+
+        let mut cropped = Vec::with_capacity((safe_w * safe_h * 3) as usize);
+        for row in safe_y..(safe_y + safe_h) {
+            let start = (row as usize * src_stride) + (safe_x as usize * 3);
+            let end = start + (safe_w as usize * 3);
+            if end <= data.len() {
+                cropped.extend_from_slice(&data[start..end]);
+            }
+        }
+        (cropped, safe_w, safe_h)
     }
 
     /// Rotate a frame
     fn rotate_frame(&self, data: &[u8], w: u32, h: u32, rotation: i32) -> (Vec<u8>, u32, u32) {
         match rotation {
+            0 => (data.to_vec(), w, h),
             90 => self.rotate_90(data, w, h),
             180 => self.rotate_180(data, w, h),
             270 => self.rotate_270(data, w, h),
-            _ => (data.to_vec(), w, h),
+            _ => self.rotate_arbitrary(data, w, h, rotation),
         }
     }
 
@@ -383,6 +463,68 @@ impl VideoDecoder {
             }
         }
         (result, new_w, new_h)
+    }
+
+    /// Rotate by arbitrary angle using affine transform + bilinear interpolation
+    /// Equivalent to Python's cv2.warpAffine with cv2.INTER_LINEAR
+    fn rotate_arbitrary(&self, data: &[u8], w: u32, h: u32, rotation: i32) -> (Vec<u8>, u32, u32) {
+        let rad = (rotation as f64).to_radians();
+        let cos_a = rad.cos();
+        let sin_a = rad.sin();
+        let abs_cos = cos_a.abs();
+        let abs_sin = sin_a.abs();
+
+        // Bounding box (matches Python _get_rotated_video_size)
+        let nw = (w as f64 * abs_cos + h as f64 * abs_sin).ceil() as u32;
+        let nh = (w as f64 * abs_sin + h as f64 * abs_cos).ceil() as u32;
+
+        // Original center & new center
+        let cx = w as f64 / 2.0;
+        let cy = h as f64 / 2.0;
+        let ncx = nw as f64 / 2.0;
+        let ncy = nh as f64 / 2.0;
+
+        let src_stride = w as usize * 3;
+        let dst_stride = nw as usize * 3;
+        let mut result = vec![0u8; (nw * nh * 3) as usize];
+        let w_limit = (w - 1) as f64;
+        let h_limit = (h - 1) as f64;
+
+        for dst_y in 0..nh {
+            for dst_x in 0..nw {
+                // Inverse mapping: dst → src
+                let dx = dst_x as f64 - ncx;
+                let dy = dst_y as f64 - ncy;
+                let src_xf = cos_a * dx + sin_a * dy + cx;
+                let src_yf = -sin_a * dx + cos_a * dy + cy;
+
+                // Bilinear interpolation (out-of-bounds stays black = 0)
+                if src_xf >= 0.0 && src_xf < w_limit
+                    && src_yf >= 0.0 && src_yf < h_limit
+                {
+                    let x0 = src_xf.floor() as usize;
+                    let y0 = src_yf.floor() as usize;
+                    let x1 = x0 + 1;
+                    let y1 = y0 + 1;
+                    let fx = src_xf - x0 as f64;
+                    let fy = src_yf - y0 as f64;
+
+                    let dst_idx = dst_y as usize * dst_stride + dst_x as usize * 3;
+                    for c in 0..3 {
+                        let v00 = data[y0 * src_stride + x0 * 3 + c] as f64;
+                        let v10 = data[y0 * src_stride + x1 * 3 + c] as f64;
+                        let v01 = data[y1 * src_stride + x0 * 3 + c] as f64;
+                        let v11 = data[y1 * src_stride + x1 * 3 + c] as f64;
+                        let v = (1.0 - fx) * (1.0 - fy) * v00
+                              + fx * (1.0 - fy) * v10
+                              + (1.0 - fx) * fy * v01
+                              + fx * fy * v11;
+                        result[dst_idx + c] = v.round() as u8;
+                    }
+                }
+            }
+        }
+        (result, nw, nh)
     }
 
     /// Seek to the beginning of the video

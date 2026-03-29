@@ -14,6 +14,40 @@ from utils.file_utils import get_app_dir
 
 logger = logging.getLogger(__name__)
 
+X264_PARAMS = (
+    "partitions=all"
+    ":rc-lookahead=90"
+    ":bframes=12:b-adapt=2"
+    ":me=umh:subme=9:merange=48"
+    ":no-fast-pskip=1:direct=auto:weightb=1"
+    ":keyint=300:min-keyint=5:ref=3"
+    ":chroma-qp-offset=-3"
+    ":aq-mode=3:aq-strength=0.7:trellis=2"
+    ":deblock=0,0:psy-rd=0.5,0.12"
+)
+
+
+def find_ffmpeg() -> str:
+    """查找安装目录中的ffmpeg（仅限应用自带，避免多版本冲突）"""
+    # 1. 在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
+    if sys.platform == 'win32':
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
+    else:
+        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg")
+
+    if os.path.isfile(app_ffmpeg):
+        return app_ffmpeg
+
+    # 2. 在 ffmpeg 子目录中查找
+    if sys.platform == 'win32':
+        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg.exe")
+    else:
+        ffmpeg_dir_ffmpeg = os.path.join(get_app_dir(), "ffmpeg", "ffmpeg")
+    if os.path.isfile(ffmpeg_dir_ffmpeg):
+        return ffmpeg_dir_ffmpeg
+
+    return ""
+
 
 @dataclass
 class VideoInfo:
@@ -62,7 +96,6 @@ class VideoProcessor:
                 timeout=10
             )
             if result.returncode == 0:
-                # 提取版本信息
                 first_line = result.stdout.split('\n')[0] if result.stdout else ""
                 return True, first_line
             return False, "FFmpeg返回非零退出码"
@@ -75,26 +108,7 @@ class VideoProcessor:
 
     def find_ffmpeg(self) -> str:
         """查找系统中的ffmpeg（支持打包环境）"""
-        # 1. 先在应用程序目录查找（支持 Nuitka/PyInstaller 打包）
-        app_ffmpeg = os.path.join(get_app_dir(), "ffmpeg.exe")
-        if os.path.isfile(app_ffmpeg):
-            return app_ffmpeg
-
-        # 2. 在当前工作目录查找
-        local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
-        if os.path.isfile(local_ffmpeg):
-            return local_ffmpeg
-
-        # 3. 在系统 PATH 中查找
-        try:
-            cmd = ["where", "ffmpeg"] if os.name == 'nt' else ["which", "ffmpeg"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
-        except Exception:
-            pass
-
-        return ""
+        return find_ffmpeg()
 
     def get_video_info(self, input_path: str) -> Optional[VideoInfo]:
         """
@@ -120,18 +134,15 @@ class VideoProcessor:
             )
             parts = result.stdout.strip().split(',')
             if len(parts) >= 5:
-                # 解析帧率
                 fps_parts = parts[3].split('/')
                 if len(fps_parts) == 2:
                     fps = float(fps_parts[0]) / float(fps_parts[1])
                 else:
                     fps = float(fps_parts[0])
 
-                # 解析时长
                 duration_str = parts[2]
                 duration = float(duration_str) if duration_str != 'N/A' else 0
 
-                # 解析总帧数
                 total_frames = 0
                 if len(parts) >= 6 and parts[5] != 'N/A':
                     try:
@@ -139,7 +150,7 @@ class VideoProcessor:
                     except ValueError:
                         pass
                 if total_frames == 0 and duration > 0:
-                    total_frames = int(duration * fps)
+                    total_frames = round(duration * fps)
 
                 return VideoInfo(
                     width=int(parts[0]),
@@ -176,11 +187,9 @@ class VideoProcessor:
         Returns:
             (处理是否成功, 错误信息)
         """
-        # 检查输入文件
         if not os.path.exists(input_path):
             return False, f"输入文件不存在: {input_path}"
 
-        # 获取分辨率配置
         spec = get_resolution_spec(target_resolution)
         orig_w = spec["width"]
         orig_h = spec["height"]
@@ -189,33 +198,26 @@ class VideoProcessor:
         pad_dir = spec["padding_side"]
         rotate_180 = spec["rotate_180"]
 
-        # 构建FFmpeg命令
         cmd = [self.ffmpeg_path, "-y", "-i", input_path]
 
-        # 视频滤镜
         filters = []
-
-        # 1. 缩放到原始分辨率
         filters.append(f"scale={orig_w}:{orig_h}")
 
-        # 2. 添加黑边
         if pad_dir:
             filters.append(f"pad={target_w}:{target_h}:0:0:black")
 
-        # 3. 720x1080需要旋转180度
         if rotate_180:
             filters.append("rotate=PI")
 
-        # 组合滤镜
         if filters:
             cmd.extend(["-vf", ",".join(filters)])
 
-        # 编码参数
         cmd.extend([
             "-c:v", "libx264",
             "-preset", "medium",
-            "-crf", "18",
+            "-crf", "19",
             "-pix_fmt", "yuv420p",
+            "-x264-params", X264_PARAMS,
             "-an",  # 无音频
             output_path
         ])
@@ -288,7 +290,8 @@ class VideoProcessor:
         filter_str = ",".join(filters)
 
         return (f'ffmpeg -i "{input_path}" -vf "{filter_str}" '
-                f'-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p '
+                f'-c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p '
+                f'-x264-params "{X264_PARAMS}" '
                 f'-an "{output_path}"')
 
     def get_resolution_info(self, resolution: str) -> Dict[str, Any]:

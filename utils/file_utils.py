@@ -161,7 +161,6 @@ def parse_duration_to_us(duration_str: str) -> Optional[int]:
             value = float(duration_str.replace('us', '').replace('微秒', ''))
             return int(value)
         else:
-            # 纯数字，假设为微秒
             return int(float(duration_str))
     except (ValueError, AttributeError):
         return None
@@ -197,8 +196,6 @@ def get_app_dir() -> str:
         应用程序所在目录的绝对路径
     """
     if getattr(sys, 'frozen', False):
-        # Nuitka/PyInstaller 打包后，sys.executable 指向打包的 exe
         return os.path.dirname(sys.executable)
     else:
-        # 开发环境，返回项目根目录
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -6,8 +6,8 @@ from enum import Enum
 from typing import Dict, Any, List
 
 # ===== 应用信息 =====
-APP_NAME = "明日方舟通行证素材制作器"
-APP_VERSION = "1.5.7"
+APP_NAME = "明日方舟通行证素材工具箱"
+APP_VERSION = "2.1.0"
 
 # ===== 基础尺寸配置 =====
 SCREEN_WIDTH = 360
@@ -26,7 +26,7 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "height": 640,
         "padded_width": 384,
         "padded_height": 640,
-        "padding_side": "right",  # 补右边黑边
+        "padding_side": "right",
         "padding_amount": 24,
         "rotate_180": False,
         "description": "360x640 (对齐后384x640, 右边+24px黑边)"
@@ -36,7 +36,7 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "height": 854,
         "padded_width": 480,
         "padded_height": 864,
-        "padding_side": "bottom",  # 补下边黑边
+        "padding_side": "bottom",
         "padding_amount": 10,
         "rotate_180": False,
         "description": "480x854 (对齐后480x864, 底部+10px黑边)"
@@ -46,7 +46,7 @@ RESOLUTION_SPECS: Dict[str, Dict[str, Any]] = {
         "height": 1080,
         "padded_width": 720,
         "padded_height": 1080,
-        "padding_side": None,  # 无补边
+        "padding_side": None,
         "padding_amount": 0,
         "rotate_180": False,
         "description": "720x1080 (无黑边)"
@@ -75,8 +75,8 @@ TRANSITION_TYPES = ["none", "fade", "move", "swipe"]
 OVERLAY_TYPES = ["none", "arknights", "image"]
 
 # ===== Arknights叠加UI图片尺寸 =====
-ARK_CLASS_ICON_SIZE = (50, 50)    # 职业图标尺寸
-ARK_LOGO_SIZE = (75, 35)          # Logo尺寸
+ARK_CLASS_ICON_SIZE = (50, 50)
+ARK_LOGO_SIZE = (75, 35)
 
 # ===== 职业图标预设 =====
 OPERATOR_CLASS_PRESETS = {
@@ -88,6 +88,38 @@ OPERATOR_CLASS_PRESETS = {
     "医疗": "medic",
     "辅助": "supporter",
     "特种": "specialist"
+}
+
+# ===== 职业代码映射（从character_table.json中的Profession字段） =====
+PROFESSION_CODE_MAP = {
+    1: "vanguard",      # 先锋
+    2: "guard",         # 近卫
+    3: "defender",      # 重装
+    4: "sniper",        # 狙击
+    5: "caster",        # 术师
+    6: "medic",         # 医疗
+    7: "supporter",     # 辅助
+    8: "specialist",    # 特种
+    16: "supporter",    # 辅助（某些特殊辅助）
+    32: "caster",       # 术师（某些特殊术师）
+    64: "specialist",   # 特种（新约能天使等）
+    128: "defender",    # 重装（某些特殊重装）
+    256: "guard",       # 近卫（某些特殊近卫）
+    512: "vanguard",    # 先锋（某些特殊先锋）
+    1024: "medic",     # 医疗（某些特殊医疗）
+    2048: "specialist" # 特种（某些特殊特种）
+}
+
+# ===== 职业名称映射（从职业代码到中文名称） =====
+PROFESSION_NAME_MAP = {
+    "vanguard": "先锋",
+    "guard": "近卫",
+    "defender": "重装",
+    "sniper": "狙击",
+    "caster": "术师",
+    "medic": "医疗",
+    "supporter": "辅助",
+    "specialist": "特种"
 }
 
 

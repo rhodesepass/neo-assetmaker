@@ -3,10 +3,13 @@
 """
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSizePolicy
+    QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRect, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QRect, QPoint, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QMouseEvent, QPaintEvent
+from qfluentwidgets import (
+    ToolButton, PushButton, CaptionLabel, SpinBox, setCustomStyleSheet
+)
 
 
 class TimelineSlider(QWidget):
@@ -23,16 +26,23 @@ class TimelineSlider(QWidget):
         self._out_point = 100
         self._dragging = False
 
+        # 拖拽节流：防止每像素触发昂贵的 FFmpeg seek
+        self._pending_seek_frame = -1
+        self._seek_timer = QTimer(self)
+        self._seek_timer.setSingleShot(True)
+        self._seek_timer.setInterval(33)  # ~30fps
+        self._seek_timer.timeout.connect(self._emit_pending_seek)
+
         self._margin = 10
         self._track_height = 30
 
-        # 颜色
-        self._bg_color = QColor(50, 50, 50)
-        self._track_color = QColor(70, 70, 70)
-        self._selection_color = QColor(66, 133, 244, 100)
-        self._in_color = QColor(76, 175, 80)  # 绿色
-        self._out_color = QColor(244, 67, 54)  # 红色
+        self._bg_color = QColor(35, 35, 35)
+        self._track_color = QColor(45, 45, 45)
+        self._selection_color = QColor(66, 133, 244, 150)
+        self._in_color = QColor(86, 185, 90)  # 亮绿色
+        self._out_color = QColor(254, 77, 64)  # 亮红色
         self._current_color = QColor(255, 255, 255)  # 白色
+        self._current_color_hover = QColor(86, 154, 243)  # 亮蓝色
 
         self.setMinimumHeight(50)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -104,50 +114,53 @@ class TimelineSlider(QWidget):
         track_y = (h - self._track_height) // 2
         track_width = w - 2 * self._margin
 
-        # 背景
         painter.fillRect(0, 0, w, h, self._bg_color)
 
-        # 轨道
-        painter.fillRect(
-            QRect(self._margin, track_y, track_width, self._track_height),
-            self._track_color
-        )
+        track_rect = QRect(self._margin, track_y, track_width, self._track_height)
+        painter.setBrush(QBrush(self._track_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(track_rect, 4, 4)
 
-        # 选中范围
         if self._total_frames > 1:
             in_x = self._frame_to_x(self._in_point)
             out_x = self._frame_to_x(self._out_point)
-            painter.fillRect(
-                QRect(in_x, track_y, out_x - in_x, self._track_height),
-                self._selection_color
-            )
+            selection_width = out_x - in_x
+            if selection_width > 0:
+                selection_rect = QRect(in_x, track_y, selection_width, self._track_height)
+                painter.setBrush(QBrush(self._selection_color))
+                painter.drawRoundedRect(selection_rect, 4, 4)
 
-        # 入点标记
         in_x = self._frame_to_x(self._in_point)
         painter.setBrush(QBrush(self._in_color))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPolygon([
-            QPoint(in_x - 6, track_y - 6),
-            QPoint(in_x + 6, track_y - 6),
+            QPoint(in_x - 8, track_y - 8),
+            QPoint(in_x + 8, track_y - 8),
             QPoint(in_x, track_y)
         ])
 
-        # 出点标记
         out_x = self._frame_to_x(self._out_point)
         painter.setBrush(QBrush(self._out_color))
         bottom_y = track_y + self._track_height
         painter.drawPolygon([
-            QPoint(out_x - 6, bottom_y + 6),
-            QPoint(out_x + 6, bottom_y + 6),
+            QPoint(out_x - 8, bottom_y + 8),
+            QPoint(out_x + 8, bottom_y + 8),
             QPoint(out_x, bottom_y)
         ])
 
-        # 当前位置
         cur_x = self._frame_to_x(self._current_frame)
+        center_y = track_y + self._track_height // 2
+        
         painter.setPen(QPen(self._current_color, 2))
-        painter.drawLine(cur_x, track_y - 5, cur_x, track_y + self._track_height + 5)
+        painter.drawLine(cur_x, track_y - 10, cur_x, track_y + self._track_height + 10)
+        
         painter.setBrush(QBrush(self._current_color))
-        painter.drawEllipse(QPoint(cur_x, track_y + self._track_height // 2), 5, 5)
+        painter.setPen(QPen(self._current_color_hover, 2))
+        painter.drawEllipse(QPoint(cur_x, center_y), 6, 6)
+        
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._current_color_hover, 1, Qt.PenStyle.SolidLine))
+        painter.drawEllipse(QPoint(cur_x, center_y), 9, 9)
 
     def mousePressEvent(self, event: QMouseEvent):
         """鼠标按下"""
@@ -156,20 +169,36 @@ class TimelineSlider(QWidget):
             self.seek_requested.emit(self._x_to_frame(int(event.position().x())))
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        """鼠标移动"""
+        """鼠标移动 - 节流发射 seek 信号"""
         if self._dragging:
-            self.seek_requested.emit(self._x_to_frame(int(event.position().x())))
+            frame = self._x_to_frame(int(event.position().x()))
+            # 即时更新视觉指示器（无开销）
+            self._current_frame = max(0, min(frame, self._total_frames - 1))
+            self.update()
+            # 暂存帧号，延迟发射 seek 信号
+            self._pending_seek_frame = self._current_frame
+            if not self._seek_timer.isActive():
+                self._seek_timer.start()
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        """鼠标释放"""
+        """鼠标释放 - 立即发射最终位置"""
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
+            self._seek_timer.stop()
+            if self._pending_seek_frame >= 0:
+                self.seek_requested.emit(self._pending_seek_frame)
+                self._pending_seek_frame = -1
+
+    def _emit_pending_seek(self):
+        """定时器回调：发射暂存的 seek 信号"""
+        if self._pending_seek_frame >= 0:
+            self.seek_requested.emit(self._pending_seek_frame)
+            self._pending_seek_frame = -1
 
 
 class TimelineWidget(QWidget):
     """时间轴组件"""
 
-    # 信号
     play_pause_clicked = pyqtSignal()
     seek_requested = pyqtSignal(int)
     prev_frame_clicked = pyqtSignal()
@@ -179,7 +208,7 @@ class TimelineWidget(QWidget):
     set_in_point_clicked = pyqtSignal()
     set_out_point_clicked = pyqtSignal()
     simulator_requested = pyqtSignal()  # 模拟器启动请求信号
-    rotation_clicked = pyqtSignal()  # 旋转按钮点击信号
+    rotation_value_changed = pyqtSignal(int)  # 旋转角度变更信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -198,70 +227,87 @@ class TimelineWidget(QWidget):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
 
-        # 控制按钮
         control_layout = QHBoxLayout()
-        control_layout.setSpacing(3)
+        control_layout.setSpacing(8)
 
-        self.btn_goto_start = QPushButton("|<")
+        self.btn_goto_start = ToolButton()
+        self.btn_goto_start.setText("|<")
         self.btn_goto_start.setFixedWidth(35)
         self.btn_goto_start.setToolTip("跳到开始")
         control_layout.addWidget(self.btn_goto_start)
 
-        self.btn_prev_frame = QPushButton("<")
+        self.btn_prev_frame = ToolButton()
+        self.btn_prev_frame.setText("<")
         self.btn_prev_frame.setFixedWidth(35)
         self.btn_prev_frame.setToolTip("上一帧 (\u2190)")
         control_layout.addWidget(self.btn_prev_frame)
 
-        self.btn_play_pause = QPushButton("播放")
+        self.btn_play_pause = PushButton("播放")
         self.btn_play_pause.setFixedWidth(50)
         self.btn_play_pause.setToolTip("播放/暂停 (Space)")
         control_layout.addWidget(self.btn_play_pause)
 
-        self.btn_next_frame = QPushButton(">")
+        self.btn_next_frame = ToolButton()
+        self.btn_next_frame.setText(">")
         self.btn_next_frame.setFixedWidth(35)
         self.btn_next_frame.setToolTip("下一帧 (\u2192)")
         control_layout.addWidget(self.btn_next_frame)
 
-        self.btn_goto_end = QPushButton(">|")
+        self.btn_goto_end = ToolButton()
+        self.btn_goto_end.setText(">|")
         self.btn_goto_end.setFixedWidth(35)
         self.btn_goto_end.setToolTip("跳到结束")
         control_layout.addWidget(self.btn_goto_end)
 
-        control_layout.addWidget(QLabel("|"))
+        control_layout.addWidget(CaptionLabel("|"))
 
-        self.btn_set_in = QPushButton("[ 入点")
+        self.btn_set_in = PushButton("[ 入点")
         self.btn_set_in.setToolTip("设置入点")
         control_layout.addWidget(self.btn_set_in)
 
-        self.btn_set_out = QPushButton("] 出点")
+        self.btn_set_out = PushButton("] 出点")
         self.btn_set_out.setToolTip("设置出点")
         control_layout.addWidget(self.btn_set_out)
 
-        control_layout.addWidget(QLabel("|"))
+        control_layout.addWidget(CaptionLabel("|"))
 
-        self.label_frame = QLabel("0 / 100")
+        self.label_frame = CaptionLabel("0 / 100")
         self.label_frame.setMinimumWidth(80)
         control_layout.addWidget(self.label_frame)
 
-        self.label_fps = QLabel("30.0 FPS")
+        self.label_fps = CaptionLabel("30.0 FPS")
         control_layout.addWidget(self.label_fps)
 
-        control_layout.addWidget(QLabel("|"))
+        control_layout.addWidget(CaptionLabel("|"))
 
-        # 模拟预览按钮
-        self.btn_preview = QPushButton("模拟预览")
+        self.btn_preview = PushButton("模拟预览")
         self.btn_preview.setToolTip("启动模拟器预览实际显示效果")
         control_layout.addWidget(self.btn_preview)
 
-        # 旋转按钮
-        self.btn_rotate = QPushButton("旋转 0°")
-        self.btn_rotate.setToolTip("旋转视频（点击顺时针旋转90度）")
-        self.btn_rotate.setMinimumWidth(85)
-        control_layout.addWidget(self.btn_rotate)
+        self.btn_rotate_ccw = ToolButton()
+        self.btn_rotate_ccw.setText("↺")
+        self.btn_rotate_ccw.setFixedWidth(32)
+        self.btn_rotate_ccw.setToolTip("逆时针旋转 90°")
+        control_layout.addWidget(self.btn_rotate_ccw)
+
+        self.spin_rotation = SpinBox()
+        self.spin_rotation.setRange(0, 359)
+        self.spin_rotation.setValue(0)
+        self.spin_rotation.setSuffix("°")
+        self.spin_rotation.setWrapping(True)
+        self.spin_rotation.setFixedWidth(100)
+        self.spin_rotation.setToolTip("旋转角度（0-359°）")
+        self.spin_rotation.setKeyboardTracking(False)
+        control_layout.addWidget(self.spin_rotation)
+
+        self.btn_rotate_cw = ToolButton()
+        self.btn_rotate_cw.setText("↻")
+        self.btn_rotate_cw.setFixedWidth(32)
+        self.btn_rotate_cw.setToolTip("顺时针旋转 90°")
+        control_layout.addWidget(self.btn_rotate_cw)
 
         control_layout.addStretch()
 
-        # 时间轴滑块
         self.timeline_slider = TimelineSlider()
         self.timeline_slider.setToolTip("拖动或点击跳转")
 
@@ -270,30 +316,11 @@ class TimelineWidget(QWidget):
 
         self.setMinimumHeight(100)
         self.setMaximumHeight(150)
-        self.setStyleSheet("""
-            TimelineWidget {
-                background-color: #2d2d2d;
-                border-top: 1px solid #444;
-            }
-            QPushButton {
-                background-color: #444;
-                color: #ddd;
-                border: 1px solid #555;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QPushButton:hover {
-                background-color: #555;
-            }
-            QPushButton:checked {
-                background-color: #4285f4;
-                color: #fff;
-                border: 1px solid #3367d6;
-            }
-            QLabel {
-                color: #ccc;
-            }
-        """)
+        setCustomStyleSheet(
+            self,
+            "TimelineWidget { background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; padding: 5px; }",
+            "TimelineWidget { background-color: #232323; border: 1px solid #333; border-radius: 8px; padding: 5px; }"
+        )
 
     def _connect_signals(self):
         """连接信号"""
@@ -306,7 +333,9 @@ class TimelineWidget(QWidget):
         self.btn_set_out.clicked.connect(self.set_out_point_clicked.emit)
         self.timeline_slider.seek_requested.connect(self.seek_requested.emit)
         self.btn_preview.clicked.connect(self.simulator_requested.emit)
-        self.btn_rotate.clicked.connect(self.rotation_clicked.emit)
+        self.btn_rotate_ccw.clicked.connect(lambda: self._step_rotation(-90))
+        self.btn_rotate_cw.clicked.connect(lambda: self._step_rotation(90))
+        self.spin_rotation.valueChanged.connect(self._on_spin_changed)
 
     def set_total_frames(self, count: int):
         """设置总帧数"""
@@ -359,5 +388,16 @@ class TimelineWidget(QWidget):
         self.label_frame.setText(f"{self._current_frame} / {self._total_frames}")
 
     def set_rotation(self, degrees: int):
-        """更新旋转按钮显示"""
-        self.btn_rotate.setText(f"旋转 {degrees}°")
+        """更新旋转控件显示（blockSignals 防止信号循环）"""
+        self.spin_rotation.blockSignals(True)
+        self.spin_rotation.setValue(degrees % 360)
+        self.spin_rotation.blockSignals(False)
+
+    def _step_rotation(self, delta: int):
+        """按步进调整旋转角度"""
+        new_val = (self.spin_rotation.value() + delta) % 360
+        self.spin_rotation.setValue(new_val)
+
+    def _on_spin_changed(self, value: int):
+        """SpinBox 值变化时发出信号"""
+        self.rotation_value_changed.emit(value)
